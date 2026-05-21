@@ -1253,8 +1253,10 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const turnInterruptJson = await turnInterrupt.json() as { result: Record<string, unknown> };
-  assertEquals(Object.keys(turnInterruptJson.result).length, 0);
+  const turnInterruptJson = await turnInterrupt.json() as {
+    result: { interrupted: boolean; threadId: string; turnId: string };
+  };
+  assertEquals(turnInterruptJson.result.interrupted, true);
 
   const memoryResetB = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1329,6 +1331,26 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { queued: boolean; threadId: string; command: string };
   };
   assertEquals(shellJson.result.queued, true);
+
+  const environmentAdd = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 322,
+        method: 'environment/add',
+        params: { name: 'local', path: Deno.cwd() },
+      }),
+    }),
+    config,
+    state,
+  );
+  const environmentAddJson = await environmentAdd.json() as {
+    result: { added: boolean; name: string; path: string | null };
+  };
+  assertEquals(environmentAddJson.result.added, true);
+  assertEquals(environmentAddJson.result.name, 'local');
 
   const hooksList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1518,6 +1540,26 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { refreshed: boolean; refreshedAt: string };
   };
   assertEquals(authRefreshJson.result.refreshed, true);
+
+  const loginStart = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2070,
+        method: 'account/login/start',
+        params: { type: 'apiKey' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const loginStartJson = await loginStart.json() as {
+    result: { type: string; started: boolean };
+  };
+  assertEquals(loginStartJson.result.started, true);
+  assertEquals(loginStartJson.result.type, 'apiKey');
 
   const loginCancel = await handleHttpWithState(
     new Request('http://localhost/rpc', {

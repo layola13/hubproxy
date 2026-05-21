@@ -280,7 +280,14 @@ export async function handleRpc(
       const turnId = String(params.turnId ?? '');
       const turn = state.interruptTurn(threadId, turnId);
       return turn
-        ? jsonResponse(rpcResult(body.id, toJson({})))
+        ? jsonResponse(rpcResult(
+          body.id,
+          toJson({
+            interrupted: true,
+            threadId,
+            turnId,
+          }),
+        ))
         : jsonResponse(rpcError(body.id, -32000, 'turn not found'), 404);
     }
     case 'thread/compact/start':
@@ -585,7 +592,14 @@ export async function handleRpc(
     case 'mock/experimentalMethod':
       return jsonResponse(rpcResult(body.id, toJson({ echoed: params.value ?? null })));
     case 'environment/add':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          added: true,
+          name: typeof params.name === 'string' ? params.name : '',
+          path: typeof params.path === 'string' ? params.path : null,
+        }),
+      ));
     case 'review/start':
       return jsonResponse(
         rpcResult(
@@ -604,7 +618,13 @@ export async function handleRpc(
         }),
       ));
     case 'account/login/start':
-      return jsonResponse(rpcResult(body.id, toJson({ type: String(params.type ?? 'apiKey') })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          type: String(params.type ?? 'apiKey'),
+          started: true,
+        }),
+      ));
     case 'account/login/cancel':
     case 'account/logout':
       return jsonResponse(rpcResult(
@@ -734,7 +754,12 @@ export async function handleRpc(
       return jsonResponse(rpcResult(
         body.id,
         toJson({
-          contentItems: [],
+          contentItems: [
+            {
+              type: 'text',
+              text: String(params.message ?? 'called'),
+            },
+          ],
           success: true,
         }),
       ));
