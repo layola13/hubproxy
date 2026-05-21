@@ -78,6 +78,9 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   state.emitFuzzySearchCompleted('sess-1');
   state.emitWindowsWorldWritableWarning();
   state.emitWindowsSandboxSetupCompleted('unelevated');
+  state.emitCommandExecOutputDelta('proc-1', 'stdout', btoa('ok'));
+  state.commandExec(['echo', 'state'], Deno.cwd());
+  state.spawnProcess(['echo', 'state-process'], Deno.cwd(), 'proc_state');
   state.emitFileChangePatchUpdated('thr_1', startedTurnId, 'filechange-1', [
     {
       path: '/tmp/demo.txt',
@@ -167,6 +170,7 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   assert(notifications.some((entry) => entry.method === 'fuzzyFileSearch/sessionCompleted'));
   assert(notifications.some((entry) => entry.method === 'windows/worldWritableWarning'));
   assert(notifications.some((entry) => entry.method === 'windowsSandbox/setupCompleted'));
+  assert(notifications.some((entry) => entry.method === 'command/exec/outputDelta'));
   assertEquals(state.resetMemory(), true);
   assertEquals(state.listThreads().length, 0);
 });

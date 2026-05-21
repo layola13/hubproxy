@@ -36,12 +36,15 @@ export async function handleRpc(
   const params = (body.params ?? {}) as Record<string, unknown>;
   switch (body.method) {
     case 'initialize':
-      return jsonResponse(rpcResult(body.id, toJson({
-        userAgent: `hubproxy/${Deno.version.deno}`,
-        codexHome: Deno.cwd(),
-        platformFamily: Deno.build.os === 'windows' ? 'windows' : 'unix',
-        platformOs: Deno.build.os,
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          userAgent: `hubproxy/${Deno.version.deno}`,
+          codexHome: Deno.cwd(),
+          platformFamily: Deno.build.os === 'windows' ? 'windows' : 'unix',
+          platformOs: Deno.build.os,
+        }),
+      ));
     case 'thread/start': {
       const thread = state.startThread({
         threadId: typeof params.threadId === 'string' ? params.threadId : undefined,
@@ -128,7 +131,7 @@ export async function handleRpc(
             approvalsReviewer: params.approvalsReviewer ?? 'user',
             sandbox: params.sandbox ?? 'danger-full-access',
             reasoningEffort: null,
-        activePermissionProfile: null,
+            activePermissionProfile: null,
             thread,
           }),
         ))
@@ -294,7 +297,7 @@ export async function handleRpc(
               method: 'thread/goal/cleared',
               params: { threadId },
             }
-          : null,
+            : null,
         }),
       ));
     }
@@ -309,7 +312,9 @@ export async function handleRpc(
     }
     case 'fs/createDirectory': {
       const path = String(params.path ?? '');
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.createDirectory(path, params.recursive !== false) })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ ok: state.createDirectory(path, params.recursive !== false) })),
+      );
     }
     case 'fs/getMetadata': {
       const path = String(params.path ?? '');
@@ -321,7 +326,12 @@ export async function handleRpc(
     }
     case 'fs/remove': {
       const path = String(params.path ?? '');
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.remove(path, params.recursive !== false, params.force !== false) })));
+      return jsonResponse(
+        rpcResult(
+          body.id,
+          toJson({ ok: state.remove(path, params.recursive !== false, params.force !== false) }),
+        ),
+      );
     }
     case 'fs/copy': {
       return jsonResponse(rpcResult(
@@ -332,74 +342,104 @@ export async function handleRpc(
       ));
     }
     case 'fs/watch': {
-      return jsonResponse(rpcResult(body.id, toJson({
-        path: state.watch(String(params.path ?? ''), String(params.watchId ?? '')),
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          path: state.watch(String(params.path ?? ''), String(params.watchId ?? '')),
+        }),
+      ));
     }
     case 'fs/unwatch': {
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.unwatch(String(params.watchId ?? '')) })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ ok: state.unwatch(String(params.watchId ?? '')) })),
+      );
     }
     case 'hooks/list':
-      return jsonResponse(rpcResult(body.id, toJson({
-        data: [{
-          cwd: Deno.cwd(),
-          errors: [],
-          hooks: [],
-          warnings: [],
-        }],
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          data: [{
+            cwd: Deno.cwd(),
+            errors: [],
+            hooks: [],
+            warnings: [],
+          }],
+        }),
+      ));
     case 'skills/list':
       state.pushNotification({ method: 'skills/changed', params: {} });
       return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
     case 'marketplace/add':
-      return jsonResponse(rpcResult(body.id, toJson({
-        alreadyAdded: false,
-        installedRoot: Deno.cwd(),
-        marketplaceName: String(params.source ?? 'default'),
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          alreadyAdded: false,
+          installedRoot: Deno.cwd(),
+          marketplaceName: String(params.source ?? 'default'),
+        }),
+      ));
     case 'marketplace/remove':
-      return jsonResponse(rpcResult(body.id, toJson({
-        marketplaceName: String(params.marketplaceName ?? ''),
-        installedRoot: Deno.cwd(),
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          marketplaceName: String(params.marketplaceName ?? ''),
+          installedRoot: Deno.cwd(),
+        }),
+      ));
     case 'marketplace/upgrade':
-      return jsonResponse(rpcResult(body.id, toJson({
-        errors: [],
-        selectedMarketplaces: [String(params.marketplaceName ?? '')].filter(Boolean),
-        upgradedRoots: [],
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          errors: [],
+          selectedMarketplaces: [String(params.marketplaceName ?? '')].filter(Boolean),
+          upgradedRoots: [],
+        }),
+      ));
     case 'plugin/list':
-      return jsonResponse(rpcResult(body.id, toJson({
-        featuredPluginIds: [],
-        marketplaceLoadErrors: [],
-        marketplaces: [],
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          featuredPluginIds: [],
+          marketplaceLoadErrors: [],
+          marketplaces: [],
+        }),
+      ));
     case 'plugin/installed':
       return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
     case 'plugin/read':
-      return jsonResponse(rpcResult(body.id, toJson({ plugin: {
-        apps: [],
-        description: null,
-        hooks: [],
-        marketplaceName: typeof params.remoteMarketplaceName === 'string'
-          ? params.remoteMarketplaceName
-          : 'local',
-        marketplacePath: params.marketplacePath ?? null,
-        mcpServers: [],
-        skills: [],
-        summary: {
-          name: typeof params.pluginName === 'string' ? params.pluginName : '',
-        },
-      } })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          plugin: {
+            apps: [],
+            description: null,
+            hooks: [],
+            marketplaceName: typeof params.remoteMarketplaceName === 'string'
+              ? params.remoteMarketplaceName
+              : 'local',
+            marketplacePath: params.marketplacePath ?? null,
+            mcpServers: [],
+            skills: [],
+            summary: {
+              name: typeof params.pluginName === 'string' ? params.pluginName : '',
+            },
+          },
+        }),
+      ));
     case 'plugin/skill/read':
       return jsonResponse(rpcResult(body.id, toJson({ contents: null })));
     case 'plugin/share/save':
-      return jsonResponse(rpcResult(body.id, toJson({
-        remotePluginId: `remote_${crypto.randomUUID()}`,
-        shareUrl: new URL('/share', `http://${config.host}:${config.port}`).toString(),
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          remotePluginId: `remote_${crypto.randomUUID()}`,
+          shareUrl: new URL('/share', `http://${config.host}:${config.port}`).toString(),
+        }),
+      ));
     case 'plugin/share/updateTargets':
-      return jsonResponse(rpcResult(body.id, toJson({ discoverability: 'UNLISTED', principals: [] })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ discoverability: 'UNLISTED', principals: [] })),
+      );
     case 'plugin/share/list':
       return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
     case 'plugin/share/checkout':
@@ -407,30 +447,49 @@ export async function handleRpc(
     case 'plugin/share/delete':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'plugin/install':
-      return jsonResponse(rpcResult(body.id, toJson({ appsNeedingAuth: [], authPolicy: 'NOT_AVAILABLE' })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ appsNeedingAuth: [], authPolicy: 'NOT_AVAILABLE' })),
+      );
     case 'plugin/uninstall':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'model/list':
-      return jsonResponse(rpcResult(body.id, toJson({
-        data: [{ id: config.defaultModel }],
-        nextCursor: null,
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          data: [{ id: config.defaultModel }],
+          nextCursor: null,
+        }),
+      ));
     case 'modelProvider/capabilities/read':
-      return jsonResponse(rpcResult(body.id, toJson({
-        imageGeneration: false,
-        namespaceTools: true,
-        webSearch: false,
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          imageGeneration: false,
+          namespaceTools: true,
+          webSearch: false,
+        }),
+      ));
     case 'mock/experimentalMethod':
       return jsonResponse(rpcResult(body.id, toJson({ echoed: params.value ?? null })));
     case 'environment/add':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'review/start':
-      return jsonResponse(rpcResult(body.id, toJson({ reviewThreadId: String(params.threadId ?? ''), threadId: String(params.threadId ?? '') })));
+      return jsonResponse(
+        rpcResult(
+          body.id,
+          toJson({
+            reviewThreadId: String(params.threadId ?? ''),
+            threadId: String(params.threadId ?? ''),
+          }),
+        ),
+      );
     case 'mcpServer/oauth/login':
-      return jsonResponse(rpcResult(body.id, toJson({
-        authorizationUrl: new URL('/oauth', `http://${config.host}:${config.port}`).toString(),
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          authorizationUrl: new URL('/oauth', `http://${config.host}:${config.port}`).toString(),
+        }),
+      ));
     case 'account/login/start':
       return jsonResponse(rpcResult(body.id, toJson({ type: String(params.type ?? 'apiKey') })));
     case 'account/login/cancel':
@@ -438,19 +497,22 @@ export async function handleRpc(
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'account/rateLimits/read':
       state.emitAccountRateLimitsUpdated();
-      return jsonResponse(rpcResult(body.id, toJson({
-        rateLimits: {
-          usedPercent: 0,
-          credits: null,
-          limitId: null,
-          limitName: null,
-          planType: null,
-          primary: null,
-          rateLimitReachedType: null,
-          secondary: null,
-        },
-        rateLimitsByLimitId: null,
-      })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          rateLimits: {
+            usedPercent: 0,
+            credits: null,
+            limitId: null,
+            limitName: null,
+            planType: null,
+            primary: null,
+            rateLimitReachedType: null,
+            secondary: null,
+          },
+          rateLimitsByLimitId: null,
+        }),
+      ));
     case 'account/sendAddCreditsNudgeEmail':
       return jsonResponse(rpcResult(body.id, toJson({ status: 'sent' })));
     case 'configRequirements/read':
@@ -471,15 +533,45 @@ export async function handleRpc(
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'thread/realtime/start':
       state.emitRealtimeStarted(String(params.threadId ?? ''), String(params.version ?? 'v2'));
-      return jsonResponse(rpcResult(body.id, toJson({ turn: { id: crypto.randomUUID(), items: [], status: 'completed', createdAt: Math.floor(Date.now()/1000), updatedAt: Math.floor(Date.now()/1000), itemsView: 'full', startedAt: Math.floor(Date.now()/1000), completedAt: Math.floor(Date.now()/1000), durationMs: 0, error: null } })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          turn: {
+            id: crypto.randomUUID(),
+            items: [],
+            status: 'completed',
+            createdAt: Math.floor(Date.now() / 1000),
+            updatedAt: Math.floor(Date.now() / 1000),
+            itemsView: 'full',
+            startedAt: Math.floor(Date.now() / 1000),
+            completedAt: Math.floor(Date.now() / 1000),
+            durationMs: 0,
+            error: null,
+          },
+        }),
+      ));
     case 'thread/realtime/appendAudio':
-      state.emitRealtimeItemAdded(String(params.threadId ?? ''), { type: 'audio', audio: params.audio ?? null });
+      state.emitRealtimeItemAdded(String(params.threadId ?? ''), {
+        type: 'audio',
+        audio: params.audio ?? null,
+      });
       state.emitRealtimeOutputAudioDelta(String(params.threadId ?? ''), String(params.audio ?? ''));
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'thread/realtime/appendText':
-      state.emitRealtimeItemAdded(String(params.threadId ?? ''), { type: 'text', text: params.text ?? null });
-      state.emitRealtimeTranscriptDelta(String(params.threadId ?? ''), String(params.role ?? 'assistant'), String(params.text ?? ''));
-      state.emitRealtimeTranscriptDone(String(params.threadId ?? ''), String(params.role ?? 'assistant'), String(params.text ?? ''));
+      state.emitRealtimeItemAdded(String(params.threadId ?? ''), {
+        type: 'text',
+        text: params.text ?? null,
+      });
+      state.emitRealtimeTranscriptDelta(
+        String(params.threadId ?? ''),
+        String(params.role ?? 'assistant'),
+        String(params.text ?? ''),
+      );
+      state.emitRealtimeTranscriptDone(
+        String(params.threadId ?? ''),
+        String(params.role ?? 'assistant'),
+        String(params.text ?? ''),
+      );
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'thread/realtime/stop':
       state.emitRealtimeClosed(String(params.threadId ?? ''));
@@ -487,21 +579,45 @@ export async function handleRpc(
     case 'thread/realtime/listVoices':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'config/mcpServer/reload':
+      state.emitMcpServerStartupStatus(
+        typeof params.name === 'string' ? params.name : 'local',
+        'starting',
+      );
+      return jsonResponse(rpcResult(body.id, toJson({ reloaded: true })));
     case 'mcpServerStatus/list':
+      return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
     case 'mcpServer/resource/read':
+      return jsonResponse(rpcResult(body.id, toJson({ resource: null })));
     case 'mcpServer/tool/call':
+      state.pushNotification({
+        method: 'item/mcpToolCall/progress',
+        params: {
+          threadId: String(params.threadId ?? ''),
+          turnId: String(params.turnId ?? ''),
+          itemId: String(params.itemId ?? crypto.randomUUID()),
+          message: String(params.message ?? 'called'),
+        },
+      });
+      return jsonResponse(rpcResult(body.id, toJson({ result: null })));
     case 'windowsSandbox/setupStart':
-      state.emitMcpServerStartupStatus(typeof params.name === 'string' ? params.name : 'local', 'starting');
-      state.emitWindowsSandboxSetupCompleted(String(params.mode ?? 'unelevated') as 'elevated' | 'unelevated');
+      state.emitWindowsSandboxSetupCompleted(
+        String(params.mode ?? 'unelevated') as 'elevated' | 'unelevated',
+      );
       return jsonResponse(rpcResult(body.id, toJson({ started: true })));
     case 'windowsSandbox/readiness':
       return jsonResponse(rpcResult(body.id, toJson({ status: 'ready' })));
     case 'feedback/upload':
     case 'remoteControl/enable':
-      state.pushNotification({ method: 'remoteControl/status/changed', params: { status: 'enabled' } });
+      state.pushNotification({
+        method: 'remoteControl/status/changed',
+        params: { status: 'enabled' },
+      });
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'remoteControl/disable':
-      state.pushNotification({ method: 'remoteControl/status/changed', params: { status: 'disabled' } });
+      state.pushNotification({
+        method: 'remoteControl/status/changed',
+        params: { status: 'disabled' },
+      });
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'remoteControl/status/read':
       return jsonResponse(rpcResult(body.id, toJson({ status: 'disabled' })));
@@ -515,7 +631,9 @@ export async function handleRpc(
     case 'config/value/write':
     case 'config/batchWrite':
     case 'skills/config/write':
-      return jsonResponse(rpcResult(body.id, toJson({ filePath: Deno.cwd(), status: 'ok', version: '1' })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ filePath: Deno.cwd(), status: 'ok', version: '1' })),
+      );
     case 'app/list':
       state.emitAppListUpdated();
       return jsonResponse(rpcResult(body.id, toJson({ data: [], nextCursor: null })));
@@ -536,7 +654,10 @@ export async function handleRpc(
     case 'fuzzyFileSearch/sessionStop':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'serverRequest/resolved':
-      state.emitServerRequestResolved(String(params.threadId ?? ''), String(params.requestId ?? ''));
+      state.emitServerRequestResolved(
+        String(params.threadId ?? ''),
+        String(params.requestId ?? ''),
+      );
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'windows/worldWritableWarning':
       state.emitWindowsWorldWritableWarning();
@@ -547,44 +668,49 @@ export async function handleRpc(
         Array.isArray(params.command) ? params.command.map(String) : ['true'],
         typeof params.cwd === 'string' ? params.cwd : Deno.cwd(),
       );
-      state.pushNotification({
-        method: 'command/exec/outputDelta',
-        params: {
-          processId,
-          stream: 'stdout',
-          deltaBase64: btoa(result.stdout),
-          capReached: false,
-        },
-      });
-      state.pushNotification({
-        method: 'command/exec/outputDelta',
-        params: {
-          processId,
-          stream: 'stderr',
-          deltaBase64: btoa(result.stderr),
-          capReached: false,
-        },
-      });
+      if (result.stdout) state.emitCommandExecOutputDelta(processId, 'stdout', btoa(result.stdout));
+      if (result.stderr) state.emitCommandExecOutputDelta(processId, 'stderr', btoa(result.stderr));
       return jsonResponse(rpcResult(body.id, toJson(result)));
     }
     case 'command/exec/write':
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.commandExecWrite(String(params.processId ?? '')) })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ ok: state.commandExecWrite(String(params.processId ?? '')) })),
+      );
     case 'command/exec/terminate':
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.commandExecTerminate(String(params.processId ?? '')) })));
+      return jsonResponse(
+        rpcResult(
+          body.id,
+          toJson({ ok: state.commandExecTerminate(String(params.processId ?? '')) }),
+        ),
+      );
     case 'command/exec/resize':
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.commandExecResize(String(params.processId ?? '')) })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ ok: state.commandExecResize(String(params.processId ?? '')) })),
+      );
     case 'process/spawn':
-      return jsonResponse(rpcResult(body.id, toJson(state.spawnProcess(
-        Array.isArray(params.command) ? params.command.map(String) : ['true'],
-        typeof params.cwd === 'string' ? params.cwd : Deno.cwd(),
-        String(params.processHandle ?? crypto.randomUUID()),
-      ))));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson(state.spawnProcess(
+          Array.isArray(params.command) ? params.command.map(String) : ['true'],
+          typeof params.cwd === 'string' ? params.cwd : Deno.cwd(),
+          String(params.processHandle ?? crypto.randomUUID()),
+        )),
+      ));
     case 'process/writeStdin':
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.writeProcessStdin(String(params.processHandle ?? '')) })));
+      return jsonResponse(
+        rpcResult(
+          body.id,
+          toJson({ ok: state.writeProcessStdin(String(params.processHandle ?? '')) }),
+        ),
+      );
     case 'process/kill':
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.killProcess(String(params.processHandle ?? '')) })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ ok: state.killProcess(String(params.processHandle ?? '')) })),
+      );
     case 'process/resizePty':
-      return jsonResponse(rpcResult(body.id, toJson({ ok: state.resizeProcess(String(params.processHandle ?? '')) })));
+      return jsonResponse(
+        rpcResult(body.id, toJson({ ok: state.resizeProcess(String(params.processHandle ?? '')) })),
+      );
     default:
       return jsonResponse(rpcError(body.id, -32601, `unsupported method: ${body.method}`), 404);
   }

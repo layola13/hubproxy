@@ -606,6 +606,18 @@ export class HubState {
     };
   }
 
+  emitCommandExecOutputDelta(
+    processId: string,
+    stream: 'stdout' | 'stderr',
+    deltaBase64: string,
+    capReached = false,
+  ): void {
+    this.pushNotification({
+      method: 'command/exec/outputDelta',
+      params: { processId, stream, deltaBase64, capReached },
+    });
+  }
+
   commandExecWrite(_processId: string): boolean {
     return true;
   }
@@ -619,37 +631,58 @@ export class HubState {
   }
 
   spawnProcess(command: string[], cwd: string, processHandle: string): { processHandle: string } {
+    const output = new Deno.Command(command[0], {
+      args: command.slice(1),
+      cwd,
+      stdout: 'piped',
+      stderr: 'piped',
+    }).outputSync();
+    const stdout = new TextDecoder().decode(output.stdout);
+    const stderr = new TextDecoder().decode(output.stderr);
     this.state.processes.set(processHandle, {
       command,
       cwd,
       status: 'running',
-      stdout: '',
-      stderr: '',
+      stdout,
+      stderr,
     });
-    this.pushNotification({
-      method: 'process/outputDelta',
-      params: {
-        processHandle,
-        stream: 'stdout',
-        deltaBase64: btoa(JSON.stringify({ command })),
-        capReached: true,
-      },
-    });
+    if (stdout) {
+      this.pushNotification({
+        method: 'process/outputDelta',
+        params: {
+          processHandle,
+          stream: 'stdout',
+          deltaBase64: btoa(stdout),
+          capReached: false,
+        },
+      });
+    }
+    if (stderr) {
+      this.pushNotification({
+        method: 'process/outputDelta',
+        params: {
+          processHandle,
+          stream: 'stderr',
+          deltaBase64: btoa(stderr),
+          capReached: false,
+        },
+      });
+    }
     this.state.processes.set(processHandle, {
       command,
       cwd,
       status: 'exited',
-      stdout: '',
-      stderr: '',
+      stdout,
+      stderr,
     });
     this.pushNotification({
       method: 'process/exited',
       params: {
         processHandle,
-        exitCode: 0,
-        stdout: '',
+        exitCode: output.code,
+        stdout,
         stdoutCapReached: false,
-        stderr: '',
+        stderr,
         stderrCapReached: false,
       },
     });

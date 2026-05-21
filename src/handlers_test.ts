@@ -35,7 +35,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(init.status, 200);
-  const initJson = await init.json() as { result: { userAgent: string; codexHome: string; platformOs: string } };
+  const initJson = await init.json() as {
+    result: { userAgent: string; codexHome: string; platformOs: string };
+  };
   assertEquals(typeof initJson.result.userAgent, 'string');
   assertEquals(typeof initJson.result.codexHome, 'string');
   assertEquals(typeof initJson.result.platformOs, 'string');
@@ -93,7 +95,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       if ('value' in result && result.value) {
         chunks.push(new TextDecoder().decode(result.value));
         const combined = chunks.join('');
-        if (combined.includes('event: thread/started') && combined.includes('event: turn/started')) {
+        if (
+          combined.includes('event: thread/started') && combined.includes('event: turn/started')
+        ) {
           assert(combined.includes('event: thread/started'));
           assert(combined.includes('event: turn/started'));
           break;
@@ -183,6 +187,39 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       delta: 'plan delta',
     },
   });
+  await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 103,
+        method: 'mcpServer/tool/call',
+        params: {
+          threadId: 'thr_events',
+          turnId: 'turn-events',
+          itemId: 'mcp-tool-1',
+          message: 'tool call',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 104,
+        method: 'command/exec',
+        params: { command: ['echo', 'hi'], cwd: Deno.cwd(), processId: 'cmd-events' },
+      }),
+    }),
+    config,
+    state,
+  );
   const waitFor = <T>(promise: Promise<T>, ms: number) =>
     new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => reject(new Error('timeout')), ms);
@@ -208,7 +245,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
         combined.includes('event: item/reasoning/summaryTextDelta') &&
         combined.includes('event: item/reasoning/textDelta') &&
         combined.includes('event: item/agentMessage/delta') &&
-        combined.includes('event: item/plan/delta')
+        combined.includes('event: item/plan/delta') &&
+        combined.includes('event: item/mcpToolCall/progress') &&
+        combined.includes('event: command/exec/outputDelta')
       ) {
         break;
       }
@@ -223,7 +262,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     assert(combined.includes('"contentIndex":0'));
     assert(combined.includes('event: item/agentMessage/delta'));
     assert(combined.includes('event: item/plan/delta'));
-    assert(combined.includes('event: account/updated') || combined.includes('event: app/list/updated'));
+    assert(combined.includes('event: item/mcpToolCall/progress'));
+    assert(combined.includes('event: command/exec/outputDelta'));
+    assert(
+      combined.includes('event: account/updated') || combined.includes('event: app/list/updated'),
+    );
   } finally {
     await followReader!.cancel();
   }
@@ -233,20 +276,23 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     modelsSeen.url = String(input);
     modelsSeen.init = init;
-    return new Response(JSON.stringify({
-      object: 'list',
-      data: [
-        {
-          id: 'remote-model-1',
-          object: 'model',
-          created: 123,
-          owned_by: 'upstream',
-        },
-      ],
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        object: 'list',
+        data: [
+          {
+            id: 'remote-model-1',
+            object: 'model',
+            created: 123,
+            owned_by: 'upstream',
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
   }) as typeof fetch;
   try {
     const models = await handleHttpWithState(
@@ -281,7 +327,15 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(start.status, 200);
   const startJson = await start.json() as {
     id: number;
-    result: { thread: { id: string; turns: unknown[]; name: string | null; modelProvider: string; model: string } };
+    result: {
+      thread: {
+        id: string;
+        turns: unknown[];
+        name: string | null;
+        modelProvider: string;
+        model: string;
+      };
+    };
   };
   assertEquals(startJson.result.thread.id, 'thr_test');
   assertEquals(startJson.result.thread.turns.length, 0);
@@ -654,7 +708,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const hooksListJson = await hooksList.json() as { result: { data: Array<{ cwd: string; errors: unknown[]; hooks: unknown[]; warnings: unknown[] }> } };
+  const hooksListJson = await hooksList.json() as {
+    result: {
+      data: Array<{ cwd: string; errors: unknown[]; hooks: unknown[]; warnings: unknown[] }>;
+    };
+  };
   assertEquals(hooksListJson.result.data[0].cwd, Deno.cwd());
   assertEquals(hooksListJson.result.data[0].errors.length, 0);
   assertEquals(hooksListJson.result.data[0].hooks.length, 0);
@@ -924,20 +982,23 @@ Deno.test('handleHttpWithState rejects unauthorized requests when authToken is s
   const authedConfig: ProxyConfig = { ...config, authToken: 'local-secret' };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({
-      object: 'list',
-      data: [
-        {
-          id: 'remote-model-1',
-          object: 'model',
-          created: 123,
-          owned_by: 'upstream',
-        },
-      ],
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    new Response(
+      JSON.stringify({
+        object: 'list',
+        data: [
+          {
+            id: 'remote-model-1',
+            object: 'model',
+            created: 123,
+            owned_by: 'upstream',
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    )) as typeof fetch;
 
   try {
     const denied = await handleHttpWithState(
