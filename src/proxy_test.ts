@@ -36,7 +36,10 @@ Deno.test('proxyOpenAI forwards auth and base url', async () => {
           messages: [{ role: 'user', content: 'hello' }],
         }),
       }),
-      config,
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
     );
     assertEquals(resp.status, 200);
     assertMatch(seen.url ?? '', /^http:\/\/127\.0\.0\.1:8789\/v1\/chat\/completions$/);
@@ -87,30 +90,61 @@ Deno.test('proxyOpenAI does not forward client x-api-key to upstream', async () 
   }
 });
 
-Deno.test('normalizeModelListResponseBody adds models/ prefix for plain ids', () => {
-  const body = normalizeModelListResponseBody(JSON.stringify({
+Deno.test('proxyOpenAI strips arbitrary client auth headers before upstream', async () => {
+  const seen: { init?: RequestInit } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.init = init;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer client-secret',
+          'x-api-key': 'client-secret',
+          'api-key': 'client-secret',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'models/gemma-4-31b-it',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    const headers = seen.init?.headers as Headers;
+    assertEquals(headers.get('authorization'), 'Bearer secret-token');
+    assertEquals(headers.get('x-api-key'), 'secret-token');
+    assertEquals(headers.get('api-key'), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('normalizeModelListResponseBody returns the original body', () => {
+  const input = JSON.stringify({
     object: 'list',
     success: true,
     data: [
       { id: 'mimo-v2.5-pro', object: 'model', created: 1, owned_by: 'custom', supported_endpoint_types: ['openai'] },
       { id: 'models/gemma-4-31b-it', object: 'model', created: 2, owned_by: 'custom', supported_endpoint_types: ['openai'] },
     ],
-  }));
-
-  const parsed = JSON.parse(body) as {
-    object: string;
-    data: Array<{ id: string; object?: string; created?: number; owned_by?: string }>;
-  };
-  assertEquals(parsed.object, 'list');
-  assertEquals(parsed.data[0].id, 'models/mimo-v2.5-pro');
-  assertEquals(parsed.data[1].id, 'models/gemma-4-31b-it');
-  assertEquals(parsed.data[0].object, 'model');
-  assertEquals(parsed.data[0].created, 1);
-  assertEquals(parsed.data[0].owned_by, 'custom');
-  assertEquals('supported_endpoint_types' in parsed.data[0], false);
+  });
+  const body = normalizeModelListResponseBody(input);
+  assertEquals(body, input);
 });
 
-Deno.test('proxyOpenAI strips models/ prefix before forwarding request body', async () => {
+Deno.test('proxyOpenAI preserves model name when forwarding request body', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -132,10 +166,182 @@ Deno.test('proxyOpenAI strips models/ prefix before forwarding request body', as
           messages: [{ role: 'user', content: 'hello' }],
         }),
       }),
-      config,
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
     );
     const body = JSON.parse(seen.body ?? '{}') as { model?: string };
-    assertEquals(body.model, 'mimo-v2.5-pro');
+    assertEquals(body.model, 'models/mimo-v2.5-pro');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI fills missing function output names from prior calls', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          tools: [
+            null,
+            {
+              type: 'function',
+              name: 'exec_command',
+              parameters: { type: 'object', properties: {} },
+            },
+          ],
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call-1',
+              name: 'exec_command',
+              arguments: '{"cmd":"echo hi"}',
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-1',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      input?: Array<{ type?: string; call_id?: string; name?: string }>;
+      tools?: Array<{ type?: string; function?: { name?: string } }>;
+    };
+    assertEquals(body.input?.[1]?.type, 'function_call_output');
+    assertEquals(body.input?.[1]?.call_id, 'call-1');
+    assertEquals(body.input?.[1]?.name, 'exec_command');
+    assertEquals(body.tools?.length, 1);
+    assertEquals(body.tools?.[0]?.type, 'function');
+    assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          messages: [{ role: 'user', content: 'hello' }],
+          tools: [
+            {
+              type: 'function',
+              name: 'exec_command',
+              description: 'Run a shell command',
+              parameters: { type: 'object', properties: {} },
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ type?: string; function?: { name?: string; description?: string; parameters?: unknown } }>;
+    };
+    assertEquals(body.tools?.length, 1);
+    assertEquals(body.tools?.[0]?.type, 'function');
+    assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
+    assertEquals(body.tools?.[0]?.function?.description, 'Run a shell command');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI drops non-function tools for chat upstreams', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          messages: [{ role: 'user', content: 'hello' }],
+          tools: [
+            {
+              type: 'namespace',
+              name: 'mcp__code_index__',
+              tools: [
+                { type: 'function', name: 'search', parameters: { type: 'object', properties: {} } },
+              ],
+            },
+            {
+              type: 'web_search',
+              external_web_access: true,
+            },
+            {
+              type: 'function',
+              name: 'exec_command',
+              parameters: { type: 'object', properties: {} },
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ type?: string; function?: { name?: string } }>;
+    };
+    assertEquals(body.tools?.length, 1);
+    assertEquals(body.tools?.[0]?.type, 'function');
+    assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -163,6 +369,7 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           model: 'models/mimo-v2.5-pro',
+          stream: false,
           input: [
             {
               type: 'message',
@@ -178,12 +385,13 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
       },
     );
     assertEquals(resp.status, 200);
+    assertEquals(resp.headers.get('content-type'), 'application/json; charset=utf-8');
     assertEquals(seen.url, 'http://127.0.0.1:8789/v1/chat/completions');
     const body = JSON.parse(seen.body ?? '{}') as {
       model?: string;
       messages?: Array<{ role?: string; content?: string }>;
     };
-    assertEquals(body.model, 'mimo-v2.5-pro');
+    assertEquals(body.model, 'models/mimo-v2.5-pro');
     assertEquals(body.messages?.[0]?.role, 'user');
     assertEquals(body.messages?.[0]?.content, 'hello');
   } finally {
@@ -191,7 +399,65 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
   }
 });
 
-Deno.test('proxyOpenAI falls back to chat when responses upstream returns 404', async () => {
+Deno.test('proxyOpenAI falls back to chat stream when responses upstream returns 404', async () => {
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes('/v1/responses')) {
+      return new Response('not found', { status: 404 });
+    }
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(resp.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+    assertEquals(calls[0], 'http://127.0.0.1:8789/v1/chat/completions');
+    const text = await resp.text();
+    assertEquals(text.includes('event: response.created'), true);
+    assertEquals(text.includes('event: response.reasoning_summary_part.added'), false);
+    assertEquals(text.includes('event: response.output_text.delta'), true);
+    assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI falls back to chat JSON when stream is false', async () => {
   const calls: string[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -202,6 +468,11 @@ Deno.test('proxyOpenAI falls back to chat when responses upstream returns 404', 
     }
     return new Response(JSON.stringify({
       choices: [{ message: { content: 'ok' } }],
+      usage: {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+      },
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -216,6 +487,7 @@ Deno.test('proxyOpenAI falls back to chat when responses upstream returns 404', 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           model: 'models/mimo-v2.5-pro',
+          stream: false,
           input: [
             {
               type: 'message',
@@ -225,18 +497,94 @@ Deno.test('proxyOpenAI falls back to chat when responses upstream returns 404', 
           ],
         }),
       }),
-      config,
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
     );
     assertEquals(resp.status, 200);
-    assertEquals(calls[0], 'http://127.0.0.1:8788/v1/responses');
-    assertEquals(calls[1], 'http://127.0.0.1:8789/v1/chat/completions');
+    assertEquals(resp.headers.get('content-type'), 'application/json; charset=utf-8');
+    assertEquals(calls[0], 'http://127.0.0.1:8789/v1/chat/completions');
     const body = await resp.json() as {
-      output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+      output?: Array<{ type?: string; role?: string; content?: Array<{ type?: string; text?: string }>; summary?: Array<{ type?: string; text?: string }>; encrypted_content?: string | null }>;
       output_text?: string;
+      usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
     };
     assertEquals(body.output?.[0]?.type, 'message');
-    assertEquals(body.output?.[0]?.content?.[0]?.type, 'output_text');
-    assertEquals(body.output?.[0]?.content?.[0]?.text, 'ok');
+    assertEquals(body.output_text, 'ok');
+    assertEquals(body.usage?.input_tokens, 1);
+    assertEquals(body.usage?.output_tokens, 1);
+    assertEquals(body.usage?.total_tokens, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI maps thought tags into reasoning output items', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    const body = JSON.parse(String(init?.body ?? '{}')) as { stream?: boolean };
+    assertEquals(body.stream, false);
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: '<thought>internal thought</thought>Hello there',
+        },
+      }],
+      usage: {
+        prompt_tokens: 3,
+        completion_tokens: 2,
+        total_tokens: 5,
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const body = await resp.json() as {
+      output?: Array<{
+        type?: string;
+        role?: string;
+        content?: Array<{ type?: string; text?: string }>;
+        summary?: Array<{ type?: string; text?: string }>;
+        encrypted_content?: string | null;
+      }>;
+      output_text?: string;
+    };
+    assertEquals(body.output?.[0]?.type, 'reasoning');
+    assertEquals(body.output?.[0]?.summary?.[0]?.text, 'internal thought');
+    assertEquals(body.output?.[1]?.type, 'message');
+    assertEquals(body.output?.[1]?.content?.[0]?.text, 'Hello there');
+    assertEquals(body.output_text, 'Hello there');
   } finally {
     globalThis.fetch = originalFetch;
   }

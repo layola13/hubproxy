@@ -26,6 +26,53 @@ function hasValidAuth(req: Request, config: ProxyConfig): boolean {
   return authorization === `Bearer ${config.authToken}` || apiKey === config.authToken;
 }
 
+function redactHeaders(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of headers.entries()) {
+    const lower = key.toLowerCase();
+    if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') {
+      const token = value.startsWith('Bearer ') ? value.slice('Bearer '.length) : value;
+      const prefix = token.slice(0, 3);
+      const suffix = token.slice(-3);
+      out[key] = `${prefix}...${suffix} (len=${token.length})`;
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+function writeRequestLog(entry: Record<string, unknown>): void {
+  const logDir = Deno.env.get('HUBPROXY_LOG_DIR') ?? 'logs';
+  try {
+    Deno.mkdirSync(logDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = `${logDir}/request-${stamp}-${crypto.randomUUID()}.json`;
+    const text = JSON.stringify(entry, null, 2) + '\n';
+    console.log(text.trimEnd());
+    Deno.writeTextFileSync(file, text);
+  } catch {
+    // Logging must never break request handling.
+  }
+}
+
+function writeAuthFailureLog(req: Request, config: ProxyConfig): void {
+  const authorization = req.headers.get('authorization');
+  const apiKey = req.headers.get('x-api-key');
+  const preview = (value: string | null): string => {
+    if (!value) return 'none';
+    const token = value.startsWith('Bearer ') ? value.slice('Bearer '.length) : value;
+    return `${token.slice(0, 3)}...${token.slice(-3)} (len=${token.length})`;
+  };
+  writeRequestLog({
+    path: new URL(req.url).pathname,
+    kind: 'auth_failure',
+    authorization: preview(authorization),
+    xApiKey: preview(apiKey),
+    expectedAuth: config.authToken ? `${config.authToken.slice(0, 3)}...${config.authToken.slice(-3)} (len=${config.authToken.length})` : 'none',
+  });
+}
+
 export async function handleRpc(
   req: Request,
   state: HubState,
@@ -1194,12 +1241,25 @@ export async function handleHttpWithState(
   state: HubState,
 ): Promise<Response> {
   const url = new URL(req.url);
+  const isApiRoute = url.pathname.startsWith('/v1/') || url.pathname === '/rpc';
+  if (isApiRoute) {
+    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.clone().text();
+    writeRequestLog({
+      path: url.pathname + url.search,
+      method: req.method,
+      headers: redactHeaders(req.headers),
+      body,
+    });
+  }
   if (req.method === 'GET' && url.pathname === '/healthz') return new Response('ok');
   if (req.method === 'GET' && url.pathname === '/readyz') return new Response('ok');
   if (req.method === 'GET' && url.pathname === '/v1/models') {
     return await proxyOpenAI(url.pathname + url.search, req, config);
   }
-  if (!hasValidAuth(req, config)) return jsonResponse({ error: 'unauthorized' }, 401);
+  if (!hasValidAuth(req, config)) {
+    writeAuthFailureLog(req, config);
+    return jsonResponse({ error: 'unauthorized' }, 401);
+  }
   if (req.method === 'GET' && url.pathname === '/events') {
     const encoder = new TextEncoder();
     let interval: ReturnType<typeof setInterval> | undefined;

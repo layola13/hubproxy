@@ -10,6 +10,17 @@ try {
 }
 
 const config = loadConfig();
+console.log(JSON.stringify({
+  kind: 'startup',
+  dotenvPath,
+  port: config.port,
+  host: config.host,
+  authToken: config.authToken ? `${config.authToken.slice(0, 3)}...${config.authToken.slice(-3)} (len=${config.authToken.length})` : 'none',
+  responsesBaseUrl: config.responsesBaseUrl,
+  chatBaseUrl: config.chatBaseUrl,
+  defaultModel: config.defaultModel,
+  defaultApiKey: `${config.defaultApiKey.slice(0, 3)}...${config.defaultApiKey.slice(-3)} (len=${config.defaultApiKey.length})`,
+}, null, 2));
 const state = new HubState();
 
 Deno.serve(

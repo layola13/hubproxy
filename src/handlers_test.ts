@@ -303,7 +303,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     assertEquals(models.status, 200);
     const modelsJson = await models.json() as { object: string; data: Array<{ id: string }> };
     assertEquals(modelsJson.object, 'list');
-    assertEquals(modelsJson.data[0].id, 'models/remote-model-1');
+    assertEquals(modelsJson.data[0].id, 'remote-model-1');
     assertEquals(modelsSeen.url, 'http://127.0.0.1:1/v1/models');
     assertEquals((modelsSeen.init?.headers as Headers).get('authorization'), null);
   } finally {
@@ -1044,7 +1044,57 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(Array.isArray(mcpToolCallJson.result.content), true);
   assertEquals(mcpToolCallJson.result.content[0].type, 'text');
   assertEquals(mcpToolCallJson.result.structuredContent.ok, true);
+  assertEquals(mcpToolCallJson.result.structuredContent.tool, 'demo');
+  assertEquals(mcpToolCallJson.result.structuredContent.server, 'local');
   assertEquals(mcpToolCallJson.result.isError, false);
+  assertEquals(mcpToolCallJson.result.meta.threadId, 'thr_test');
+  assertEquals(mcpToolCallJson.result.meta.turnId, null);
+
+  const requestUserInput = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 33,
+        method: 'item/tool/requestUserInput',
+        params: {
+          threadId: 'thr_test',
+          turnId: 'turn_test',
+          itemId: 'item_test',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const requestUserInputJson = await requestUserInput.json() as {
+    result: { answers: { default: { answers: string[] } } };
+  };
+  assertEquals(requestUserInputJson.result.answers.default.answers[0], 'continue');
+
+  const elicitationRequest = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 34,
+        method: 'mcpServer/elicitation/request',
+        params: {
+          threadId: 'thr_test',
+          turnId: 'turn_test',
+          serverName: 'local',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const elicitationRequestJson = await elicitationRequest.json() as {
+    result: { action: string; content: null; meta: null };
+  };
+  assertEquals(elicitationRequestJson.result.action, 'accept');
 
   const appList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -2004,6 +2054,80 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(unwatch.status, 200);
 });
 
+Deno.test('handleHttpWithState writes request logs for API routes', async () => {
+  const state = new HubState();
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer client-secret',
+          'x-api-key': 'client-secret',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      config,
+      state,
+    ).catch(() => {});
+
+    const entries = Deno.readDirSync(logDir);
+    const files = Array.from(entries).filter((entry) => entry.isFile);
+    assert(files.length > 0);
+  } finally {
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true }).catch(() => {});
+  }
+});
+
+Deno.test('handleHttpWithState writes auth failure previews', async () => {
+  const state = new HubState();
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    const resp = await handleHttpWithState(
+      new Request('http://localhost/rpc', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer abcdef123456789',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {},
+        }),
+      }),
+      {
+        ...config,
+        authToken: 'zzz111222333444',
+      },
+      state,
+    );
+    assertEquals(resp.status, 401);
+    const logs = Array.from(Deno.readDirSync(logDir)).filter((entry) => entry.isFile);
+    assert(logs.length > 0);
+    const logTexts = logs.map((entry) => Deno.readTextFileSync(`${logDir}/${entry.name}`));
+    const authLog = logTexts.find((text) => text.includes('auth_failure'));
+    assert(authLog);
+    assert(authLog.includes('abc...789'));
+    assert(authLog.includes('zzz...444'));
+  } finally {
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true }).catch(() => {});
+  }
+});
+
 Deno.test('handleHttpWithState serves models anonymously and still protects rpc when authToken is set', async () => {
   const state = new HubState();
   const publicConfig: ProxyConfig = { ...config, authToken: null };
@@ -2037,13 +2161,14 @@ Deno.test('handleHttpWithState serves models anonymously and still protects rpc 
     assertEquals(publicModels.status, 200);
     const publicModelsJson = await publicModels.json() as {
       object: string;
-      data: Array<{ id: string; object: string; created?: number; owned_by?: string }>;
+      data: Array<{ id: string; object: string; created?: number; owned_by?: string; supported_endpoint_types?: string[] }>;
     };
     assertEquals(publicModelsJson.object, 'list');
-    assertEquals(publicModelsJson.data[0].id, 'models/remote-model-1');
+    assertEquals(publicModelsJson.data[0].id, 'remote-model-1');
     assertEquals(publicModelsJson.data[0].object, 'model');
     assertEquals(publicModelsJson.data[0].created, 123);
     assertEquals(publicModelsJson.data[0].owned_by, 'upstream');
+    assertEquals(publicModelsJson.data[0].supported_endpoint_types, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }
