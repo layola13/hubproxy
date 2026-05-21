@@ -54,7 +54,9 @@ function isReasoningItem(item: ResponsesInputItem): boolean {
   return item.type === 'reasoning';
 }
 
-function normalizeReasoningSummary(summary: unknown): Array<{ type: 'summary_text'; text: string }> {
+function normalizeReasoningSummary(
+  summary: unknown,
+): Array<{ type: 'summary_text'; text: string }> {
   if (!Array.isArray(summary)) return [];
   return summary.flatMap((part) => {
     if (!part || typeof part !== 'object') return [];
@@ -66,7 +68,9 @@ function normalizeReasoningSummary(summary: unknown): Array<{ type: 'summary_tex
   });
 }
 
-function normalizeReasoningContent(content: unknown): Array<{ type: 'reasoning_text'; text: string }> {
+function normalizeReasoningContent(
+  content: unknown,
+): Array<{ type: 'reasoning_text'; text: string }> {
   if (!Array.isArray(content)) return [];
   return content.flatMap((part) => {
     if (!part || typeof part !== 'object') return [];
@@ -165,6 +169,7 @@ export async function proxyOpenAI(
     method: req.method,
     headers,
     body,
+    signal: req.signal,
   });
 }
 

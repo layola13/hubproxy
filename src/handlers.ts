@@ -516,14 +516,29 @@ export async function handleRpc(
     case 'account/sendAddCreditsNudgeEmail':
       return jsonResponse(rpcResult(body.id, toJson({ status: 'sent' })));
     case 'configRequirements/read':
-      return jsonResponse(rpcResult(body.id, toJson({ requirements: null })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          requirements: {
+            allowedApprovalPolicies: null,
+            allowedApprovalsReviewers: null,
+            allowedSandboxModes: null,
+            allowedWebSearchModes: null,
+            allowManagedHooksOnly: null,
+            featureRequirements: null,
+            hooks: null,
+            enforceResidency: null,
+            network: null,
+          },
+        }),
+      ));
     case 'account/read':
       state.emitAccountUpdated();
       return jsonResponse(rpcResult(body.id, toJson({ account: null })));
     case 'account/chatgptAuthTokens/refresh':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'attestation/generate':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(body.id, toJson({ token: `attest_${crypto.randomUUID()}` })));
     case 'item/commandExecution/requestApproval':
       return jsonResponse(rpcResult(
         body.id,
@@ -639,7 +654,7 @@ export async function handleRpc(
     case 'mcpServerStatus/list':
       return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
     case 'mcpServer/resource/read':
-      return jsonResponse(rpcResult(body.id, toJson({ resource: null })));
+      return jsonResponse(rpcResult(body.id, toJson({ contents: [] })));
     case 'mcpServer/tool/call':
       state.pushNotification({
         method: 'item/mcpToolCall/progress',
@@ -661,7 +676,9 @@ export async function handleRpc(
     case 'feedback/upload':
       return jsonResponse(rpcResult(
         body.id,
-        toJson({ threadId: String(params.threadId ?? '') }),
+        toJson({
+          threadId: String(params.threadId ?? ''),
+        }),
       ));
     case 'remoteControl/enable':
       state.pushNotification({
@@ -732,8 +749,18 @@ export async function handleRpc(
         body.id,
         toJson({
           items: [
-            { type: 'AGENTS_MD', path: `${Deno.cwd()}/Agents.md` },
-            { type: 'CONFIG', path: `${Deno.cwd()}/.env` },
+            {
+              itemType: 'AGENTS_MD',
+              description: 'Agents.md in repository root',
+              cwd: Deno.cwd(),
+              details: null,
+            },
+            {
+              itemType: 'CONFIG',
+              description: '.env configuration',
+              cwd: null,
+              details: null,
+            },
           ],
         }),
       ));

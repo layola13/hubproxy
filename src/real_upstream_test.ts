@@ -11,7 +11,13 @@ async function requestWithRetry(
 ): Promise<Response> {
   let lastResponse: Response | null = null;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const response = await handleHttpWithState(buildRequest(), config, state);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const response = await handleHttpWithState(
+      new Request(buildRequest(), { signal: controller.signal }),
+      config,
+      state,
+    ).finally(() => clearTimeout(timeoutId));
     if (response.status < 500) return response;
     lastResponse = response;
     await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));

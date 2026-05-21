@@ -695,6 +695,44 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(configReadJson.result.config.defaultModel, config.defaultModel);
   assertEquals(configReadJson.result.config.port, config.port);
 
+  const configRequirements = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 23,
+        method: 'configRequirements/read',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const configRequirementsJson = await configRequirements.json() as {
+    result: { requirements: { network: null } };
+  };
+  assertEquals(configRequirementsJson.result.requirements.network, null);
+
+  const attestation = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 24,
+        method: 'attestation/generate',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const attestationJson = await attestation.json() as {
+    result: { token: string };
+  };
+  assert(attestationJson.result.token.startsWith('attest_'));
+
   const featureList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
@@ -713,6 +751,47 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { data: Array<{ name: string; stage: string; enabled: boolean }> };
   };
   assertEquals(featureListJson.result.data[0].name, 'reasoning');
+
+  const externalDetect = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 25,
+        method: 'externalAgentConfig/detect',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const externalDetectJson = await externalDetect.json() as {
+    result: { items: Array<{ itemType: string; description: string }> };
+  };
+  assertEquals(externalDetectJson.result.items[0].itemType, 'AGENTS_MD');
+
+  const mcpResourceRead = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 26,
+        method: 'mcpServer/resource/read',
+        params: {
+          server: 'local',
+          uri: 'file:///tmp/demo',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const mcpResourceReadJson = await mcpResourceRead.json() as {
+    result: { contents: unknown[] };
+  };
+  assertEquals(Array.isArray(mcpResourceReadJson.result.contents), true);
 
   const collabList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -739,7 +818,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 25,
+        id: 27,
         method: 'turn/start',
         params: { threadId: 'thr_test', input: [] },
       }),
@@ -759,7 +838,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 26,
+        id: 28,
         method: 'turn/steer',
         params: { threadId: 'thr_test', expectedTurnId: turnStartJson.result.turn.id, input: [] },
       }),
@@ -776,7 +855,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 27,
+        id: 29,
         method: 'thread/resume',
         params: { threadId: 'thr_test' },
       }),
