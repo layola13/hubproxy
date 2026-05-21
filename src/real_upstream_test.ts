@@ -99,9 +99,19 @@ Deno.test('real upstream models list through local proxy', async () => {
   assertEquals(resp.status, 200);
   const body = await resp.json() as {
     object?: string;
-    data?: Array<{ id?: string }>;
+    success?: boolean;
+    data?: Array<{
+      id?: string;
+      object?: string;
+      created?: number;
+      owned_by?: string;
+      supported_endpoint_types?: string[];
+    }>;
   };
   assertEquals(body.object, 'list');
+  assertEquals(body.success, true);
   assert(body.data?.length && body.data.length > 0);
   assert(body.data?.[0]?.id);
+  assert(body.data?.[0]?.object === 'model');
+  assert(body.data?.[0]?.supported_endpoint_types?.includes('openai'));
 });
