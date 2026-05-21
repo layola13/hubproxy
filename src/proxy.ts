@@ -19,6 +19,29 @@ const forwardHeaders = (headers: Headers, apiKey: string, localAuthToken: string
   return out;
 };
 
+export function normalizeModelListResponseBody(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    const data = Array.isArray(parsed.data) ? parsed.data : null;
+    if (!data) return body;
+    const normalizedData = data.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const record = item as Record<string, unknown>;
+      const id = typeof record.id === 'string' ? record.id : '';
+      if (!id || id.startsWith('models/')) return item;
+      return { ...record, id: `models/${id}` };
+    });
+    return JSON.stringify({ ...parsed, data: normalizedData });
+  } catch {
+    return body;
+  }
+}
+
+export function normalizeModelNameForUpstream(model: unknown): unknown {
+  if (typeof model !== 'string') return model;
+  return model.startsWith('models/') ? model.slice('models/'.length) : model;
+}
+
 function isToolCallType(type: string): type is ResponsesToolKind {
   return (
     type === 'function_call' ||
@@ -157,20 +180,46 @@ async function forwardJson(url: string, init: RequestInit): Promise<Response> {
   return await fetch(url, init);
 }
 
+function maybeRewriteRequestBody(path: string, body: string | undefined): string | undefined {
+  if (!body) return body;
+  if (!path.includes('/chat/completions') && !path.includes('/responses')) return body;
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    if (typeof parsed.model === 'string') {
+      parsed.model = normalizeModelNameForUpstream(parsed.model);
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
+}
+
 export async function proxyOpenAI(
   path: string,
   req: Request,
   config: ProxyConfig,
 ): Promise<Response> {
-  const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.clone().text();
+  const rawBody = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.clone().text();
+  const body = maybeRewriteRequestBody(path, rawBody);
   const headers = forwardHeaders(req.headers, config.defaultApiKey, config.authToken);
   const target = path.includes('/responses') ? config.responsesBaseUrl : config.chatBaseUrl;
-  return await forwardJson(new URL(path, target).toString(), {
+  const upstream = await forwardJson(new URL(path, target).toString(), {
     method: req.method,
     headers,
     body,
     signal: req.signal,
   });
+  if (path === '/v1/models' && upstream.ok) {
+    const text = await upstream.clone().text();
+    const normalized = normalizeModelListResponseBody(text);
+    if (normalized !== text) {
+      return new Response(normalized, {
+        status: upstream.status,
+        headers: upstream.headers,
+      });
+    }
+  }
+  return upstream;
 }
 
 export async function mockResponsesOpenAI(

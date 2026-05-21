@@ -303,7 +303,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     assertEquals(models.status, 200);
     const modelsJson = await models.json() as { object: string; data: Array<{ id: string }> };
     assertEquals(modelsJson.object, 'list');
-    assertEquals(modelsJson.data[0].id, 'remote-model-1');
+    assertEquals(modelsJson.data[0].id, 'models/remote-model-1');
     assertEquals(modelsSeen.url, 'http://127.0.0.1:1/v1/models');
     assertEquals((modelsSeen.init?.headers as Headers).get('authorization'), null);
   } finally {
@@ -1390,9 +1390,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(unwatch.status, 200);
 });
 
-Deno.test('handleHttpWithState rejects unauthorized requests when authToken is set', async () => {
+Deno.test('handleHttpWithState serves models anonymously and still protects rpc when authToken is set', async () => {
   const state = new HubState();
-  const authedConfig: ProxyConfig = { ...config, authToken: 'local-secret' };
+  const publicConfig: ProxyConfig = { ...config, authToken: null };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>
     new Response(
@@ -1406,6 +1406,7 @@ Deno.test('handleHttpWithState rejects unauthorized requests when authToken is s
             owned_by: 'upstream',
           },
         ],
+        success: true,
       }),
       {
         status: 200,
@@ -1414,22 +1415,58 @@ Deno.test('handleHttpWithState rejects unauthorized requests when authToken is s
     )) as typeof fetch;
 
   try {
-    const denied = await handleHttpWithState(
+    const publicModels = await handleHttpWithState(
       new Request('http://localhost/v1/models'),
-      authedConfig,
+      publicConfig,
       state,
     );
-    assertEquals(denied.status, 401);
-
-    const allowed = await handleHttpWithState(
-      new Request('http://localhost/v1/models', {
-        headers: { authorization: 'Bearer local-secret' },
-      }),
-      authedConfig,
-      state,
-    );
-    assertEquals(allowed.status, 200);
+    assertEquals(publicModels.status, 200);
+    const publicModelsJson = await publicModels.json() as {
+      object: string;
+      success: boolean;
+      data: Array<{ id: string; object: string }>;
+    };
+    assertEquals(publicModelsJson.object, 'list');
+    assertEquals(publicModelsJson.success, true);
+    assertEquals(publicModelsJson.data[0].id, 'models/remote-model-1');
+    assertEquals(publicModelsJson.data[0].object, 'model');
   } finally {
     globalThis.fetch = originalFetch;
   }
+
+  const authedConfig: ProxyConfig = { ...config, authToken: 'local-secret' };
+  const rpcDenied = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {},
+      }),
+    }),
+    authedConfig,
+    state,
+  );
+  assertEquals(rpcDenied.status, 401);
+
+  const rpcAllowed = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer local-secret',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'initialize',
+        params: {},
+      }),
+    }),
+    authedConfig,
+    state,
+  );
+  assertEquals(rpcAllowed.status, 200);
 });
