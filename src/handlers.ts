@@ -22,7 +22,8 @@ export function toJson(value: unknown): unknown {
 function hasValidAuth(req: Request, config: ProxyConfig): boolean {
   if (!config.authToken) return true;
   const authorization = req.headers.get('authorization');
-  return authorization === `Bearer ${config.authToken}`;
+  const apiKey = req.headers.get('x-api-key');
+  return authorization === `Bearer ${config.authToken}` || apiKey === config.authToken;
 }
 
 export async function handleRpc(
@@ -331,7 +332,16 @@ export async function handleRpc(
     }
     case 'fs/readDirectory': {
       const path = String(params.path ?? '');
-      return jsonResponse(rpcResult(body.id, toJson({ entries: state.readDirectory(path) })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          entries: state.readDirectory(path).map((entry) => ({
+            name: entry.fileName,
+            isDirectory: entry.isDirectory,
+            isFile: entry.isFile,
+          })),
+        }),
+      ));
     }
     case 'fs/remove': {
       const path = String(params.path ?? '');
@@ -692,10 +702,23 @@ export async function handleRpc(
       return jsonResponse(rpcResult(
         body.id,
         toJson({
-          content: [],
-          structuredContent: null,
-          isError: null,
-          meta: null,
+          content: [
+            {
+              type: 'text',
+              text: String(params.message ?? 'called'),
+            },
+          ],
+          structuredContent: {
+            ok: true,
+            tool: String(params.tool ?? ''),
+            server: String(params.server ?? 'local'),
+          },
+          isError: false,
+          meta: {
+            threadId: String(params.threadId ?? ''),
+            turnId: typeof params.turnId === 'string' ? String(params.turnId) : null,
+            itemId: String(params.itemId ?? ''),
+          },
         }),
       ));
     case 'windowsSandbox/setupStart':
@@ -785,20 +808,32 @@ export async function handleRpc(
               itemType: 'AGENTS_MD',
               description: 'Agents.md in repository root',
               cwd: Deno.cwd(),
-              details: null,
+              details: {
+                path: `${Deno.cwd()}/Agents.md`,
+                exists: true,
+              },
             },
             {
               itemType: 'CONFIG',
               description: '.env configuration',
-              cwd: null,
-              details: null,
+              cwd: Deno.cwd(),
+              details: {
+                path: `${Deno.cwd()}/.env`,
+                exists: true,
+              },
             },
           ],
         }),
       ));
     case 'externalAgentConfig/import':
       state.emitExternalAgentConfigImportCompleted();
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          imported: true,
+          importedAt: new Date().toISOString(),
+        }),
+      ));
     case 'config/value/write':
     case 'config/batchWrite':
     case 'skills/config/write':
@@ -852,7 +887,18 @@ export async function handleRpc(
     case 'fuzzyFileSearch':
       state.emitFuzzySearchUpdated(String(params.sessionId ?? ''), String(params.query ?? ''));
       state.emitFuzzySearchCompleted(String(params.sessionId ?? ''));
-      return jsonResponse(rpcResult(body.id, toJson({ files: [] })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          files: String(params.query ?? '')
+            ? [{
+              path: String(params.query),
+              score: 1,
+            }]
+            : [],
+          query: String(params.query ?? ''),
+        }),
+      ));
     case 'fuzzyFileSearch/sessionStart':
     case 'fuzzyFileSearch/sessionUpdate':
     case 'fuzzyFileSearch/sessionStop':

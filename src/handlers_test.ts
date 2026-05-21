@@ -767,9 +767,79 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const externalDetectJson = await externalDetect.json() as {
-    result: { items: Array<{ itemType: string; description: string }> };
+    result: {
+      items: Array<{
+        itemType: string;
+        description: string;
+        cwd: string | null;
+        details: { path: string; exists: boolean } | null;
+      }>;
+    };
   };
   assertEquals(externalDetectJson.result.items[0].itemType, 'AGENTS_MD');
+  assertEquals(externalDetectJson.result.items[0].details?.exists, true);
+
+  const externalImport = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 26,
+        method: 'externalAgentConfig/import',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const externalImportJson = await externalImport.json() as {
+    result: { imported: boolean; importedAt: string };
+  };
+  assertEquals(externalImportJson.result.imported, true);
+
+  const detectionReadDirectory = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 27,
+        method: 'fs/readDirectory',
+        params: { path: Deno.cwd() },
+      }),
+    }),
+    config,
+    state,
+  );
+  const detectionReadDirectoryJson = await detectionReadDirectory.json() as {
+    result: { entries: Array<{ name: string; isDirectory: boolean; isFile: boolean }> };
+  };
+  assert(detectionReadDirectoryJson.result.entries.length >= 0);
+  assertEquals(
+    typeof detectionReadDirectoryJson.result.entries[0]?.name,
+    'string',
+  );
+
+  const fuzzySearch = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 28,
+        method: 'fuzzyFileSearch',
+        params: { sessionId: 'sess-1', query: 'src' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const fuzzySearchJson = await fuzzySearch.json() as {
+    result: { files: Array<{ path: string; score: number }>; query: string };
+  };
+  assertEquals(fuzzySearchJson.result.query, 'src');
+  assert(fuzzySearchJson.result.files.length > 0);
 
   const mcpResourceRead = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -850,9 +920,17 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const mcpToolCallJson = await mcpToolCall.json() as {
-    result: { content: unknown[]; structuredContent: null; isError: null; meta: null };
+    result: {
+      content: Array<{ type: string; text?: string }>;
+      structuredContent: { ok: boolean; tool: string; server: string };
+      isError: boolean;
+      meta: { threadId: string; turnId: string | null; itemId: string };
+    };
   };
   assertEquals(Array.isArray(mcpToolCallJson.result.content), true);
+  assertEquals(mcpToolCallJson.result.content[0].type, 'text');
+  assertEquals(mcpToolCallJson.result.structuredContent.ok, true);
+  assertEquals(mcpToolCallJson.result.isError, false);
 
   const configValueWrite = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1339,7 +1417,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   const getMetadataJson = await getMetadata.json() as { result: { isFile: boolean } };
   assertEquals(getMetadataJson.result.isFile, true);
 
-  const readDirectory = await handleHttpWithState(
+  const stateReadDirectory = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1353,8 +1431,8 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const readDirectoryJson = await readDirectory.json() as { result: { entries: unknown[] } };
-  assertEquals(Array.isArray(readDirectoryJson.result.entries), true);
+  const stateReadDirectoryJson = await stateReadDirectory.json() as { result: { entries: unknown[] } };
+  assertEquals(Array.isArray(stateReadDirectoryJson.result.entries), true);
 
   const watch = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1469,4 +1547,23 @@ Deno.test('handleHttpWithState serves models anonymously and still protects rpc 
     state,
   );
   assertEquals(rpcAllowed.status, 200);
+
+  const rpcAllowedViaApiKey = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': 'local-secret',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'initialize',
+        params: {},
+      }),
+    }),
+    authedConfig,
+    state,
+  );
+  assertEquals(rpcAllowedViaApiKey.status, 200);
 });

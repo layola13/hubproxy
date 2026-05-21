@@ -59,15 +59,15 @@ export function normalizeModelNameForUpstream(model: unknown): unknown {
   return model.startsWith('models/') ? model.slice('models/'.length) : model;
 }
 
-async function writeModelListLog(entry: Record<string, unknown>): Promise<void> {
+function writeModelListLog(entry: Record<string, unknown>): void {
   const logDir = Deno.env.get('HUBPROXY_LOG_DIR') ?? 'logs';
   try {
-    await Deno.mkdir(logDir, { recursive: true });
+    Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/models-${stamp}-${crypto.randomUUID()}.json`;
     const text = JSON.stringify(entry, null, 2) + '\n';
     console.log(text.trimEnd());
-    await Deno.writeTextFile(file, text);
+    Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break the proxy path.
   }

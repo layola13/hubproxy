@@ -47,6 +47,40 @@ Deno.test('proxyOpenAI forwards auth and base url', async () => {
   }
 });
 
+Deno.test('proxyOpenAI does not forward client x-api-key to upstream', async () => {
+  const seen: { init?: RequestInit } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.init = init;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/models',
+      new Request('http://localhost/v1/models', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer local-secret',
+          'x-api-key': 'local-secret',
+        },
+      }),
+      {
+        ...config,
+        authToken: 'local-secret',
+      },
+    );
+    const headers = seen.init?.headers as Headers;
+    assertEquals(headers.get('authorization'), 'Bearer secret-token');
+    assertEquals(headers.get('x-api-key'), 'secret-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('normalizeModelListResponseBody adds models/ prefix for plain ids', () => {
   const body = normalizeModelListResponseBody(JSON.stringify({
     object: 'list',
