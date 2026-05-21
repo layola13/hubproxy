@@ -680,6 +680,25 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(remoteEnableJson.result.status, 'connected');
   assertEquals(remoteEnableJson.result.serverName, 'server-a');
 
+  const remoteStatus = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 21_1,
+        method: 'remoteControl/status/read',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const remoteStatusJson = await remoteStatus.json() as {
+    result: { status: string; serverName: string; installationId: string };
+  };
+  assertEquals(remoteStatusJson.result.status, 'disabled');
+
   const configRead = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
@@ -896,6 +915,25 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(serverRequestResolvedJson.result.requestId, 'req-1');
   assertEquals(serverRequestResolvedJson.result.resolved, true);
+
+  const worldWritableWarningState = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 282,
+        method: 'windows/worldWritableWarning',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const worldWritableWarningStateJson = await worldWritableWarningState.json() as {
+    result: { warned: boolean };
+  };
+  assertEquals(worldWritableWarningStateJson.result.warned, true);
 
   const mcpResourceRead = await handleHttpWithState(
     new Request('http://localhost/rpc', {
