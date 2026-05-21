@@ -35,6 +35,20 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
       content: [{ type: 'reasoning_text', text: 'raw reasoning' }],
     },
   ]);
+  state.injectItems('thr_1', [
+    {
+      type: 'agent_message',
+      id: 'msg-1',
+      content: [{ type: 'output_text', text: 'assistant text' }],
+    },
+  ]);
+  state.injectItems('thr_1', [
+    {
+      type: 'plan',
+      id: 'plan-1',
+      text: 'plan delta',
+    },
+  ]);
   assertEquals(Array.isArray(state.listTurns('thr_1')), true);
   const startedTurn = state.startTurn('thr_1', []);
   assert(startedTurn !== null);
@@ -78,6 +92,12 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   assertEquals((reasoningPart.params as Record<string, unknown>).summaryIndex, 0);
   assert(reasoningText);
   assertEquals((reasoningText.params as Record<string, unknown>).contentIndex, 0);
+  const agentDelta = notifications.find((entry) => entry.method === 'item/agentMessage/delta');
+  assert(agentDelta);
+  assertEquals((agentDelta.params as Record<string, unknown>).delta, 'assistant text');
+  const planDelta = notifications.find((entry) => entry.method === 'item/plan/delta');
+  assert(planDelta);
+  assertEquals((planDelta.params as Record<string, unknown>).delta, 'plan delta');
   assert(notifications.some((entry) => entry.method === 'warning'));
   assert(notifications.some((entry) => entry.method === 'deprecationNotice'));
   assert(notifications.some((entry) => entry.method === 'configWarning'));

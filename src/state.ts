@@ -127,6 +127,51 @@ export class HubState {
     }
   }
 
+  private emitAgentMessageNotifications(threadId: string, turnId: string, item: unknown): void {
+    if (!item || typeof item !== 'object') return;
+    const type = (item as { type?: unknown }).type;
+    if (type !== 'message' && type !== 'agent_message') return;
+    const message = item as Record<string, unknown>;
+    const itemId = typeof message.id === 'string' ? message.id : crypto.randomUUID();
+    const content = Array.isArray(message.content) ? message.content : [];
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue;
+      const partType = typeof (part as { type?: unknown }).type === 'string'
+        ? String((part as { type: string }).type)
+        : '';
+      const text = typeof (part as { text?: unknown }).text === 'string'
+        ? String((part as { text: string }).text)
+        : '';
+      if (!text) continue;
+      if (partType === 'output_text' || partType === 'text') {
+        this.pushNotification({
+          method: 'item/agentMessage/delta',
+          params: { threadId, turnId, itemId, delta: text },
+        });
+      }
+    }
+  }
+
+  private emitPlanNotifications(threadId: string, turnId: string, item: unknown): void {
+    if (!item || typeof item !== 'object') return;
+    if ((item as { type?: unknown }).type !== 'plan') return;
+    const plan = item as Record<string, unknown>;
+    const itemId = typeof plan.id === 'string' ? plan.id : crypto.randomUUID();
+    const text = typeof plan.text === 'string' ? plan.text : '';
+    if (text) {
+      this.pushNotification({
+        method: 'item/plan/delta',
+        params: { threadId, turnId, itemId, delta: text },
+      });
+    }
+  }
+
+  private emitItemNotifications(threadId: string, turnId: string, item: unknown): void {
+    this.emitReasoningNotifications(threadId, turnId, item);
+    this.emitAgentMessageNotifications(threadId, turnId, item);
+    this.emitPlanNotifications(threadId, turnId, item);
+  }
+
   drainNotifications(): ServerNotification[] {
     const notifications = [...this.state.notifications];
     this.state.notifications.length = 0;
@@ -305,7 +350,7 @@ export class HubState {
       method: 'item/started',
       params: { threadId, turnId: turn.id, startedAtMs: Date.now(), item: items[0] ?? null },
     });
-    this.emitReasoningNotifications(threadId, turn.id, items[0]);
+    this.emitItemNotifications(threadId, turn.id, items[0]);
     this.pushNotification({
       method: 'rawResponseItem/completed',
       params: { threadId, turnId: turn.id, item: items[0] ?? null },
@@ -341,7 +386,7 @@ export class HubState {
       method: 'item/started',
       params: { threadId, turnId: turn.id, startedAtMs: Date.now(), item: items[0] ?? null },
     });
-    this.emitReasoningNotifications(threadId, turn.id, items[0]);
+    this.emitItemNotifications(threadId, turn.id, items[0]);
     this.pushNotification({
       method: 'rawResponseItem/completed',
       params: { threadId, turnId: turn.id, item: items[0] ?? null },
