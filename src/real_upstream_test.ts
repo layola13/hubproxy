@@ -8,16 +8,17 @@ Deno.test('real upstream chat completion through local proxy', async () => {
   const config = loadConfig();
   assert(config.authToken);
   const state = new HubState();
+  const authHeaders = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${config.authToken}`,
+  };
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   const resp = await handleHttpWithState(
     new Request('http://localhost/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.authToken}`,
-      },
+      headers: authHeaders,
       body: JSON.stringify({
         model: config.defaultModel,
         messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
@@ -41,16 +42,17 @@ Deno.test('real upstream responses stream through local proxy', async () => {
   const config = loadConfig();
   assert(config.authToken);
   const state = new HubState();
+  const authHeaders = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${config.authToken}`,
+  };
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   const resp = await handleHttpWithState(
     new Request('http://localhost/v1/responses', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.authToken}`,
-      },
+      headers: authHeaders,
       body: JSON.stringify({
         model: config.defaultModel,
         input: [
@@ -71,4 +73,35 @@ Deno.test('real upstream responses stream through local proxy', async () => {
   assertEquals(resp.status, 200);
   const body = await resp.text();
   assert(body.length > 0);
+});
+
+Deno.test('real upstream models list through local proxy', async () => {
+  loadDotenvIntoEnv('.env');
+  const config = loadConfig();
+  assert(config.defaultApiKey);
+  assert(config.authToken);
+  const state = new HubState();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const resp = await handleHttpWithState(
+    new Request('http://localhost/v1/models', {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${config.authToken}`,
+      },
+      signal: controller.signal,
+    }),
+    config,
+    state,
+  ).finally(() => clearTimeout(timeoutId));
+
+  assertEquals(resp.status, 200);
+  const body = await resp.json() as {
+    object?: string;
+    data?: Array<{ id?: string }>;
+  };
+  assertEquals(body.object, 'list');
+  assert(body.data?.length && body.data.length > 0);
+  assert(body.data?.[0]?.id);
 });
