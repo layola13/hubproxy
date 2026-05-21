@@ -535,6 +535,123 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(elicitationJson.result.count >= 1, true);
   assertEquals(typeof elicitationJson.result.paused, 'boolean');
 
+  const userInput = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 16,
+        method: 'item/tool/requestUserInput',
+        params: {
+          threadId: 'thr_test',
+          turnId: 'turn_test',
+          itemId: 'item_test',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const userInputJson = await userInput.json() as {
+    result: { answers: Record<string, { answers: string[] }> };
+  };
+  assertEquals(userInputJson.result.answers.default.answers[0], 'continue');
+
+  const mcpElicitation = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 17,
+        method: 'mcpServer/elicitation/request',
+        params: {
+          threadId: 'thr_test',
+          serverName: 'local',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const mcpElicitationJson = await mcpElicitation.json() as {
+    result: { action: string; content: null; meta: null };
+  };
+  assertEquals(mcpElicitationJson.result.action, 'accept');
+
+  const commandApproval = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 18,
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: 'thr_test',
+          turnId: 'turn_test',
+          itemId: 'cmd_item',
+          startedAtMs: Date.now(),
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const commandApprovalJson = await commandApproval.json() as {
+    result: { decision: string };
+  };
+  assertEquals(commandApprovalJson.result.decision, 'accept');
+
+  const fileApproval = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 19,
+        method: 'item/fileChange/requestApproval',
+        params: {
+          threadId: 'thr_test',
+          turnId: 'turn_test',
+          itemId: 'file_item',
+          startedAtMs: Date.now(),
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const fileApprovalJson = await fileApproval.json() as {
+    result: { decision: string };
+  };
+  assertEquals(fileApprovalJson.result.decision, 'accept');
+
+  const permissionsApproval = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 20,
+        method: 'item/permissions/requestApproval',
+        params: {
+          threadId: 'thr_test',
+          turnId: 'turn_test',
+          itemId: 'perm_item',
+          startedAtMs: Date.now(),
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const permissionsApprovalJson = await permissionsApproval.json() as {
+    result: { permissions: Record<string, unknown>; scope: string };
+  };
+  assertEquals(permissionsApprovalJson.result.scope, 'turn');
+
   const turnStart = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',

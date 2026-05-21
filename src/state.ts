@@ -764,6 +764,54 @@ export class HubState {
     return true;
   }
 
+  emitUserInputRequest(threadId: string, turnId: string, itemId: string): void {
+    this.pushNotification({
+      method: 'item/tool/requestUserInput',
+      params: {
+        threadId,
+        turnId,
+        itemId,
+        questions: [
+          {
+            id: 'default',
+            header: 'Input',
+            question: 'Provide input',
+            isOther: true,
+            isSecret: false,
+            options: [
+              {
+                label: 'Continue',
+                description: 'Provide a value and continue.',
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  emitMcpElicitationRequest(threadId: string, turnId: string | null, serverName: string): void {
+    this.pushNotification({
+      method: 'mcpServer/elicitation/request',
+      params: {
+        threadId,
+        turnId,
+        serverName,
+        request: {
+          type: 'form',
+          id: crypto.randomUUID(),
+          requestedSchema: {
+            $schema: 'https://json-schema.org/draft/2020-12/schema',
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+          instructions: 'Provide a value to continue.',
+        },
+      },
+    });
+  }
+
   resetMemory(): boolean {
     this.pushNotification({ method: 'thread/closed', params: { threadId: '*' } });
     this.state.threads.clear();

@@ -525,12 +525,64 @@ export async function handleRpc(
     case 'attestation/generate':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'item/commandExecution/requestApproval':
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          decision: 'accept',
+        }),
+      ));
     case 'item/fileChange/requestApproval':
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          decision: 'accept',
+        }),
+      ));
     case 'item/tool/requestUserInput':
+      state.emitUserInputRequest(
+        String(params.threadId ?? ''),
+        String(params.turnId ?? ''),
+        String(params.itemId ?? crypto.randomUUID()),
+      );
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          answers: {
+            default: { answers: ['continue'] },
+          },
+        }),
+      ));
     case 'mcpServer/elicitation/request':
+      state.emitMcpElicitationRequest(
+        String(params.threadId ?? ''),
+        typeof params.turnId === 'string' ? String(params.turnId) : null,
+        String(params.serverName ?? 'local'),
+      );
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          action: 'accept',
+          content: null,
+          meta: null,
+        }),
+      ));
     case 'item/permissions/requestApproval':
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          permissions: {},
+          scope: 'turn',
+          strictAutoReview: null,
+        }),
+      ));
     case 'item/tool/call':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          contentItems: [],
+          success: true,
+        }),
+      ));
     case 'thread/realtime/start':
       state.emitRealtimeStarted(String(params.threadId ?? ''), String(params.version ?? 'v2'));
       return jsonResponse(rpcResult(
