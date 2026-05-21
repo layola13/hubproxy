@@ -727,7 +727,7 @@ export class HubState {
     });
   }
 
-  emitAccountRateLimitsUpdated(): void {
+  emitAccountRateLimitsUpdated(planType: string | null = null): void {
     this.pushNotification({
       method: 'account/rateLimits/updated',
       params: {
@@ -735,7 +735,7 @@ export class HubState {
           credits: null,
           limitId: null,
           limitName: null,
-          planType: null,
+          planType,
           primary: null,
           rateLimitReachedType: null,
           secondary: null,
@@ -744,8 +744,14 @@ export class HubState {
     });
   }
 
-  emitAccountUpdated(): void {
-    this.pushNotification({ method: 'account/updated', params: {} });
+  emitAccountUpdated(planType: string | null = null): void {
+    this.pushNotification({
+      method: 'account/updated',
+      params: {
+        authMode: 'chatgpt',
+        planType,
+      },
+    });
   }
 
   emitAppListUpdated(): void {

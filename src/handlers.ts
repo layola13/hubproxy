@@ -19,6 +19,24 @@ export function toJson(value: unknown): unknown {
   return String(value);
 }
 
+function normalizePlanType(planType: string | null): string | null {
+  if (!planType) return null;
+  const normalized = planType.trim().toLowerCase();
+  return normalized || null;
+}
+
+function accountPlanType(config: ProxyConfig): string | null {
+  return normalizePlanType(config.accountPlanType) ?? 'plus';
+}
+
+function accountFromConfig(config: ProxyConfig): Record<string, unknown> {
+  return {
+    type: 'chatgpt',
+    email: config.accountEmail ?? 'user@example.com',
+    planType: accountPlanType(config),
+  };
+}
+
 function hasValidAuth(req: Request, config: ProxyConfig): boolean {
   if (!config.authToken) return true;
   const authorization = req.headers.get('authorization');
@@ -682,7 +700,7 @@ export async function handleRpc(
         }),
       ));
     case 'account/rateLimits/read':
-      state.emitAccountRateLimitsUpdated();
+      state.emitAccountRateLimitsUpdated(accountPlanType(config));
       return jsonResponse(rpcResult(
         body.id,
         toJson({
@@ -691,7 +709,7 @@ export async function handleRpc(
             credits: null,
             limitId: null,
             limitName: null,
-            planType: null,
+            planType: accountPlanType(config),
             primary: null,
             rateLimitReachedType: null,
             secondary: null,
@@ -725,15 +743,12 @@ export async function handleRpc(
         }),
       ));
     case 'account/read':
-      state.emitAccountUpdated();
+      state.emitAccountUpdated(accountPlanType(config));
       return jsonResponse(rpcResult(
         body.id,
         toJson({
-          account: {
-            id: 'local',
-            email: Deno.env.get('ACCOUNT_EMAIL') ?? null,
-            name: Deno.env.get('ACCOUNT_NAME') ?? null,
-          },
+          account: accountFromConfig(config),
+          requiresOpenaiAuth: false,
         }),
       ));
     case 'account/chatgptAuthTokens/refresh':
@@ -1125,6 +1140,12 @@ export async function handleRpc(
             {
               name: 'default',
               mode: null,
+              model: config.defaultModel,
+              reasoning_effort: null,
+            },
+            {
+              name: 'plan',
+              mode: 'plan',
               model: config.defaultModel,
               reasoning_effort: null,
             },

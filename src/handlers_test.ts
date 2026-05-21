@@ -7,6 +7,9 @@ const config: ProxyConfig = {
   port: 8787,
   host: '127.0.0.1',
   authToken: null,
+  accountEmail: 'user@example.com',
+  accountName: 'Local User',
+  accountPlanType: 'plus',
   responsesBaseUrl: 'http://127.0.0.1:1',
   chatBaseUrl: 'http://127.0.0.1:1',
   defaultModel: 'gpt-4.1',
@@ -973,9 +976,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const collabListJson = await collabList.json() as {
-    result: { data: Array<{ name: string; model: string | null }> };
+    result: { data: Array<{ name: string; model: string | null; mode: string | null }> };
   };
   assertEquals(collabListJson.result.data[0].name, 'default');
+  assertEquals(collabListJson.result.data[1].name, 'plan');
+  assertEquals(collabListJson.result.data[1].mode, 'plan');
 
   const mcpStatusList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1115,25 +1120,6 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(Array.isArray(appListJson.result.data), true);
   assertEquals(appListJson.result.nextCursor, null);
-
-  const accountRead = await handleHttpWithState(
-    new Request('http://localhost/rpc', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 320,
-        method: 'account/read',
-        params: {},
-      }),
-    }),
-    config,
-    state,
-  );
-  const accountReadJson = await accountRead.json() as {
-    result: { account: { id: string; email: string | null; name: string | null } };
-  };
-  assertEquals(accountReadJson.result.account.id, 'local');
 
   const realtimeAppendAudio = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1707,6 +1693,49 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { refreshed: boolean; refreshedAt: string };
   };
   assertEquals(authRefreshJson.result.refreshed, true);
+
+  const accountRead = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2075,
+        method: 'account/read',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const accountReadJson = await accountRead.json() as {
+    result: {
+      account: { type: string; email: string; planType: string };
+      requiresOpenaiAuth: boolean;
+    };
+  };
+  assertEquals(accountReadJson.result.account.type, 'chatgpt');
+  assertEquals(accountReadJson.result.account.planType, 'plus');
+  assertEquals(accountReadJson.result.requiresOpenaiAuth, false);
+
+  const rateLimitsRead = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2076,
+        method: 'account/rateLimits/read',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const rateLimitsReadJson = await rateLimitsRead.json() as {
+    result: { rateLimits: { planType: string } };
+  };
+  assertEquals(rateLimitsReadJson.result.rateLimits.planType, 'plus');
 
   const loginStart = await handleHttpWithState(
     new Request('http://localhost/rpc', {

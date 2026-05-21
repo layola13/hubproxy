@@ -70,8 +70,8 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   state.emitRealtimeClosed('thr_1');
   state.spawnProcess(['echo', 'ok'], '/tmp', 'proc_1');
   state.emitThreadTokenUsage('thr_1', startedTurnId, 1);
-  state.emitAccountUpdated();
-  state.emitAccountRateLimitsUpdated();
+  state.emitAccountUpdated('plus');
+  state.emitAccountRateLimitsUpdated('plus');
   state.emitAppListUpdated();
   state.emitExternalAgentConfigImportCompleted();
   state.emitFuzzySearchUpdated('sess-1', 'query');

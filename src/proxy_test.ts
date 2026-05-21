@@ -6,6 +6,9 @@ const config: ProxyConfig = {
   port: 8787,
   host: '127.0.0.1',
   authToken: null,
+  accountEmail: null,
+  accountName: null,
+  accountPlanType: 'plus',
   responsesBaseUrl: 'http://127.0.0.1:8788/v1',
   chatBaseUrl: 'http://127.0.0.1:8789/v1',
   defaultModel: 'models/gemma-4-31b-it',
@@ -237,6 +240,58 @@ Deno.test('proxyOpenAI fills missing function output names from prior calls', as
     assertEquals(body.tools?.length, 1);
     assertEquals(body.tools?.[0]?.type, 'function');
     assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves tool names in chat fallback tool messages', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call-1',
+              name: 'exec_command',
+              arguments: '{"cmd":"echo hi"}',
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-1',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{ role?: string; name?: string; tool_call_id?: string }>;
+    };
+    assertEquals(body.messages?.[0]?.role, 'tool');
+    assertEquals(body.messages?.[0]?.tool_call_id, 'call-1');
+    assertEquals(body.messages?.[0]?.name, 'exec_command');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -585,6 +640,64 @@ Deno.test('proxyOpenAI maps thought tags into reasoning output items', async () 
     assertEquals(body.output?.[1]?.type, 'message');
     assertEquals(body.output?.[1]?.content?.[0]?.text, 'Hello there');
     assertEquals(body.output_text, 'Hello there');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI strips responses-only fields when falling back to chat', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: 'ok' } }],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          store: false,
+          prompt_cache_key: 'abc',
+          include: ['reasoning.encrypted_content'],
+          reasoning: { effort: 'medium', summary: 'auto' },
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      store?: unknown;
+      prompt_cache_key?: unknown;
+      include?: unknown;
+      reasoning?: unknown;
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    assertEquals(body.store, undefined);
+    assertEquals(body.prompt_cache_key, undefined);
+    assertEquals(body.include, undefined);
+    assertEquals(body.reasoning, undefined);
+    assertEquals(body.messages?.[0]?.role, 'user');
+    assertEquals(body.messages?.[0]?.content, 'hello');
   } finally {
     globalThis.fetch = originalFetch;
   }

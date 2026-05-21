@@ -303,6 +303,13 @@ function normalizeChatToolsValue(tools: unknown): unknown[] {
   });
 }
 
+function sanitizeResponsesFallbackRequest(request: Record<string, unknown>): void {
+  delete request.store;
+  delete request.prompt_cache_key;
+  delete request.include;
+  delete request.reasoning;
+}
+
 function isFallbackEligibleStatus(status: number): boolean {
   return status >= 500 || status === 404 || status === 405 || status === 410 || status === 415;
 }
@@ -356,12 +363,15 @@ function extractChatFallbackFromResponsesBody(
       if (type === 'function_call_output' || type === 'custom_tool_call_output' ||
         type === 'tool_search_output' || type === 'mcp_tool_call_output') {
         const output = typeof record.output === 'string' ? record.output : '';
+        const name = typeof record.name === 'string' ? record.name : '';
         if (output) {
-          messages.push({
+          const message: Record<string, unknown> = {
             role: 'tool',
             content: output,
             tool_call_id: typeof record.call_id === 'string' ? record.call_id : undefined,
-          });
+          };
+          if (name) message.name = name;
+          messages.push(message);
         }
       }
     }
@@ -398,6 +408,7 @@ function extractChatFallbackFromResponsesBody(
       }
       request[key] = value;
     }
+    sanitizeResponsesFallbackRequest(request);
     request.model = model || String(request.model ?? '');
     request.messages = messages;
     const normalizedInput = normalizeResponseInputItems(input);
