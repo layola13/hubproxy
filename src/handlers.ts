@@ -501,7 +501,13 @@ export async function handleRpc(
         ),
       );
     case 'plugin/share/list':
-      return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          data: [],
+          nextCursor: null,
+        }),
+      ));
     case 'plugin/share/checkout':
       return jsonResponse(rpcResult(
         body.id,
@@ -576,7 +582,13 @@ export async function handleRpc(
       return jsonResponse(rpcResult(body.id, toJson({ type: String(params.type ?? 'apiKey') })));
     case 'account/login/cancel':
     case 'account/logout':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          canceled: body.method === 'account/login/cancel',
+          loggedOut: body.method === 'account/logout',
+        }),
+      ));
     case 'account/rateLimits/read':
       state.emitAccountRateLimitsUpdated();
       return jsonResponse(rpcResult(
@@ -1042,7 +1054,12 @@ export async function handleRpc(
       ));
     case 'windows/worldWritableWarning':
       state.emitWindowsWorldWritableWarning();
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          warned: true,
+        }),
+      ));
     case 'command/exec': {
       const processId = String(params.processId ?? crypto.randomUUID());
       const result = state.commandExec(

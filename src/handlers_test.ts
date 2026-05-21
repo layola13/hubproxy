@@ -1450,6 +1450,26 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(shareDeleteJson.result.deleted, true);
   assertEquals(shareDeleteJson.result.remotePluginId, 'remote_1');
 
+  const shareList = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2051,
+        method: 'plugin/share/list',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const shareListJson = await shareList.json() as {
+    result: { data: unknown[]; nextCursor: null };
+  };
+  assertEquals(Array.isArray(shareListJson.result.data), true);
+  assertEquals(shareListJson.result.nextCursor, null);
+
   const sendCredits = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
@@ -1488,6 +1508,46 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { refreshed: boolean; refreshedAt: string };
   };
   assertEquals(authRefreshJson.result.refreshed, true);
+
+  const loginCancel = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2071,
+        method: 'account/login/cancel',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const loginCancelJson = await loginCancel.json() as {
+    result: { canceled: boolean; loggedOut: boolean };
+  };
+  assertEquals(loginCancelJson.result.canceled, true);
+  assertEquals(loginCancelJson.result.loggedOut, false);
+
+  const logout = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2072,
+        method: 'account/logout',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const logoutJson = await logout.json() as {
+    result: { canceled: boolean; loggedOut: boolean };
+  };
+  assertEquals(logoutJson.result.canceled, false);
+  assertEquals(logoutJson.result.loggedOut, true);
 
   const guardian = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1614,6 +1674,25 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(memoryModeJson.result.threadId, 'thr_test');
   assertEquals(memoryModeJson.result.memoryMode, 'default');
+
+  const worldWritableWarning = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2080,
+        method: 'windows/worldWritableWarning',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const worldWritableWarningJson = await worldWritableWarning.json() as {
+    result: { warned: boolean };
+  };
+  assertEquals(worldWritableWarningJson.result.warned, true);
 
   const sandboxStart = await handleHttpWithState(
     new Request('http://localhost/rpc', {
