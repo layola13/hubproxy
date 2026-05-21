@@ -915,9 +915,10 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const mcpResourceReadJson = await mcpResourceRead.json() as {
-    result: { contents: unknown[] };
+    result: { contents: Array<{ uri: string; mimeType: string; text: string }> };
   };
   assertEquals(Array.isArray(mcpResourceReadJson.result.contents), true);
+  assertEquals(mcpResourceReadJson.result.contents[0].uri, 'file:///tmp/demo');
 
   const collabList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1006,6 +1007,45 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(mcpToolCallJson.result.content[0].type, 'text');
   assertEquals(mcpToolCallJson.result.structuredContent.ok, true);
   assertEquals(mcpToolCallJson.result.isError, false);
+
+  const accountRead = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 320,
+        method: 'account/read',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const accountReadJson = await accountRead.json() as {
+    result: { account: { id: string; email: string | null; name: string | null } };
+  };
+  assertEquals(accountReadJson.result.account.id, 'local');
+
+  const pluginUninstall = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 321,
+        method: 'plugin/uninstall',
+        params: { pluginName: 'codex-test-plugin' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const pluginUninstallJson = await pluginUninstall.json() as {
+    result: { uninstalled: boolean; pluginName: string };
+  };
+  assertEquals(pluginUninstallJson.result.uninstalled, true);
+  assertEquals(pluginUninstallJson.result.pluginName, 'codex-test-plugin');
 
   const configValueWrite = await handleHttpWithState(
     new Request('http://localhost/rpc', {

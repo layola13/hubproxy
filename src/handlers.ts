@@ -526,7 +526,13 @@ export async function handleRpc(
         rpcResult(body.id, toJson({ appsNeedingAuth: [], authPolicy: 'NOT_AVAILABLE' })),
       );
     case 'plugin/uninstall':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          uninstalled: true,
+          pluginName: typeof params.pluginName === 'string' ? params.pluginName : '',
+        }),
+      ));
     case 'model/list':
       return await proxyOpenAI(
         '/v1/models',
@@ -616,7 +622,16 @@ export async function handleRpc(
       ));
     case 'account/read':
       state.emitAccountUpdated();
-      return jsonResponse(rpcResult(body.id, toJson({ account: null })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          account: {
+            id: 'local',
+            email: Deno.env.get('ACCOUNT_EMAIL') ?? null,
+            name: Deno.env.get('ACCOUNT_NAME') ?? null,
+          },
+        }),
+      ));
     case 'account/chatgptAuthTokens/refresh':
       return jsonResponse(rpcResult(
         body.id,
@@ -774,7 +789,18 @@ export async function handleRpc(
         }),
       ));
     case 'mcpServer/resource/read':
-      return jsonResponse(rpcResult(body.id, toJson({ contents: [] })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          contents: [
+            {
+              uri: typeof params.uri === 'string' ? params.uri : '',
+              mimeType: 'text/plain',
+              text: '',
+            },
+          ],
+        }),
+      ));
     case 'mcpServer/tool/call':
       state.pushNotification({
         method: 'item/mcpToolCall/progress',
