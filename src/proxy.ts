@@ -50,7 +50,17 @@ function isToolOutputKind(type: string): type is ResponsesToolOutputKind {
   );
 }
 
+function isReasoningItem(item: ResponsesInputItem): boolean {
+  return item.type === 'reasoning';
+}
+
 function responseDoneEventForInputItem(item: ResponsesInputItem): ResponsesEvent | null {
+  if (isReasoningItem(item)) {
+    return {
+      type: 'response.output_item.done',
+      item,
+    };
+  }
   if (!isToolOutputKind(item.type)) return null;
   const outputKind = item.type;
   return {
@@ -65,6 +75,7 @@ function responseDoneEventForInputItem(item: ResponsesInputItem): ResponsesEvent
 export function normalizeResponsesEvent(event: ResponsesEvent): ResponsesEvent {
   if (event.type !== 'response.output_item.done') return event;
   const item = event.item as Record<string, unknown> | undefined;
+  if (typeof item?.type === 'string' && item.type === 'reasoning') return event;
   const kind = typeof item?.type === 'string' && isToolCallType(item.type) ? item.type : null;
   if (!kind) return event;
   return {

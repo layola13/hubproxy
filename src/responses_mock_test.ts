@@ -182,3 +182,17 @@ Deno.test('buildMockResponsesEventsFromInput converts response tool outputs to d
   assertStringIncludes(JSON.stringify(events[2]), '"output_kind":"tool_search_output"');
   assertStringIncludes(JSON.stringify(events[3]), '"output_kind":"mcp_tool_call_output"');
 });
+
+Deno.test('buildMockResponsesEventsFromInput keeps reasoning items separate from正文', () => {
+  const events = buildMockResponsesEventsFromInput([
+    { type: 'reasoning', summary: [{ type: 'summary_text', text: 'internal thought' }] },
+  ]);
+
+  assertEquals(events.length, 1);
+  assertEquals(events[0].type, 'response.output_item.done');
+  assertStringIncludes(JSON.stringify(events[0]), '"type":"reasoning"');
+  const serialized = JSON.stringify(events[0]);
+  if (serialized.includes('output_kind')) {
+    throw new Error('reasoning items must not be normalized to output_kind');
+  }
+});
