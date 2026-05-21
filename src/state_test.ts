@@ -69,9 +69,15 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   assert(notifications.some((entry) => entry.method === 'turn/started'));
   assert(notifications.some((entry) => entry.method === 'turn/completed'));
   assert(notifications.some((entry) => entry.method === 'item/completed'));
-  assert(notifications.some((entry) => entry.method === 'item/reasoning/summaryTextDelta'));
-  assert(notifications.some((entry) => entry.method === 'item/reasoning/summaryPartAdded'));
-  assert(notifications.some((entry) => entry.method === 'item/reasoning/textDelta'));
+  const reasoningSummary = notifications.find((entry) => entry.method === 'item/reasoning/summaryTextDelta');
+  const reasoningPart = notifications.find((entry) => entry.method === 'item/reasoning/summaryPartAdded');
+  const reasoningText = notifications.find((entry) => entry.method === 'item/reasoning/textDelta');
+  assert(reasoningSummary);
+  assertEquals((reasoningSummary.params as Record<string, unknown>).summaryIndex, 0);
+  assert(reasoningPart);
+  assertEquals((reasoningPart.params as Record<string, unknown>).summaryIndex, 0);
+  assert(reasoningText);
+  assertEquals((reasoningText.params as Record<string, unknown>).contentIndex, 0);
   assert(notifications.some((entry) => entry.method === 'warning'));
   assert(notifications.some((entry) => entry.method === 'deprecationNotice'));
   assert(notifications.some((entry) => entry.method === 'configWarning'));

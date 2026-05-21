@@ -103,11 +103,11 @@ export class HubState {
     const itemId = typeof reasoning.id === 'string' ? reasoning.id : crypto.randomUUID();
     const summaryParts = this.extractTextParts(reasoning.summary);
     const summaryText = summaryParts[0] ?? (typeof reasoning.text === 'string' ? String(reasoning.text) : '');
-    const rawText = this.extractTextParts(reasoning.content)[0] ?? '';
+    const rawParts = this.extractTextParts(reasoning.content);
     if (summaryText) {
       this.pushNotification({
         method: 'item/reasoning/summaryTextDelta',
-        params: { threadId, turnId, itemId, delta: summaryText },
+        params: { threadId, turnId, itemId, delta: summaryText, summaryIndex: 0 },
       });
       this.pushNotification({
         method: 'item/reasoning/summaryPartAdded',
@@ -115,14 +115,14 @@ export class HubState {
           threadId,
           turnId,
           itemId,
-          part: { type: 'summary_text', text: summaryText },
+          summaryIndex: 0,
         },
       });
     }
-    if (rawText) {
+    for (const [index, rawText] of rawParts.entries()) {
       this.pushNotification({
         method: 'item/reasoning/textDelta',
-        params: { threadId, turnId, itemId, delta: rawText },
+        params: { threadId, turnId, itemId, delta: rawText, contentIndex: index },
       });
     }
   }

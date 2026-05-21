@@ -143,6 +143,16 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       turnId: 'turn-events',
       itemId: 'reasoning-1',
       delta: 'thinking',
+      summaryIndex: 0,
+    },
+  });
+  state.pushNotification({
+    method: 'item/reasoning/summaryPartAdded',
+    params: {
+      threadId: 'thr_events',
+      turnId: 'turn-events',
+      itemId: 'reasoning-1',
+      summaryIndex: 0,
     },
   });
   state.pushNotification({
@@ -152,6 +162,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       turnId: 'turn-events',
       itemId: 'reasoning-1',
       delta: 'raw reasoning',
+      contentIndex: 0,
     },
   });
   const waitFor = <T>(promise: Promise<T>, ms: number) =>
@@ -186,7 +197,10 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     assert(!combined.includes('event: fileChange/outputDelta'));
     assert(combined.includes('event: command/exec/outputDelta'));
     assert(combined.includes('event: item/reasoning/summaryTextDelta'));
+    assert(combined.includes('"summaryIndex":0'));
+    assert(combined.includes('event: item/reasoning/summaryPartAdded'));
     assert(combined.includes('event: item/reasoning/textDelta'));
+    assert(combined.includes('"contentIndex":0'));
     assert(combined.includes('event: account/updated') || combined.includes('event: app/list/updated'));
   } finally {
     await followReader!.cancel();
