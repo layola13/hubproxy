@@ -27,6 +27,14 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   assertEquals(state.incrementElicitation('thr_1').count >= 1, true);
   assertEquals(state.decrementElicitation('thr_1').count >= 0, true);
   assertEquals(state.injectItems('thr_1', [{ type: 'message' }]), true);
+  state.injectItems('thr_1', [
+    {
+      type: 'reasoning',
+      id: 'reasoning-1',
+      summary: [{ type: 'summary_text', text: 'thinking' }],
+      content: [{ type: 'reasoning_text', text: 'raw reasoning' }],
+    },
+  ]);
   assertEquals(Array.isArray(state.listTurns('thr_1')), true);
   const startedTurn = state.startTurn('thr_1', []);
   assert(startedTurn !== null);
@@ -61,6 +69,9 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   assert(notifications.some((entry) => entry.method === 'turn/started'));
   assert(notifications.some((entry) => entry.method === 'turn/completed'));
   assert(notifications.some((entry) => entry.method === 'item/completed'));
+  assert(notifications.some((entry) => entry.method === 'item/reasoning/summaryTextDelta'));
+  assert(notifications.some((entry) => entry.method === 'item/reasoning/summaryPartAdded'));
+  assert(notifications.some((entry) => entry.method === 'item/reasoning/textDelta'));
   assert(notifications.some((entry) => entry.method === 'warning'));
   assert(notifications.some((entry) => entry.method === 'deprecationNotice'));
   assert(notifications.some((entry) => entry.method === 'configWarning'));

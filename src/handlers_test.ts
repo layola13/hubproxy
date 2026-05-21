@@ -136,6 +136,24 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       capReached: false,
     },
   });
+  state.pushNotification({
+    method: 'item/reasoning/summaryTextDelta',
+    params: {
+      threadId: 'thr_events',
+      turnId: 'turn-events',
+      itemId: 'reasoning-1',
+      delta: 'thinking',
+    },
+  });
+  state.pushNotification({
+    method: 'item/reasoning/textDelta',
+    params: {
+      threadId: 'thr_events',
+      turnId: 'turn-events',
+      itemId: 'reasoning-1',
+      delta: 'raw reasoning',
+    },
+  });
   const waitFor = <T>(promise: Promise<T>, ms: number) =>
     new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => reject(new Error('timeout')), ms);
@@ -149,15 +167,26 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     });
   try {
     let combined = '';
-    for (let i = 0; i < 4; i += 1) {
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
       const next = await waitFor(followReader!.read(), 200);
       if ('value' in next && next.value) {
         combined += new TextDecoder().decode(next.value);
+      }
+      if (
+        combined.includes('event: fs/changed') &&
+        combined.includes('event: command/exec/outputDelta') &&
+        combined.includes('event: item/reasoning/summaryTextDelta') &&
+        combined.includes('event: item/reasoning/textDelta')
+      ) {
+        break;
       }
     }
     assert(combined.includes('event: fs/changed'));
     assert(!combined.includes('event: fileChange/outputDelta'));
     assert(combined.includes('event: command/exec/outputDelta'));
+    assert(combined.includes('event: item/reasoning/summaryTextDelta'));
+    assert(combined.includes('event: item/reasoning/textDelta'));
     assert(combined.includes('event: account/updated') || combined.includes('event: app/list/updated'));
   } finally {
     await followReader!.cancel();

@@ -85,6 +85,48 @@ export class HubState {
     this.state.notifications.push(notification);
   }
 
+  private extractTextParts(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((part) => {
+      if (!part || typeof part !== 'object') return [];
+      const text = typeof (part as { text?: unknown }).text === 'string'
+        ? String((part as { text: string }).text)
+        : '';
+      return text ? [text] : [];
+    });
+  }
+
+  private emitReasoningNotifications(threadId: string, turnId: string, item: unknown): void {
+    if (!item || typeof item !== 'object') return;
+    if ((item as { type?: unknown }).type !== 'reasoning') return;
+    const reasoning = item as Record<string, unknown>;
+    const itemId = typeof reasoning.id === 'string' ? reasoning.id : crypto.randomUUID();
+    const summaryParts = this.extractTextParts(reasoning.summary);
+    const summaryText = summaryParts[0] ?? (typeof reasoning.text === 'string' ? String(reasoning.text) : '');
+    const rawText = this.extractTextParts(reasoning.content)[0] ?? '';
+    if (summaryText) {
+      this.pushNotification({
+        method: 'item/reasoning/summaryTextDelta',
+        params: { threadId, turnId, itemId, delta: summaryText },
+      });
+      this.pushNotification({
+        method: 'item/reasoning/summaryPartAdded',
+        params: {
+          threadId,
+          turnId,
+          itemId,
+          part: { type: 'summary_text', text: summaryText },
+        },
+      });
+    }
+    if (rawText) {
+      this.pushNotification({
+        method: 'item/reasoning/textDelta',
+        params: { threadId, turnId, itemId, delta: rawText },
+      });
+    }
+  }
+
   drainNotifications(): ServerNotification[] {
     const notifications = [...this.state.notifications];
     this.state.notifications.length = 0;
@@ -263,6 +305,7 @@ export class HubState {
       method: 'item/started',
       params: { threadId, turnId: turn.id, startedAtMs: Date.now(), item: items[0] ?? null },
     });
+    this.emitReasoningNotifications(threadId, turn.id, items[0]);
     this.pushNotification({
       method: 'rawResponseItem/completed',
       params: { threadId, turnId: turn.id, item: items[0] ?? null },
@@ -298,6 +341,7 @@ export class HubState {
       method: 'item/started',
       params: { threadId, turnId: turn.id, startedAtMs: Date.now(), item: items[0] ?? null },
     });
+    this.emitReasoningNotifications(threadId, turn.id, items[0]);
     this.pushNotification({
       method: 'rawResponseItem/completed',
       params: { threadId, turnId: turn.id, item: items[0] ?? null },
