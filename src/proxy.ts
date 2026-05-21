@@ -81,25 +81,17 @@ function normalizeReasoningContent(content: unknown): Array<{ type: 'reasoning_t
 function normalizeReasoningItem(item: ResponsesInputItem): ResponsesEvent {
   const raw = item as Record<string, unknown>;
   const summary = normalizeReasoningSummary(raw.summary);
-  const content = normalizeReasoningContent(raw.content);
   const fallbackText = typeof raw.text === 'string' ? raw.text : '';
   const normalizedSummary = summary.length > 0
     ? summary
     : fallbackText
     ? [{ type: 'summary_text', text: fallbackText }]
     : [];
-  const normalizedContent = content.length > 0
-    ? content
-    : fallbackText
-    ? [{ type: 'reasoning_text', text: fallbackText }]
-    : [];
   const normalized: Record<string, unknown> = {
-    ...raw,
+    id: typeof raw.id === 'string' ? raw.id : `rs_${crypto.randomUUID().replace(/-/g, '')}`,
     type: 'reasoning',
     summary: normalizedSummary,
-    status: typeof raw.status === 'string' ? raw.status : 'completed',
   };
-  if (normalizedContent.length > 0) normalized.content = normalizedContent;
   if (typeof raw.encrypted_content === 'string') {
     normalized.encrypted_content = raw.encrypted_content;
   }

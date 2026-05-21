@@ -188,7 +188,6 @@ Deno.test('buildMockResponsesEventsFromInput keeps reasoning items in reasoning 
     {
       type: 'reasoning',
       summary: [{ type: 'summary_text', text: 'internal thought' }],
-      content: [{ type: 'reasoning_text', text: 'raw reasoning' }],
     },
   ]);
 
@@ -197,15 +196,10 @@ Deno.test('buildMockResponsesEventsFromInput keeps reasoning items in reasoning 
   const payload = events[0].item as {
     type: string;
     summary?: Array<{ type: string; text: string }>;
-    content?: Array<{ type: string; text: string }>;
-    status?: string;
     output_kind?: string;
   };
   assertEquals(payload.type, 'reasoning');
-  assertEquals(payload.status, 'completed');
   assertEquals(payload.summary?.[0]?.type, 'summary_text');
   assertEquals(payload.summary?.[0]?.text, 'internal thought');
-  assertEquals(payload.content?.[0]?.type, 'reasoning_text');
-  assertEquals(payload.content?.[0]?.text, 'raw reasoning');
   assertEquals(payload.output_kind, undefined);
 });
