@@ -54,13 +54,63 @@ function isReasoningItem(item: ResponsesInputItem): boolean {
   return item.type === 'reasoning';
 }
 
-function responseDoneEventForInputItem(item: ResponsesInputItem): ResponsesEvent | null {
-  if (isReasoningItem(item)) {
-    return {
-      type: 'response.output_item.done',
-      item,
-    };
+function normalizeReasoningSummary(summary: unknown): Array<{ type: 'summary_text'; text: string }> {
+  if (!Array.isArray(summary)) return [];
+  return summary.flatMap((part) => {
+    if (!part || typeof part !== 'object') return [];
+    const text = typeof (part as { text?: unknown }).text === 'string'
+      ? (part as { text: string }).text
+      : '';
+    if (!text) return [];
+    return [{ type: 'summary_text', text }];
+  });
+}
+
+function normalizeReasoningContent(content: unknown): Array<{ type: 'reasoning_text'; text: string }> {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((part) => {
+    if (!part || typeof part !== 'object') return [];
+    const text = typeof (part as { text?: unknown }).text === 'string'
+      ? (part as { text: string }).text
+      : '';
+    if (!text) return [];
+    return [{ type: 'reasoning_text', text }];
+  });
+}
+
+function normalizeReasoningItem(item: ResponsesInputItem): ResponsesEvent {
+  const raw = item as Record<string, unknown>;
+  const summary = normalizeReasoningSummary(raw.summary);
+  const content = normalizeReasoningContent(raw.content);
+  const fallbackText = typeof raw.text === 'string' ? raw.text : '';
+  const normalizedSummary = summary.length > 0
+    ? summary
+    : fallbackText
+    ? [{ type: 'summary_text', text: fallbackText }]
+    : [];
+  const normalizedContent = content.length > 0
+    ? content
+    : fallbackText
+    ? [{ type: 'reasoning_text', text: fallbackText }]
+    : [];
+  const normalized: Record<string, unknown> = {
+    ...raw,
+    type: 'reasoning',
+    summary: normalizedSummary,
+    status: typeof raw.status === 'string' ? raw.status : 'completed',
+  };
+  if (normalizedContent.length > 0) normalized.content = normalizedContent;
+  if (typeof raw.encrypted_content === 'string') {
+    normalized.encrypted_content = raw.encrypted_content;
   }
+  return {
+    type: 'response.output_item.done',
+    item: normalized,
+  };
+}
+
+function responseDoneEventForInputItem(item: ResponsesInputItem): ResponsesEvent | null {
+  if (isReasoningItem(item)) return normalizeReasoningItem(item);
   if (!isToolOutputKind(item.type)) return null;
   const outputKind = item.type;
   return {
@@ -75,7 +125,9 @@ function responseDoneEventForInputItem(item: ResponsesInputItem): ResponsesEvent
 export function normalizeResponsesEvent(event: ResponsesEvent): ResponsesEvent {
   if (event.type !== 'response.output_item.done') return event;
   const item = event.item as Record<string, unknown> | undefined;
-  if (typeof item?.type === 'string' && item.type === 'reasoning') return event;
+  if (typeof item?.type === 'string' && item.type === 'reasoning') {
+    return normalizeReasoningItem(item as ResponsesInputItem);
+  }
   const kind = typeof item?.type === 'string' && isToolCallType(item.type) ? item.type : null;
   if (!kind) return event;
   return {

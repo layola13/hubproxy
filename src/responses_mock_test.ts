@@ -183,16 +183,29 @@ Deno.test('buildMockResponsesEventsFromInput converts response tool outputs to d
   assertStringIncludes(JSON.stringify(events[3]), '"output_kind":"mcp_tool_call_output"');
 });
 
-Deno.test('buildMockResponsesEventsFromInput keeps reasoning items separate from正文', () => {
+Deno.test('buildMockResponsesEventsFromInput keeps reasoning items in reasoning format', () => {
   const events = buildMockResponsesEventsFromInput([
-    { type: 'reasoning', summary: [{ type: 'summary_text', text: 'internal thought' }] },
+    {
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: 'internal thought' }],
+      content: [{ type: 'reasoning_text', text: 'raw reasoning' }],
+    },
   ]);
 
   assertEquals(events.length, 1);
   assertEquals(events[0].type, 'response.output_item.done');
-  assertStringIncludes(JSON.stringify(events[0]), '"type":"reasoning"');
-  const serialized = JSON.stringify(events[0]);
-  if (serialized.includes('output_kind')) {
-    throw new Error('reasoning items must not be normalized to output_kind');
-  }
+  const payload = events[0].item as {
+    type: string;
+    summary?: Array<{ type: string; text: string }>;
+    content?: Array<{ type: string; text: string }>;
+    status?: string;
+    output_kind?: string;
+  };
+  assertEquals(payload.type, 'reasoning');
+  assertEquals(payload.status, 'completed');
+  assertEquals(payload.summary?.[0]?.type, 'summary_text');
+  assertEquals(payload.summary?.[0]?.text, 'internal thought');
+  assertEquals(payload.content?.[0]?.type, 'reasoning_text');
+  assertEquals(payload.content?.[0]?.text, 'raw reasoning');
+  assertEquals(payload.output_kind, undefined);
 });
