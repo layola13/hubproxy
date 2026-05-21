@@ -690,10 +690,19 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const configReadJson = await configRead.json() as {
-    result: { config: { defaultModel: string; port: number } };
+    result: {
+      config: {
+        defaultModel: string;
+        port: number;
+        authToken: string | null;
+        responsesBaseUrl: string;
+      };
+    };
   };
   assertEquals(configReadJson.result.config.defaultModel, config.defaultModel);
   assertEquals(configReadJson.result.config.port, config.port);
+  assertEquals(configReadJson.result.config.authToken, config.authToken);
+  assertEquals(configReadJson.result.config.responsesBaseUrl, config.responsesBaseUrl);
 
   const configRequirements = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -901,13 +910,32 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(mcpStatusListJson.result.data[0].authStatus, 'unsupported');
 
-  const mcpToolCall = await handleHttpWithState(
+  const voiceList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 31,
+        method: 'thread/realtime/listVoices',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const voiceListJson = await voiceList.json() as {
+    result: { voices: Array<{ id: string; name: string }> };
+  };
+  assertEquals(voiceListJson.result.voices[0].id, 'alloy');
+
+  const mcpToolCall = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 32,
         method: 'mcpServer/tool/call',
         params: {
           threadId: 'thr_test',
@@ -955,13 +983,33 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(configValueWriteJson.result.status, 'ok');
 
-  const configBatchWrite = await handleHttpWithState(
+  const configReload = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 33,
+        method: 'config/mcpServer/reload',
+        params: { name: 'local' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const configReloadJson = await configReload.json() as {
+    result: { name: string; reloaded: boolean };
+  };
+  assertEquals(configReloadJson.result.name, 'local');
+  assertEquals(configReloadJson.result.reloaded, true);
+
+  const configBatchWrite = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 34,
         method: 'config/batchWrite',
         params: {
           edits: [],
@@ -983,7 +1031,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 34,
+        id: 35,
         method: 'thread/shellCommand',
         params: { threadId: 'thr_test', command: 'echo hi' },
       }),
@@ -999,7 +1047,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 35,
+        id: 36,
         method: 'thread/approveGuardianDeniedAction',
         params: { threadId: 'thr_test', event: { type: 'test' } },
       }),
@@ -1015,7 +1063,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 36,
+        id: 37,
         method: 'memory/reset',
         params: {},
       }),
@@ -1224,10 +1272,38 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const pluginReadJson = await pluginRead.json() as {
-    result: { plugin: { marketplaceName: string; summary: { name: string } } };
+    result: {
+      plugin: {
+        marketplaceName: string;
+        summary: { name: string };
+        apps: unknown[];
+        hooks: unknown[];
+        skills: unknown[];
+      };
+    };
   };
   assertEquals(pluginReadJson.result.plugin.marketplaceName, 'local');
   assertEquals(pluginReadJson.result.plugin.summary.name, 'codex-test-plugin');
+  assertEquals(Array.isArray(pluginReadJson.result.plugin.skills), true);
+
+  const pluginSkillRead = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 202,
+        method: 'plugin/skill/read',
+        params: { pluginName: 'codex-test-plugin', skillName: 'demo' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const pluginSkillReadJson = await pluginSkillRead.json() as {
+    result: { contents: unknown[] };
+  };
+  assertEquals(Array.isArray(pluginSkillReadJson.result.contents), true);
 
   const guardian = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1260,6 +1336,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(clean.status, 200);
+  const cleanJson = await clean.json() as { result: { cleaned: boolean; threadId: string } };
+  assertEquals(cleanJson.result.cleaned, true);
+  assertEquals(cleanJson.result.threadId, 'thr_test');
 
   const read = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1346,6 +1425,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(memoryMode.status, 200);
+  const memoryModeJson = await memoryMode.json() as {
+    result: { threadId: string; memoryMode: string };
+  };
+  assertEquals(memoryModeJson.result.threadId, 'thr_test');
+  assertEquals(memoryModeJson.result.memoryMode, 'default');
 
   const tmpBase = await Deno.makeTempDir();
   const filePath = `${tmpBase}/file.txt`;

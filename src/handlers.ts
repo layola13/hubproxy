@@ -277,9 +277,25 @@ export async function handleRpc(
       state.emitGuardianWarning('guardian denied action approved', String(params.threadId ?? ''));
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'thread/backgroundTerminals/clean':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          cleaned: true,
+          threadId: String(params.threadId ?? ''),
+        }),
+      ));
     case 'thread/memoryMode/set':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          threadId: String(params.threadId ?? ''),
+          memoryMode: typeof params.memoryMode === 'string'
+            ? params.memoryMode
+            : typeof params.mode === 'string'
+            ? params.mode
+            : 'default',
+        }),
+      ));
     case 'memory/reset':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'thread/goal/set': {
@@ -446,7 +462,7 @@ export async function handleRpc(
         }),
       ));
     case 'plugin/skill/read':
-      return jsonResponse(rpcResult(body.id, toJson({ contents: null })));
+      return jsonResponse(rpcResult(body.id, toJson({ contents: [] })));
     case 'plugin/share/save':
       return jsonResponse(rpcResult(
         body.id,
@@ -664,13 +680,31 @@ export async function handleRpc(
       state.emitRealtimeClosed(String(params.threadId ?? ''));
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'thread/realtime/listVoices':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          voices: [
+            { id: 'alloy', name: 'Alloy' },
+            { id: 'echo', name: 'Echo' },
+            { id: 'fable', name: 'Fable' },
+            { id: 'onyx', name: 'Onyx' },
+            { id: 'nova', name: 'Nova' },
+            { id: 'shimmer', name: 'Shimmer' },
+          ],
+        }),
+      ));
     case 'config/mcpServer/reload':
       state.emitMcpServerStartupStatus(
         typeof params.name === 'string' ? params.name : 'local',
         'starting',
       );
-      return jsonResponse(rpcResult(body.id, toJson({ reloaded: true })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          name: typeof params.name === 'string' ? params.name : 'local',
+          reloaded: true,
+        }),
+      ));
     case 'mcpServerStatus/list':
       return jsonResponse(rpcResult(
         body.id,
