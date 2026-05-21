@@ -812,13 +812,100 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(collabListJson.result.data[0].name, 'default');
 
-  const shellCommand = await handleHttpWithState(
+  const mcpStatusList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 30,
+        method: 'mcpServerStatus/list',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const mcpStatusListJson = await mcpStatusList.json() as {
+    result: { data: Array<{ name: string; authStatus: string }> };
+  };
+  assertEquals(mcpStatusListJson.result.data[0].authStatus, 'unsupported');
+
+  const mcpToolCall = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 31,
+        method: 'mcpServer/tool/call',
+        params: {
+          threadId: 'thr_test',
+          server: 'local',
+          tool: 'demo',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const mcpToolCallJson = await mcpToolCall.json() as {
+    result: { content: unknown[]; structuredContent: null; isError: null; meta: null };
+  };
+  assertEquals(Array.isArray(mcpToolCallJson.result.content), true);
+
+  const configValueWrite = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 32,
+        method: 'config/value/write',
+        params: {
+          keyPath: 'defaultModel',
+          value: config.defaultModel,
+          mergeStrategy: 'replace',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const configValueWriteJson = await configValueWrite.json() as {
+    result: { status: string; version: string };
+  };
+  assertEquals(configValueWriteJson.result.status, 'ok');
+
+  const configBatchWrite = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 33,
+        method: 'config/batchWrite',
+        params: {
+          edits: [],
+          reloadUserConfig: false,
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const configBatchWriteJson = await configBatchWrite.json() as {
+    result: { status: string; version: string };
+  };
+  assertEquals(configBatchWriteJson.result.version, '1');
+
+  const shellCommand = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 34,
         method: 'thread/shellCommand',
         params: { threadId: 'thr_test', command: 'echo hi' },
       }),
@@ -834,7 +921,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 31,
+        id: 35,
         method: 'thread/approveGuardianDeniedAction',
         params: { threadId: 'thr_test', event: { type: 'test' } },
       }),
@@ -850,7 +937,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 32,
+        id: 36,
         method: 'memory/reset',
         params: {},
       }),

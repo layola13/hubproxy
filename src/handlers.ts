@@ -661,7 +661,21 @@ export async function handleRpc(
       );
       return jsonResponse(rpcResult(body.id, toJson({ reloaded: true })));
     case 'mcpServerStatus/list':
-      return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          data: [
+            {
+              name: String(params.name ?? 'local'),
+              tools: {},
+              resources: [],
+              resourceTemplates: [],
+              authStatus: 'unsupported',
+            },
+          ],
+          nextCursor: null,
+        }),
+      ));
     case 'mcpServer/resource/read':
       return jsonResponse(rpcResult(body.id, toJson({ contents: [] })));
     case 'mcpServer/tool/call':
@@ -674,7 +688,15 @@ export async function handleRpc(
           message: String(params.message ?? 'called'),
         },
       });
-      return jsonResponse(rpcResult(body.id, toJson({ result: null })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          content: [],
+          structuredContent: null,
+          isError: null,
+          meta: null,
+        }),
+      ));
     case 'windowsSandbox/setupStart':
       state.emitWindowsSandboxSetupCompleted(
         String(params.mode ?? 'unelevated') as 'elevated' | 'unelevated',
@@ -780,7 +802,14 @@ export async function handleRpc(
     case 'config/batchWrite':
     case 'skills/config/write':
       return jsonResponse(
-        rpcResult(body.id, toJson({ filePath: Deno.cwd(), status: 'ok', version: '1' })),
+        rpcResult(
+          body.id,
+          toJson({
+            filePath: Deno.cwd(),
+            status: 'ok',
+            version: '1',
+          }),
+        ),
       );
     case 'app/list':
       state.emitAppListUpdated();
