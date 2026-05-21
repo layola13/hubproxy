@@ -1008,6 +1008,26 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(mcpToolCallJson.result.structuredContent.ok, true);
   assertEquals(mcpToolCallJson.result.isError, false);
 
+  const appList = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 323,
+        method: 'app/list',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const appListJson = await appList.json() as {
+    result: { data: unknown[]; nextCursor: null };
+  };
+  assertEquals(Array.isArray(appListJson.result.data), true);
+  assertEquals(appListJson.result.nextCursor, null);
+
   const accountRead = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
@@ -1026,6 +1046,65 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { account: { id: string; email: string | null; name: string | null } };
   };
   assertEquals(accountReadJson.result.account.id, 'local');
+
+  const realtimeAppendAudio = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 324,
+        method: 'thread/realtime/appendAudio',
+        params: { threadId: 'thr_test', audio: 'AQID' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const realtimeAppendAudioJson = await realtimeAppendAudio.json() as {
+    result: { appended: boolean; threadId: string; kind: string };
+  };
+  assertEquals(realtimeAppendAudioJson.result.appended, true);
+  assertEquals(realtimeAppendAudioJson.result.kind, 'audio');
+
+  const realtimeAppendText = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 325,
+        method: 'thread/realtime/appendText',
+        params: { threadId: 'thr_test', text: 'hello' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const realtimeAppendTextJson = await realtimeAppendText.json() as {
+    result: { appended: boolean; threadId: string; kind: string };
+  };
+  assertEquals(realtimeAppendTextJson.result.appended, true);
+  assertEquals(realtimeAppendTextJson.result.kind, 'text');
+
+  const realtimeStop = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 326,
+        method: 'thread/realtime/stop',
+        params: { threadId: 'thr_test' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const realtimeStopJson = await realtimeStop.json() as {
+    result: { stopped: boolean; threadId: string };
+  };
+  assertEquals(realtimeStopJson.result.stopped, true);
 
   const pluginUninstall = await handleHttpWithState(
     new Request('http://localhost/rpc', {

@@ -788,7 +788,14 @@ export async function handleRpc(
         audio: params.audio ?? null,
       });
       state.emitRealtimeOutputAudioDelta(String(params.threadId ?? ''), String(params.audio ?? ''));
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          appended: true,
+          threadId: String(params.threadId ?? ''),
+          kind: 'audio',
+        }),
+      ));
     case 'thread/realtime/appendText':
       state.emitRealtimeItemAdded(String(params.threadId ?? ''), {
         type: 'text',
@@ -804,10 +811,23 @@ export async function handleRpc(
         String(params.role ?? 'assistant'),
         String(params.text ?? ''),
       );
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          appended: true,
+          threadId: String(params.threadId ?? ''),
+          kind: 'text',
+        }),
+      ));
     case 'thread/realtime/stop':
       state.emitRealtimeClosed(String(params.threadId ?? ''));
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          stopped: true,
+          threadId: String(params.threadId ?? ''),
+        }),
+      ));
     case 'thread/realtime/listVoices':
       return jsonResponse(rpcResult(
         body.id,

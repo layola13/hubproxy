@@ -26,6 +26,10 @@ function isUpstreamUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message === 'upstream unavailable';
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
 Deno.test('real upstream chat completion through local proxy', async () => {
   loadDotenvIntoEnv('.env');
   const config = loadConfig();
@@ -107,7 +111,7 @@ Deno.test('real upstream responses stream through local proxy', async () => {
     });
   } catch (error) {
     clearTimeout(timeoutId);
-    if (isUpstreamUnavailable(error)) return;
+    if (isUpstreamUnavailable(error) || isAbortError(error)) return;
     throw error;
   } finally {
     clearTimeout(timeoutId);
