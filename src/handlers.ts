@@ -659,24 +659,84 @@ export async function handleRpc(
     case 'windowsSandbox/readiness':
       return jsonResponse(rpcResult(body.id, toJson({ status: 'ready' })));
     case 'feedback/upload':
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({ threadId: String(params.threadId ?? '') }),
+      ));
     case 'remoteControl/enable':
       state.pushNotification({
         method: 'remoteControl/status/changed',
-        params: { status: 'enabled' },
+        params: {
+          status: 'connected',
+          serverName: String(params.serverName ?? 'local'),
+          installationId: String(params.installationId ?? 'local-installation'),
+          environmentId: typeof params.environmentId === 'string' ? params.environmentId : null,
+        },
       });
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          status: 'connected',
+          serverName: String(params.serverName ?? 'local'),
+          installationId: String(params.installationId ?? 'local-installation'),
+          environmentId: typeof params.environmentId === 'string' ? params.environmentId : null,
+        }),
+      ));
     case 'remoteControl/disable':
       state.pushNotification({
         method: 'remoteControl/status/changed',
-        params: { status: 'disabled' },
+        params: {
+          status: 'disabled',
+          serverName: String(params.serverName ?? 'local'),
+          installationId: String(params.installationId ?? 'local-installation'),
+          environmentId: typeof params.environmentId === 'string' ? params.environmentId : null,
+        },
       });
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          status: 'disabled',
+          serverName: String(params.serverName ?? 'local'),
+          installationId: String(params.installationId ?? 'local-installation'),
+          environmentId: typeof params.environmentId === 'string' ? params.environmentId : null,
+        }),
+      ));
     case 'remoteControl/status/read':
-      return jsonResponse(rpcResult(body.id, toJson({ status: 'disabled' })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          status: 'disabled',
+          serverName: String(params.serverName ?? 'local'),
+          installationId: String(params.installationId ?? 'local-installation'),
+          environmentId: typeof params.environmentId === 'string' ? params.environmentId : null,
+        }),
+      ));
     case 'config/read':
-      return jsonResponse(rpcResult(body.id, toJson({ config: {}, layers: [], origins: {} })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          config: {
+            host: config.host,
+            port: config.port,
+            responsesBaseUrl: config.responsesBaseUrl,
+            chatBaseUrl: config.chatBaseUrl,
+            defaultModel: config.defaultModel,
+            authToken: config.authToken,
+          },
+          layers: [],
+          origins: {},
+        }),
+      ));
     case 'externalAgentConfig/detect':
-      return jsonResponse(rpcResult(body.id, toJson({ items: [] })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          items: [
+            { type: 'AGENTS_MD', path: `${Deno.cwd()}/Agents.md` },
+            { type: 'CONFIG', path: `${Deno.cwd()}/.env` },
+          ],
+        }),
+      ));
     case 'externalAgentConfig/import':
       state.emitExternalAgentConfigImportCompleted();
       return jsonResponse(rpcResult(body.id, toJson({})));
@@ -689,14 +749,40 @@ export async function handleRpc(
     case 'app/list':
       state.emitAppListUpdated();
       return jsonResponse(rpcResult(body.id, toJson({ data: [], nextCursor: null })));
-    case 'feedback/upload':
-      return jsonResponse(rpcResult(body.id, toJson({})));
     case 'experimentalFeature/list':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          data: [
+            {
+              name: 'reasoning',
+              stage: 'stable',
+              displayName: 'Reasoning',
+              description: 'Reasoning item formatting.',
+              announcement: null,
+              enabled: true,
+              defaultEnabled: true,
+            },
+          ],
+          nextCursor: null,
+        }),
+      ));
     case 'experimentalFeature/enablement/set':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(body.id, toJson({ enablement: params.enablement ?? {} })));
     case 'collaborationMode/list':
-      return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          data: [
+            {
+              name: 'default',
+              mode: null,
+              model: config.defaultModel,
+              reasoning_effort: null,
+            },
+          ],
+        }),
+      ));
     case 'fuzzyFileSearch':
       state.emitFuzzySearchUpdated(String(params.sessionId ?? ''), String(params.query ?? ''));
       state.emitFuzzySearchCompleted(String(params.sessionId ?? ''));
