@@ -812,6 +812,55 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(collabListJson.result.data[0].name, 'default');
 
+  const shellCommand = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 30,
+        method: 'thread/shellCommand',
+        params: { threadId: 'thr_test', command: 'echo hi' },
+      }),
+    }),
+    config,
+    state,
+  );
+  assertEquals(shellCommand.status, 200);
+
+  const guardianApproved = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 31,
+        method: 'thread/approveGuardianDeniedAction',
+        params: { threadId: 'thr_test', event: { type: 'test' } },
+      }),
+    }),
+    config,
+    state,
+  );
+  assertEquals(guardianApproved.status, 200);
+
+  const memoryResetA = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 32,
+        method: 'memory/reset',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const memoryResetJsonA = await memoryResetA.json() as { result: Record<string, unknown> };
+  assertEquals(typeof memoryResetJsonA.result, 'object');
+
   const turnStart = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
@@ -905,7 +954,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   const turnInterruptJson = await turnInterrupt.json() as { result: Record<string, unknown> };
   assertEquals(Object.keys(turnInterruptJson.result).length, 0);
 
-  const memoryReset = await handleHttpWithState(
+  const memoryResetB = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -919,8 +968,8 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const memoryResetJson = await memoryReset.json() as { result: Record<string, unknown> };
-  assertEquals(Object.keys(memoryResetJson.result).length, 0);
+  const memoryResetJsonB = await memoryResetB.json() as { result: Record<string, unknown> };
+  assertEquals(Object.keys(memoryResetJsonB.result).length, 0);
 
   const clear = await handleHttpWithState(
     new Request('http://localhost/rpc', {
