@@ -469,18 +469,40 @@ export async function handleRpc(
         toJson({
           remotePluginId: `remote_${crypto.randomUUID()}`,
           shareUrl: new URL('/share', `http://${config.host}:${config.port}`).toString(),
+          discoverability: 'UNLISTED',
         }),
       ));
     case 'plugin/share/updateTargets':
       return jsonResponse(
-        rpcResult(body.id, toJson({ discoverability: 'UNLISTED', principals: [] })),
+        rpcResult(
+          body.id,
+          toJson({
+            discoverability: 'UNLISTED',
+            principals: Array.isArray(params.principals) ? params.principals : [],
+          }),
+        ),
       );
     case 'plugin/share/list':
       return jsonResponse(rpcResult(body.id, toJson({ data: [] })));
     case 'plugin/share/checkout':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          checkedOut: true,
+          marketplaceName: typeof params.marketplaceName === 'string'
+            ? params.marketplaceName
+            : 'local',
+          pluginName: typeof params.pluginName === 'string' ? params.pluginName : '',
+        }),
+      ));
     case 'plugin/share/delete':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          deleted: true,
+          remotePluginId: typeof params.remotePluginId === 'string' ? params.remotePluginId : null,
+        }),
+      ));
     case 'plugin/install':
       return jsonResponse(
         rpcResult(body.id, toJson({ appsNeedingAuth: [], authPolicy: 'NOT_AVAILABLE' })),
@@ -550,7 +572,13 @@ export async function handleRpc(
         }),
       ));
     case 'account/sendAddCreditsNudgeEmail':
-      return jsonResponse(rpcResult(body.id, toJson({ status: 'sent' })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          status: 'sent',
+          email: typeof params.email === 'string' ? params.email : null,
+        }),
+      ));
     case 'configRequirements/read':
       return jsonResponse(rpcResult(
         body.id,
@@ -572,7 +600,13 @@ export async function handleRpc(
       state.emitAccountUpdated();
       return jsonResponse(rpcResult(body.id, toJson({ account: null })));
     case 'account/chatgptAuthTokens/refresh':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          refreshed: true,
+          refreshedAt: new Date().toISOString(),
+        }),
+      ));
     case 'attestation/generate':
       return jsonResponse(rpcResult(body.id, toJson({ token: `attest_${crypto.randomUUID()}` })));
     case 'item/commandExecution/requestApproval':
@@ -759,7 +793,13 @@ export async function handleRpc(
       state.emitWindowsSandboxSetupCompleted(
         String(params.mode ?? 'unelevated') as 'elevated' | 'unelevated',
       );
-      return jsonResponse(rpcResult(body.id, toJson({ started: true })));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          started: true,
+          mode: String(params.mode ?? 'unelevated'),
+        }),
+      ));
     case 'windowsSandbox/readiness':
       return jsonResponse(rpcResult(body.id, toJson({ status: 'ready' })));
     case 'feedback/upload':

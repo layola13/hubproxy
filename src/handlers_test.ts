@@ -1305,6 +1305,103 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(Array.isArray(pluginSkillReadJson.result.contents), true);
 
+  const shareSave = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 203,
+        method: 'plugin/share/save',
+        params: { pluginName: 'codex-test-plugin' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const shareSaveJson = await shareSave.json() as {
+    result: { remotePluginId: string; shareUrl: string; discoverability: string };
+  };
+  assertEquals(shareSaveJson.result.discoverability, 'UNLISTED');
+
+  const shareUpdateTargets = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 204,
+        method: 'plugin/share/updateTargets',
+        params: { principals: ['user:alice'] },
+      }),
+    }),
+    config,
+    state,
+  );
+  const shareUpdateTargetsJson = await shareUpdateTargets.json() as {
+    result: { discoverability: string; principals: string[] };
+  };
+  assertEquals(shareUpdateTargetsJson.result.principals[0], 'user:alice');
+
+  const shareDelete = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 205,
+        method: 'plugin/share/delete',
+        params: { remotePluginId: 'remote_1' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const shareDeleteJson = await shareDelete.json() as {
+    result: { deleted: boolean; remotePluginId: string | null };
+  };
+  assertEquals(shareDeleteJson.result.deleted, true);
+  assertEquals(shareDeleteJson.result.remotePluginId, 'remote_1');
+
+  const sendCredits = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 206,
+        method: 'account/sendAddCreditsNudgeEmail',
+        params: { email: 'alice@example.com' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const sendCreditsJson = await sendCredits.json() as {
+    result: { status: string; email: string | null };
+  };
+  assertEquals(sendCreditsJson.result.status, 'sent');
+  assertEquals(sendCreditsJson.result.email, 'alice@example.com');
+
+  const authRefresh = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 207,
+        method: 'account/chatgptAuthTokens/refresh',
+        params: {},
+      }),
+    }),
+    config,
+    state,
+  );
+  const authRefreshJson = await authRefresh.json() as {
+    result: { refreshed: boolean; refreshedAt: string };
+  };
+  assertEquals(authRefreshJson.result.refreshed, true);
+
   const guardian = await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
@@ -1430,6 +1527,26 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(memoryModeJson.result.threadId, 'thr_test');
   assertEquals(memoryModeJson.result.memoryMode, 'default');
+
+  const sandboxStart = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 208,
+        method: 'windowsSandbox/setupStart',
+        params: { mode: 'unelevated' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const sandboxStartJson = await sandboxStart.json() as {
+    result: { started: boolean; mode: string };
+  };
+  assertEquals(sandboxStartJson.result.started, true);
+  assertEquals(sandboxStartJson.result.mode, 'unelevated');
 
   const tmpBase = await Deno.makeTempDir();
   const filePath = `${tmpBase}/file.txt`;
