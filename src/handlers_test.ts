@@ -394,8 +394,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const nameSetJson = await nameSet.json() as { result: Record<string, unknown> };
-  assertEquals(Object.keys(nameSetJson.result).length, 0);
+  const nameSetJson = await nameSet.json() as { result: { threadId: string; name: string | null } };
+  assertEquals(nameSetJson.result.threadId, 'thr_test');
+  assertEquals(nameSetJson.result.name, 'renamed');
 
   const archive = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -411,8 +412,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const archiveJson = await archive.json() as { result: { thread: { id: string } } };
-  assertEquals(Object.keys(archiveJson.result).length, 0);
+  const archiveJson = await archive.json() as { result: { archived: boolean; threadId: string } };
+  assertEquals(archiveJson.result.archived, true);
+  assertEquals(archiveJson.result.threadId, 'thr_test');
 
   const unarchive = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -497,6 +499,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(inject.status, 200);
+  const injectJson = await inject.json() as { result: { threadId: string; injectedCount: number } };
+  assertEquals(injectJson.result.threadId, 'thr_test');
+  assertEquals(injectJson.result.injectedCount, 1);
 
   const unsubscribe = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -849,6 +854,48 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(fuzzySearchJson.result.query, 'src');
   assert(fuzzySearchJson.result.files.length > 0);
+
+  const fuzzySessionStart = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 280,
+        method: 'fuzzyFileSearch/sessionStart',
+        params: { sessionId: 'sess-1' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const fuzzySessionStartJson = await fuzzySessionStart.json() as {
+    result: { sessionId: string; status: string };
+  };
+  assertEquals(fuzzySessionStartJson.result.sessionId, 'sess-1');
+
+  const serverRequestResolved = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 281,
+        method: 'serverRequest/resolved',
+        params: {
+          threadId: 'thr_test',
+          requestId: 'req-1',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const serverRequestResolvedJson = await serverRequestResolved.json() as {
+    result: { threadId: string; requestId: string; resolved: boolean };
+  };
+  assertEquals(serverRequestResolvedJson.result.requestId, 'req-1');
+  assertEquals(serverRequestResolvedJson.result.resolved, true);
 
   const mcpResourceRead = await handleHttpWithState(
     new Request('http://localhost/rpc', {

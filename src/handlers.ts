@@ -157,7 +157,13 @@ export async function handleRpc(
       const threadId = String(params.threadId ?? '');
       const thread = state.archiveThread(threadId);
       return thread
-        ? jsonResponse(rpcResult(body.id, toJson({})))
+        ? jsonResponse(rpcResult(
+          body.id,
+          toJson({
+            archived: true,
+            threadId,
+          }),
+        ))
         : jsonResponse(rpcError(body.id, -32000, 'thread not found'), 404);
     }
     case 'thread/unarchive': {
@@ -174,7 +180,13 @@ export async function handleRpc(
         typeof params.name === 'string' ? params.name : null,
       );
       return thread
-        ? jsonResponse(rpcResult(body.id, toJson({})))
+        ? jsonResponse(rpcResult(
+          body.id,
+          toJson({
+            threadId,
+            name: typeof params.name === 'string' ? params.name : null,
+          }),
+        ))
         : jsonResponse(rpcError(body.id, -32000, 'thread not found'), 404);
     }
     case 'thread/metadata/update': {
@@ -221,7 +233,13 @@ export async function handleRpc(
         Array.isArray(params.items) ? params.items : [],
       );
       return injected
-        ? jsonResponse(rpcResult(body.id, toJson({})))
+        ? jsonResponse(rpcResult(
+          body.id,
+          toJson({
+            threadId,
+            injectedCount: Array.isArray(params.items) ? params.items.length : 0,
+          }),
+        ))
         : jsonResponse(rpcError(body.id, -32000, 'thread not found'), 404);
     }
     case 'thread/unsubscribe': {
@@ -976,13 +994,26 @@ export async function handleRpc(
     case 'fuzzyFileSearch/sessionStart':
     case 'fuzzyFileSearch/sessionUpdate':
     case 'fuzzyFileSearch/sessionStop':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          sessionId: String(params.sessionId ?? ''),
+          status: body.method === 'fuzzyFileSearch/sessionStop' ? 'stopped' : 'ok',
+        }),
+      ));
     case 'serverRequest/resolved':
       state.emitServerRequestResolved(
         String(params.threadId ?? ''),
         String(params.requestId ?? ''),
       );
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          threadId: String(params.threadId ?? ''),
+          requestId: String(params.requestId ?? ''),
+          resolved: true,
+        }),
+      ));
     case 'windows/worldWritableWarning':
       state.emitWindowsWorldWritableWarning();
       return jsonResponse(rpcResult(body.id, toJson({})));
