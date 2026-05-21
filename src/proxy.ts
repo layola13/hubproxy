@@ -225,6 +225,187 @@ function maybeRewriteRequestBody(path: string, body: string | undefined): string
   }
 }
 
+function isFallbackEligibleStatus(status: number): boolean {
+  return status >= 500 || status === 404 || status === 405 || status === 410 || status === 415;
+}
+
+function isFallbackEligibleError(error: unknown): boolean {
+  return error instanceof Error;
+}
+
+function extractChatFallbackFromResponsesBody(
+  body: string | undefined,
+): { model: string; messages: unknown[] } | null {
+  if (!body) return null;
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    const input = Array.isArray(parsed.input) ? parsed.input : [];
+    const model = typeof parsed.model === 'string'
+      ? String(normalizeModelNameForUpstream(parsed.model))
+      : '';
+    const messages: Array<Record<string, unknown>> = [];
+    for (const item of input) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      const type = typeof record.type === 'string' ? record.type : '';
+      if (type === 'message') {
+        const role = typeof record.role === 'string' ? record.role : 'user';
+        const content = Array.isArray(record.content)
+          ? record.content.flatMap((part) => {
+            if (!part || typeof part !== 'object') return [];
+            const partRecord = part as Record<string, unknown>;
+            const partType = typeof partRecord.type === 'string' ? partRecord.type : '';
+            const text = typeof partRecord.text === 'string' ? partRecord.text : '';
+            if (!text) return [];
+            if (partType === 'input_text' || partType === 'text') {
+              return [text];
+            }
+            return [];
+          }).join('\n')
+          : '';
+        if (content) {
+          messages.push({ role, content });
+        }
+        continue;
+      }
+      if (type === 'reasoning') continue;
+      if (type === 'function_call_output' || type === 'custom_tool_call_output' ||
+        type === 'tool_search_output' || type === 'mcp_tool_call_output') {
+        const output = typeof record.output === 'string' ? record.output : '';
+        if (output) {
+          messages.push({
+            role: 'tool',
+            content: output,
+            tool_call_id: typeof record.call_id === 'string' ? record.call_id : undefined,
+          });
+        }
+      }
+    }
+    return {
+      model: model || '',
+      messages,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function responseTextFromChatBody(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
+    const choice = choices[0] as Record<string, unknown> | undefined;
+    const message = choice && typeof choice === 'object' ? choice.message as Record<string, unknown> | undefined : undefined;
+    const content = typeof message?.content === 'string' ? message.content : '';
+    return content || body;
+  } catch {
+    return body;
+  }
+}
+
+function responsesFallbackBodyFromChat(chatBody: string): string {
+  const content = responseTextFromChatBody(chatBody);
+  return JSON.stringify({
+    id: `resp_${crypto.randomUUID().replace(/-/g, '')}`,
+    object: 'response',
+    output: [
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [
+          {
+            type: 'output_text',
+            text: content,
+          },
+        ],
+      },
+    ],
+    output_text: content,
+    status: 'completed',
+  });
+}
+
+function chatPathFromResponsesPath(path: string): string {
+  return path.replace('/responses', '/chat/completions');
+}
+
+async function forwardWithFallback(
+  path: string,
+  req: Request,
+  config: ProxyConfig,
+  body: string | undefined,
+  headers: Headers,
+): Promise<Response> {
+  const useResponses = path.includes('/responses');
+  const responsesTarget = config.responsesBaseUrl;
+  const firstTarget = useResponses && responsesTarget ? responsesTarget : config.chatBaseUrl;
+
+  const send = async (target: string, requestPath: string, requestBody: string | undefined) => {
+    return await forwardJson(new URL(requestPath, target).toString(), {
+      method: req.method,
+      headers,
+      body: requestBody,
+      signal: req.signal,
+    });
+  };
+
+  if (!useResponses) {
+    return await send(firstTarget, path, body);
+  }
+
+  const responsesRequestBody = body;
+  const responsesPath = '/v1/responses';
+  const chatPath = chatPathFromResponsesPath(path);
+
+  if (!responsesTarget) {
+    const fallback = extractChatFallbackFromResponsesBody(responsesRequestBody);
+    if (fallback === null) {
+      throw new Error('upstream unavailable');
+    }
+    const chatResponse = await send(firstTarget, chatPath, JSON.stringify({
+      model: fallback.model || config.defaultModel,
+      messages: fallback.messages,
+      stream: false,
+    }));
+    if (!chatResponse.ok) return chatResponse;
+    return new Response(responsesFallbackBodyFromChat(await chatResponse.text()), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  }
+
+  const responsesResponse = await send(firstTarget, responsesPath, responsesRequestBody).catch((error) => {
+    if (!isFallbackEligibleError(error)) throw error;
+    return null;
+  });
+  if (responsesResponse && !responsesResponse.ok && !isFallbackEligibleStatus(responsesResponse.status)) {
+    return responsesResponse;
+  }
+  if (responsesResponse && responsesResponse.ok) {
+    return responsesResponse;
+  }
+
+  const fallback = extractChatFallbackFromResponsesBody(responsesRequestBody);
+  if (fallback === null) {
+    if (responsesResponse) return responsesResponse;
+    throw new Error('upstream unavailable');
+  }
+  const chatRequestBody = JSON.stringify({
+    model: fallback.model || config.defaultModel,
+    messages: fallback.messages,
+    stream: false,
+  });
+  const chatResponse = await send(config.chatBaseUrl, chatPath, chatRequestBody);
+  if (!chatResponse.ok) {
+    return chatResponse;
+  }
+  const text = await chatResponse.text();
+  return new Response(responsesFallbackBodyFromChat(text), {
+    status: 200,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
+}
+
 export async function proxyOpenAI(
   path: string,
   req: Request,
@@ -233,13 +414,7 @@ export async function proxyOpenAI(
   const rawBody = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.clone().text();
   const body = maybeRewriteRequestBody(path, rawBody);
   const headers = forwardHeaders(req.headers, config.defaultApiKey, config.authToken);
-  const target = path.includes('/responses') ? config.responsesBaseUrl : config.chatBaseUrl;
-  const upstream = await forwardJson(new URL(path, target).toString(), {
-    method: req.method,
-    headers,
-    body,
-    signal: req.signal,
-  });
+  const upstream = await forwardWithFallback(path, req, config, body, headers);
   if (path === '/v1/models' && upstream.ok) {
     const text = await upstream.clone().text();
     const normalized = normalizeModelListResponseBody(text);

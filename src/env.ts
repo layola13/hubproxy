@@ -35,7 +35,6 @@ export function loadConfig(): ProxyConfig {
   const defaultApiKey = Deno.env.get('OPENAI_API_KEY');
   const dataDir = Deno.env.get('DATA_DIR');
   const authToken = Deno.env.get('AUTH') ?? null;
-  if (!responsesBaseUrl) throw new Error('RESPONSES_BASE_URL is required');
   if (!chatBaseUrl) throw new Error('CHAT_BASE_URL is required');
   if (!defaultModel) throw new Error('DEFAULT_MODEL is required');
   if (!defaultApiKey) throw new Error('OPENAI_API_KEY is required');
@@ -44,7 +43,7 @@ export function loadConfig(): ProxyConfig {
     port: parsePort(Deno.env.get('PORT')),
     host: Deno.env.get('HOST') ?? '0.0.0.0',
     authToken,
-    responsesBaseUrl,
+    responsesBaseUrl: responsesBaseUrl ?? null,
     chatBaseUrl,
     defaultModel,
     defaultApiKey,

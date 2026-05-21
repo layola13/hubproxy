@@ -12,7 +12,7 @@ export type ProxyConfig = {
   port: number;
   host: string;
   authToken: string | null;
-  responsesBaseUrl: string;
+  responsesBaseUrl: string | null;
   chatBaseUrl: string;
   defaultModel: string;
   defaultApiKey: string;

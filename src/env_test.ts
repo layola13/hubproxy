@@ -50,6 +50,35 @@ Deno.test('loadConfig requires real environment variables', () => {
   }
 });
 
+Deno.test('loadConfig allows missing RESPONSES_BASE_URL and keeps chat base url', () => {
+  const original = {
+    PORT: Deno.env.get('PORT'),
+    HOST: Deno.env.get('HOST'),
+    AUTH: Deno.env.get('AUTH'),
+    RESPONSES_BASE_URL: Deno.env.get('RESPONSES_BASE_URL'),
+    CHAT_BASE_URL: Deno.env.get('CHAT_BASE_URL'),
+    DEFAULT_MODEL: Deno.env.get('DEFAULT_MODEL'),
+    OPENAI_API_KEY: Deno.env.get('OPENAI_API_KEY'),
+    DATA_DIR: Deno.env.get('DATA_DIR'),
+  };
+  try {
+    Deno.env.delete('RESPONSES_BASE_URL');
+    Deno.env.set('CHAT_BASE_URL', 'http://127.0.0.1:2/v1');
+    Deno.env.set('DEFAULT_MODEL', 'models/gemma-4-31b-it');
+    Deno.env.set('OPENAI_API_KEY', 'secret-token');
+    Deno.env.set('DATA_DIR', '/tmp');
+    Deno.env.set('PORT', '9999');
+    const config = loadConfig();
+    assertEquals(config.responsesBaseUrl, null);
+    assertEquals(config.chatBaseUrl, 'http://127.0.0.1:2/v1');
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) Deno.env.delete(key);
+      else Deno.env.set(key, value);
+    }
+  }
+});
+
 Deno.test('loadConfig rejects invalid ports', () => {
   const original = Deno.env.get('PORT');
   const required = {
