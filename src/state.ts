@@ -16,6 +16,12 @@ type MemoryState = {
   notifications: ServerNotification[];
 };
 
+type FileUpdateChange = {
+  path: string;
+  kind: { type: 'add' } | { type: 'delete' } | { type: 'update'; move_path: string | null };
+  diff: string;
+};
+
 const now = () => Math.floor(Date.now() / 1000);
 
 const newThread = (id: string, cwd: string, modelProvider: string, model: string): Thread => ({
@@ -102,7 +108,8 @@ export class HubState {
     const reasoning = item as Record<string, unknown>;
     const itemId = typeof reasoning.id === 'string' ? reasoning.id : crypto.randomUUID();
     const summaryParts = this.extractTextParts(reasoning.summary);
-    const summaryText = summaryParts[0] ?? (typeof reasoning.text === 'string' ? String(reasoning.text) : '');
+    const summaryText = summaryParts[0] ??
+      (typeof reasoning.text === 'string' ? String(reasoning.text) : '');
     const rawParts = this.extractTextParts(reasoning.content);
     if (summaryText) {
       this.pushNotification({
@@ -166,10 +173,100 @@ export class HubState {
     }
   }
 
+  private normalizeFileUpdateKind(kind: unknown): FileUpdateChange['kind'] {
+    if (!kind || typeof kind !== 'object') return { type: 'add' };
+    const rawType = (kind as { type?: unknown }).type;
+    if (rawType === 'delete') return { type: 'delete' };
+    if (rawType === 'update') {
+      const movePath = (kind as { move_path?: unknown }).move_path;
+      return {
+        type: 'update',
+        move_path: typeof movePath === 'string' ? movePath : null,
+      };
+    }
+    return { type: 'add' };
+  }
+
+  private emitFileChangeNotifications(threadId: string, turnId: string, item: unknown): void {
+    if (!item || typeof item !== 'object') return;
+    if ((item as { type?: unknown }).type !== 'fileChange') return;
+    const fileChange = item as Record<string, unknown>;
+    const itemId = typeof fileChange.id === 'string' ? fileChange.id : crypto.randomUUID();
+    const changes = Array.isArray(fileChange.changes)
+      ? fileChange.changes.flatMap((change) => {
+        if (!change || typeof change !== 'object') return [];
+        const path = typeof (change as { path?: unknown }).path === 'string'
+          ? String((change as { path: string }).path)
+          : '';
+        if (!path) return [];
+        return [{
+          path,
+          kind: this.normalizeFileUpdateKind((change as { kind?: unknown }).kind),
+          diff: typeof (change as { diff?: unknown }).diff === 'string'
+            ? String((change as { diff: string }).diff)
+            : '',
+        }];
+      })
+      : [];
+    if (!changes.length) return;
+    this.emitFileChangePatchUpdated(threadId, turnId, itemId, changes);
+  }
+
+  private emitCommandExecutionNotifications(threadId: string, turnId: string, item: unknown): void {
+    if (!item || typeof item !== 'object') return;
+    if ((item as { type?: unknown }).type !== 'commandExecution') return;
+    const commandExecution = item as Record<string, unknown>;
+    const itemId = typeof commandExecution.id === 'string'
+      ? commandExecution.id
+      : crypto.randomUUID();
+    const delta = typeof commandExecution.output === 'string'
+      ? String(commandExecution.output)
+      : typeof commandExecution.stdout === 'string'
+      ? String(commandExecution.stdout)
+      : '';
+    if (!delta) return;
+    this.pushNotification({
+      method: 'item/commandExecution/outputDelta',
+      params: { threadId, turnId, itemId, delta },
+    });
+  }
+
+  private emitMcpToolCallNotifications(threadId: string, turnId: string, item: unknown): void {
+    if (!item || typeof item !== 'object') return;
+    if ((item as { type?: unknown }).type !== 'mcpToolCall') return;
+    const mcpToolCall = item as Record<string, unknown>;
+    const itemId = typeof mcpToolCall.id === 'string' ? mcpToolCall.id : crypto.randomUUID();
+    const message = typeof mcpToolCall.progress === 'string'
+      ? String(mcpToolCall.progress)
+      : typeof mcpToolCall.message === 'string'
+      ? String(mcpToolCall.message)
+      : '';
+    if (!message) return;
+    this.pushNotification({
+      method: 'item/mcpToolCall/progress',
+      params: { threadId, turnId, itemId, message },
+    });
+  }
+
   private emitItemNotifications(threadId: string, turnId: string, item: unknown): void {
     this.emitReasoningNotifications(threadId, turnId, item);
     this.emitAgentMessageNotifications(threadId, turnId, item);
     this.emitPlanNotifications(threadId, turnId, item);
+    this.emitFileChangeNotifications(threadId, turnId, item);
+    this.emitCommandExecutionNotifications(threadId, turnId, item);
+    this.emitMcpToolCallNotifications(threadId, turnId, item);
+  }
+
+  emitFileChangePatchUpdated(
+    threadId: string,
+    turnId: string,
+    itemId: string,
+    changes: FileUpdateChange[],
+  ): void {
+    this.pushNotification({
+      method: 'item/fileChange/patchUpdated',
+      params: { threadId, turnId, itemId, changes },
+    });
   }
 
   drainNotifications(): ServerNotification[] {
@@ -199,7 +296,10 @@ export class HubState {
     this.state.turns.set(id, []);
     this.state.archivedThreadIds.delete(id);
     this.pushNotification({ method: 'thread/started', params: { thread } });
-    this.pushNotification({ method: 'thread/status/changed', params: { threadId: id, status: thread.status } });
+    this.pushNotification({
+      method: 'thread/status/changed',
+      params: { threadId: id, status: thread.status },
+    });
     return publicThread(thread);
   }
 
@@ -208,7 +308,10 @@ export class HubState {
     if (existing) {
       existing.updatedAt = now();
       this.state.loadedThreadIds.add(threadId);
-      this.pushNotification({ method: 'thread/status/changed', params: { threadId, status: existing.status } });
+      this.pushNotification({
+        method: 'thread/status/changed',
+        params: { threadId, status: existing.status },
+      });
       return publicThread(existing, this.getTurns(threadId), true);
     }
     return null;
@@ -275,7 +378,10 @@ export class HubState {
     if (patch.preview !== undefined) thread.preview = patch.preview ?? '';
     if (patch.gitInfo !== undefined) thread.gitInfo = patch.gitInfo as Thread['gitInfo'];
     thread.updatedAt = now();
-    this.pushNotification({ method: 'thread/status/changed', params: { threadId, status: thread.status } });
+    this.pushNotification({
+      method: 'thread/status/changed',
+      params: { threadId, status: thread.status },
+    });
     return publicThread(thread);
   }
 
@@ -295,7 +401,10 @@ export class HubState {
     this.state.archivedThreadIds.delete(threadId);
     thread.updatedAt = now();
     this.pushNotification({ method: 'thread/unarchived', params: { threadId } });
-    this.pushNotification({ method: 'thread/status/changed', params: { threadId, status: thread.status } });
+    this.pushNotification({
+      method: 'thread/status/changed',
+      params: { threadId, status: thread.status },
+    });
     return publicThread(thread);
   }
 
@@ -480,7 +589,10 @@ export class HubState {
     return this.state.fsWatches.delete(watchId);
   }
 
-  commandExec(command: string[], cwd: string): { exitCode: number; stdout: string; stderr: string } {
+  commandExec(
+    command: string[],
+    cwd: string,
+  ): { exitCode: number; stdout: string; stderr: string } {
     const output = new Deno.Command(command[0], {
       args: command.slice(1),
       cwd,
@@ -571,7 +683,11 @@ export class HubState {
     });
   }
 
-  emitMcpServerStartupStatus(name: string, status: 'starting' | 'failed' | 'ready', error: string | null = null): void {
+  emitMcpServerStartupStatus(
+    name: string,
+    status: 'starting' | 'failed' | 'ready',
+    error: string | null = null,
+  ): void {
     this.pushNotification({
       method: 'mcpServer/startupStatus/updated',
       params: { name, status, error },
@@ -652,7 +768,10 @@ export class HubState {
     this.state.turns.set(forkedId, []);
     this.state.archivedThreadIds.delete(forkedId);
     this.pushNotification({ method: 'thread/started', params: { thread: forked } });
-    this.pushNotification({ method: 'thread/status/changed', params: { threadId: forked.id, status: forked.status } });
+    this.pushNotification({
+      method: 'thread/status/changed',
+      params: { threadId: forked.id, status: forked.status },
+    });
     forked.forkedFromId = source.id;
     forked.preview = source.preview;
     forked.source = source.source;
@@ -692,7 +811,11 @@ export class HubState {
     });
   }
 
-  emitMcpServerStatus(name: string, status: 'starting' | 'failed' | 'ready', error: string | null = null): void {
+  emitMcpServerStatus(
+    name: string,
+    status: 'starting' | 'failed' | 'ready',
+    error: string | null = null,
+  ): void {
     this.pushNotification({
       method: 'mcpServer/startupStatus/updated',
       params: { name, status, error },
@@ -711,7 +834,10 @@ export class HubState {
   }
 
   emitFuzzySearchUpdated(sessionId: string, query: string): void {
-    this.pushNotification({ method: 'fuzzyFileSearch/sessionUpdated', params: { sessionId, query, files: [] } });
+    this.pushNotification({
+      method: 'fuzzyFileSearch/sessionUpdated',
+      params: { sessionId, query, files: [] },
+    });
   }
 
   emitFuzzySearchCompleted(sessionId: string): void {

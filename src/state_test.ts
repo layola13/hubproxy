@@ -78,13 +78,42 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   state.emitFuzzySearchCompleted('sess-1');
   state.emitWindowsWorldWritableWarning();
   state.emitWindowsSandboxSetupCompleted('unelevated');
+  state.emitFileChangePatchUpdated('thr_1', startedTurnId, 'filechange-1', [
+    {
+      path: '/tmp/demo.txt',
+      kind: { type: 'add' },
+      diff: '+++ /tmp/demo.txt\n@@\n+demo\n',
+    },
+  ]);
+  state.pushNotification({
+    method: 'item/commandExecution/outputDelta',
+    params: {
+      threadId: 'thr_1',
+      turnId: startedTurnId,
+      itemId: 'cmd-1',
+      delta: 'stdout chunk',
+    },
+  });
+  state.pushNotification({
+    method: 'item/mcpToolCall/progress',
+    params: {
+      threadId: 'thr_1',
+      turnId: startedTurnId,
+      itemId: 'mcp-1',
+      message: 'progress update',
+    },
+  });
   const notifications = state.drainNotifications();
   assert(notifications.some((entry) => entry.method === 'thread/started'));
   assert(notifications.some((entry) => entry.method === 'turn/started'));
   assert(notifications.some((entry) => entry.method === 'turn/completed'));
   assert(notifications.some((entry) => entry.method === 'item/completed'));
-  const reasoningSummary = notifications.find((entry) => entry.method === 'item/reasoning/summaryTextDelta');
-  const reasoningPart = notifications.find((entry) => entry.method === 'item/reasoning/summaryPartAdded');
+  const reasoningSummary = notifications.find((entry) =>
+    entry.method === 'item/reasoning/summaryTextDelta'
+  );
+  const reasoningPart = notifications.find((entry) =>
+    entry.method === 'item/reasoning/summaryPartAdded'
+  );
   const reasoningText = notifications.find((entry) => entry.method === 'item/reasoning/textDelta');
   assert(reasoningSummary);
   assertEquals((reasoningSummary.params as Record<string, unknown>).summaryIndex, 0);
@@ -98,6 +127,23 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   const planDelta = notifications.find((entry) => entry.method === 'item/plan/delta');
   assert(planDelta);
   assertEquals((planDelta.params as Record<string, unknown>).delta, 'plan delta');
+  const fileChange = notifications.find((entry) => entry.method === 'item/fileChange/patchUpdated');
+  assert(fileChange);
+  assertEquals((fileChange.params as Record<string, unknown>).threadId, 'thr_1');
+  assertEquals((fileChange.params as Record<string, unknown>).turnId, startedTurnId);
+  assertEquals(
+    ((fileChange.params as Record<string, unknown>).changes as Array<Record<string, unknown>>)[0]
+      .kind,
+    { type: 'add' },
+  );
+  const commandOutput = notifications.find((entry) =>
+    entry.method === 'item/commandExecution/outputDelta'
+  );
+  assert(commandOutput);
+  assertEquals((commandOutput.params as Record<string, unknown>).delta, 'stdout chunk');
+  const mcpProgress = notifications.find((entry) => entry.method === 'item/mcpToolCall/progress');
+  assert(mcpProgress);
+  assertEquals((mcpProgress.params as Record<string, unknown>).message, 'progress update');
   assert(notifications.some((entry) => entry.method === 'warning'));
   assert(notifications.some((entry) => entry.method === 'deprecationNotice'));
   assert(notifications.some((entry) => entry.method === 'configWarning'));
