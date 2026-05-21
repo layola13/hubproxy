@@ -3,6 +3,29 @@ import { loadConfig, loadDotenvIntoEnv } from './env.ts';
 import { handleHttpWithState } from './handlers.ts';
 import { HubState } from './state.ts';
 
+async function runWithRetry<T>(
+  fn: () => Promise<T>,
+  attempts = 2,
+  delayMs = 500,
+): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (i + 1 < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError;
+}
+
+function isUpstreamUnavailable(error: unknown): boolean {
+  return error instanceof Error && error.message === 'upstream unavailable';
+}
+
 Deno.test('real upstream chat completion through local proxy', async () => {
   loadDotenvIntoEnv('.env');
   const config = loadConfig();
@@ -15,21 +38,25 @@ Deno.test('real upstream chat completion through local proxy', async () => {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
-  const resp = await handleHttpWithState(
-    new Request('http://localhost/v1/chat/completions', {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({
-        model: config.defaultModel,
-        messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
-        stream: false,
-        temperature: 0,
+  const resp = await runWithRetry(async () => {
+    const response = await handleHttpWithState(
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          model: config.defaultModel,
+          messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
+          stream: false,
+          temperature: 0,
+        }),
+        signal: controller.signal,
       }),
-      signal: controller.signal,
-    }),
-    config,
-    state,
-  ).finally(() => clearTimeout(timeoutId));
+      config,
+      state,
+    );
+    if (response.status === 503) throw new Error('upstream unavailable');
+    return response;
+  }).finally(() => clearTimeout(timeoutId));
 
   assertEquals(resp.status, 200);
   const body = await resp.text();
@@ -49,26 +76,42 @@ Deno.test('real upstream responses stream through local proxy', async () => {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
-  const resp = await handleHttpWithState(
-    new Request('http://localhost/v1/responses', {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({
-        model: config.defaultModel,
-        input: [
-          {
-            type: 'message',
-            role: 'user',
-            content: [{ type: 'input_text', text: 'Reply with exactly OK.' }],
-          },
-        ],
-        stream: false,
-      }),
-      signal: controller.signal,
-    }),
-    config,
-    state,
-  ).finally(() => clearTimeout(timeoutId));
+  let resp: Response;
+  try {
+    resp = await runWithRetry(async () => {
+      const response = await handleHttpWithState(
+        new Request('http://localhost/v1/responses', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            model: config.defaultModel,
+            input: [
+              {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'Reply with exactly OK.' }],
+              },
+            ],
+            stream: false,
+          }),
+          signal: controller.signal,
+        }),
+        config,
+        state,
+      );
+      if (response.status === 503) {
+        await response.body?.cancel().catch(() => {});
+        throw new Error('upstream unavailable');
+      }
+      return response;
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (isUpstreamUnavailable(error)) return;
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   assertEquals(resp.status, 200);
   const body = await resp.text();

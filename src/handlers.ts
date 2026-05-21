@@ -284,16 +284,35 @@ export async function handleRpc(
         : jsonResponse(rpcError(body.id, -32000, 'turn not found'), 404);
     }
     case 'thread/compact/start':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          compacted: true,
+          threadId: String(params.threadId ?? ''),
+        }),
+      ));
     case 'thread/shellCommand':
       state.emitWarning(
         `shell command queued: ${String(params.command ?? '')}`,
         String(params.threadId ?? ''),
       );
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          queued: true,
+          threadId: String(params.threadId ?? ''),
+          command: String(params.command ?? ''),
+        }),
+      ));
     case 'thread/approveGuardianDeniedAction':
       state.emitGuardianWarning('guardian denied action approved', String(params.threadId ?? ''));
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          approved: true,
+          threadId: String(params.threadId ?? ''),
+        }),
+      ));
     case 'thread/backgroundTerminals/clean':
       return jsonResponse(rpcResult(
         body.id,
@@ -315,7 +334,13 @@ export async function handleRpc(
         }),
       ));
     case 'memory/reset':
-      return jsonResponse(rpcResult(body.id, toJson({})));
+      return jsonResponse(rpcResult(
+        body.id,
+        toJson({
+          reset: true,
+          threadId: String(params.threadId ?? ''),
+        }),
+      ));
     case 'thread/goal/set': {
       const threadId = String(params.threadId ?? '');
       const goal = state.setGoal(threadId, {

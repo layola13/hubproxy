@@ -1158,8 +1158,10 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const memoryResetJsonA = await memoryResetA.json() as { result: Record<string, unknown> };
-  assertEquals(typeof memoryResetJsonA.result, 'object');
+  const memoryResetJsonA = await memoryResetA.json() as {
+    result: { reset: boolean; threadId: string };
+  };
+  assertEquals(memoryResetJsonA.result.reset, true);
 
   const turnStart = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1268,8 +1270,10 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const memoryResetJsonB = await memoryResetB.json() as { result: Record<string, unknown> };
-  assertEquals(Object.keys(memoryResetJsonB.result).length, 0);
+  const memoryResetJsonB = await memoryResetB.json() as {
+    result: { reset: boolean; threadId: string };
+  };
+  assertEquals(memoryResetJsonB.result.reset, true);
 
   const clear = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1303,6 +1307,8 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(compact.status, 200);
+  const compactJson = await compact.json() as { result: { compacted: boolean; threadId: string } };
+  assertEquals(compactJson.result.compacted, true);
 
   const shell = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1319,6 +1325,10 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(shell.status, 200);
+  const shellJson = await shell.json() as {
+    result: { queued: boolean; threadId: string; command: string };
+  };
+  assertEquals(shellJson.result.queued, true);
 
   const hooksList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
