@@ -13,8 +13,15 @@ const forwardHeaders = (headers: Headers, apiKey: string, localAuthToken: string
   if (localAuthToken && out.get('authorization') === `Bearer ${localAuthToken}`) {
     out.delete('authorization');
   }
-  if (!out.has('authorization') && apiKey) {
+  if (localAuthToken && out.get('x-api-key') === localAuthToken) {
+    out.delete('x-api-key');
+  }
+  if (apiKey) {
     out.set('authorization', `Bearer ${apiKey}`);
+    out.set('x-api-key', apiKey);
+  } else {
+    out.delete('authorization');
+    out.delete('x-api-key');
   }
   return out;
 };
@@ -28,10 +35,20 @@ export function normalizeModelListResponseBody(body: string): string {
       if (!item || typeof item !== 'object') return item;
       const record = item as Record<string, unknown>;
       const id = typeof record.id === 'string' ? record.id : '';
-      if (!id || id.startsWith('models/')) return item;
-      return { ...record, id: `models/${id}` };
+      const cleaned: Record<string, unknown> = {};
+      if (id) {
+        cleaned.id = id.startsWith('models/') ? id : `models/${id}`;
+      }
+      if (typeof record.object === 'string') cleaned.object = record.object;
+      if (typeof record.created === 'number') cleaned.created = record.created;
+      if (typeof record.owned_by === 'string') cleaned.owned_by = record.owned_by;
+      return cleaned;
     });
-    return JSON.stringify({ ...parsed, data: normalizedData });
+    const out: Record<string, unknown> = {
+      object: typeof parsed.object === 'string' ? parsed.object : 'list',
+      data: normalizedData,
+    };
+    return JSON.stringify(out);
   } catch {
     return body;
   }
@@ -40,6 +57,20 @@ export function normalizeModelListResponseBody(body: string): string {
 export function normalizeModelNameForUpstream(model: unknown): unknown {
   if (typeof model !== 'string') return model;
   return model.startsWith('models/') ? model.slice('models/'.length) : model;
+}
+
+async function writeModelListLog(entry: Record<string, unknown>): Promise<void> {
+  const logDir = Deno.env.get('HUBPROXY_LOG_DIR') ?? 'logs';
+  try {
+    await Deno.mkdir(logDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = `${logDir}/models-${stamp}-${crypto.randomUUID()}.json`;
+    const text = JSON.stringify(entry, null, 2) + '\n';
+    console.log(text.trimEnd());
+    await Deno.writeTextFile(file, text);
+  } catch {
+    // Logging must never break the proxy path.
+  }
 }
 
 function isToolCallType(type: string): type is ResponsesToolKind {
@@ -212,12 +243,52 @@ export async function proxyOpenAI(
   if (path === '/v1/models' && upstream.ok) {
     const text = await upstream.clone().text();
     const normalized = normalizeModelListResponseBody(text);
+    void writeModelListLog({
+      path,
+      request: {
+        method: req.method,
+        url: req.url,
+        headers: Object.fromEntries(req.headers.entries()),
+      },
+      upstream: {
+        status: upstream.status,
+        headers: Object.fromEntries(upstream.headers.entries()),
+        body: text,
+      },
+      client: {
+        status: upstream.status,
+        headers: Object.fromEntries(upstream.headers.entries()),
+        body: normalized,
+      },
+    });
     if (normalized !== text) {
       return new Response(normalized, {
         status: upstream.status,
         headers: upstream.headers,
       });
     }
+    return upstream;
+  }
+  if (path === '/v1/models') {
+    const text = await upstream.clone().text();
+    void writeModelListLog({
+      path,
+      request: {
+        method: req.method,
+        url: req.url,
+        headers: Object.fromEntries(req.headers.entries()),
+      },
+      upstream: {
+        status: upstream.status,
+        headers: Object.fromEntries(upstream.headers.entries()),
+        body: text,
+      },
+      client: {
+        status: upstream.status,
+        headers: Object.fromEntries(upstream.headers.entries()),
+        body: text,
+      },
+    });
   }
   return upstream;
 }

@@ -932,6 +932,9 @@ export async function handleHttpWithState(
   const url = new URL(req.url);
   if (req.method === 'GET' && url.pathname === '/healthz') return new Response('ok');
   if (req.method === 'GET' && url.pathname === '/readyz') return new Response('ok');
+  if (req.method === 'GET' && url.pathname === '/v1/models') {
+    return await proxyOpenAI(url.pathname + url.search, req, config);
+  }
   if (!hasValidAuth(req, config)) return jsonResponse({ error: 'unauthorized' }, 401);
   if (req.method === 'GET' && url.pathname === '/events') {
     const encoder = new TextEncoder();
@@ -965,9 +968,6 @@ export async function handleHttpWithState(
     return scenario
       ? await mockResponsesOpenAI(url.pathname + url.search, req, config, scenario)
       : await proxyOpenAI(url.pathname + url.search, req, config);
-  }
-  if (url.pathname === '/v1/models' && req.method === 'GET') {
-    return await proxyOpenAI(url.pathname + url.search, req, config);
   }
   return new Response('not found', { status: 404 });
 }

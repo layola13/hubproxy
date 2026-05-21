@@ -48,7 +48,7 @@ Deno.test('real upstream responses stream through local proxy', async () => {
   };
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
   const resp = await handleHttpWithState(
     new Request('http://localhost/v1/responses', {
       method: 'POST',
@@ -99,19 +99,15 @@ Deno.test('real upstream models list through local proxy', async () => {
   assertEquals(resp.status, 200);
   const body = await resp.json() as {
     object?: string;
-    success?: boolean;
     data?: Array<{
       id?: string;
       object?: string;
       created?: number;
       owned_by?: string;
-      supported_endpoint_types?: string[];
     }>;
   };
   assertEquals(body.object, 'list');
-  assertEquals(body.success, true);
   assert(body.data?.length && body.data.length > 0);
   assert(body.data?.[0]?.id);
   assert(body.data?.[0]?.object === 'model');
-  assert(body.data?.[0]?.supported_endpoint_types?.includes('openai'));
 });

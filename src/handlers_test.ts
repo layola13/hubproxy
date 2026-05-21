@@ -1423,13 +1423,13 @@ Deno.test('handleHttpWithState serves models anonymously and still protects rpc 
     assertEquals(publicModels.status, 200);
     const publicModelsJson = await publicModels.json() as {
       object: string;
-      success: boolean;
-      data: Array<{ id: string; object: string }>;
+      data: Array<{ id: string; object: string; created?: number; owned_by?: string }>;
     };
     assertEquals(publicModelsJson.object, 'list');
-    assertEquals(publicModelsJson.success, true);
     assertEquals(publicModelsJson.data[0].id, 'models/remote-model-1');
     assertEquals(publicModelsJson.data[0].object, 'model');
+    assertEquals(publicModelsJson.data[0].created, 123);
+    assertEquals(publicModelsJson.data[0].owned_by, 'upstream');
   } finally {
     globalThis.fetch = originalFetch;
   }

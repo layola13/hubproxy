@@ -41,6 +41,7 @@ Deno.test('proxyOpenAI forwards auth and base url', async () => {
     assertEquals(resp.status, 200);
     assertMatch(seen.url ?? '', /^http:\/\/127\.0\.0\.1:8789\/v1\/chat\/completions$/);
     assertEquals((seen.init?.headers as Headers).get('authorization'), 'Bearer secret-token');
+    assertEquals((seen.init?.headers as Headers).get('x-api-key'), 'secret-token');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -49,17 +50,24 @@ Deno.test('proxyOpenAI forwards auth and base url', async () => {
 Deno.test('normalizeModelListResponseBody adds models/ prefix for plain ids', () => {
   const body = normalizeModelListResponseBody(JSON.stringify({
     object: 'list',
+    success: true,
     data: [
-      { id: 'mimo-v2.5-pro', object: 'model' },
-      { id: 'models/gemma-4-31b-it', object: 'model' },
+      { id: 'mimo-v2.5-pro', object: 'model', created: 1, owned_by: 'custom', supported_endpoint_types: ['openai'] },
+      { id: 'models/gemma-4-31b-it', object: 'model', created: 2, owned_by: 'custom', supported_endpoint_types: ['openai'] },
     ],
   }));
 
   const parsed = JSON.parse(body) as {
-    data: Array<{ id: string }>;
+    object: string;
+    data: Array<{ id: string; object?: string; created?: number; owned_by?: string }>;
   };
+  assertEquals(parsed.object, 'list');
   assertEquals(parsed.data[0].id, 'models/mimo-v2.5-pro');
   assertEquals(parsed.data[1].id, 'models/gemma-4-31b-it');
+  assertEquals(parsed.data[0].object, 'model');
+  assertEquals(parsed.data[0].created, 1);
+  assertEquals(parsed.data[0].owned_by, 'custom');
+  assertEquals('supported_endpoint_types' in parsed.data[0], false);
 });
 
 Deno.test('proxyOpenAI strips models/ prefix before forwarding request body', async () => {
