@@ -163,15 +163,41 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     await followReader!.cancel();
   }
 
-  const models = await handleHttpWithState(
-    new Request('http://localhost/v1/models'),
-    config,
-    state,
-  );
-  assertEquals(models.status, 200);
-  const modelsJson = await models.json() as { object: string; data: Array<{ id: string }> };
-  assertEquals(modelsJson.object, 'list');
-  assertEquals(modelsJson.data[0].id, config.defaultModel);
+  const modelsSeen: { url?: string; init?: RequestInit } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    modelsSeen.url = String(input);
+    modelsSeen.init = init;
+    return new Response(JSON.stringify({
+      object: 'list',
+      data: [
+        {
+          id: 'remote-model-1',
+          object: 'model',
+          created: 123,
+          owned_by: 'upstream',
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  try {
+    const models = await handleHttpWithState(
+      new Request('http://localhost/v1/models'),
+      config,
+      state,
+    );
+    assertEquals(models.status, 200);
+    const modelsJson = await models.json() as { object: string; data: Array<{ id: string }> };
+    assertEquals(modelsJson.object, 'list');
+    assertEquals(modelsJson.data[0].id, 'remote-model-1');
+    assertEquals(modelsSeen.url, 'http://127.0.0.1:1/v1/models');
+    assertEquals((modelsSeen.init?.headers as Headers).get('authorization'), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 
   const start = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -831,20 +857,40 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
 Deno.test('handleHttpWithState rejects unauthorized requests when authToken is set', async () => {
   const state = new HubState();
   const authedConfig: ProxyConfig = { ...config, authToken: 'local-secret' };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({
+      object: 'list',
+      data: [
+        {
+          id: 'remote-model-1',
+          object: 'model',
+          created: 123,
+          owned_by: 'upstream',
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
 
-  const denied = await handleHttpWithState(
-    new Request('http://localhost/v1/models'),
-    authedConfig,
-    state,
-  );
-  assertEquals(denied.status, 401);
+  try {
+    const denied = await handleHttpWithState(
+      new Request('http://localhost/v1/models'),
+      authedConfig,
+      state,
+    );
+    assertEquals(denied.status, 401);
 
-  const allowed = await handleHttpWithState(
-    new Request('http://localhost/v1/models', {
-      headers: { authorization: 'Bearer local-secret' },
-    }),
-    authedConfig,
-    state,
-  );
-  assertEquals(allowed.status, 200);
+    const allowed = await handleHttpWithState(
+      new Request('http://localhost/v1/models', {
+        headers: { authorization: 'Bearer local-secret' },
+      }),
+      authedConfig,
+      state,
+    );
+    assertEquals(allowed.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

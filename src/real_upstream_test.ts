@@ -6,7 +6,7 @@ import { HubState } from './state.ts';
 Deno.test('real upstream chat completion through local proxy', async () => {
   loadDotenvIntoEnv('.env');
   const config = loadConfig();
-  assertEquals(config.authToken, 'local-secret');
+  assert(config.authToken);
   const state = new HubState();
 
   const resp = await handleHttpWithState(
@@ -36,7 +36,7 @@ Deno.test('real upstream chat completion through local proxy', async () => {
 Deno.test('real upstream responses stream through local proxy', async () => {
   loadDotenvIntoEnv('.env');
   const config = loadConfig();
-  assertEquals(config.authToken, 'local-secret');
+  assert(config.authToken);
   const state = new HubState();
 
   const resp = await handleHttpWithState(

@@ -637,15 +637,7 @@ export async function handleHttpWithState(
       : await proxyOpenAI(url.pathname + url.search, req, config);
   }
   if (url.pathname === '/v1/models' && req.method === 'GET') {
-    return jsonResponse({
-      object: 'list',
-      data: [{
-        id: config.defaultModel,
-        object: 'model',
-        created: Math.floor(Date.now() / 1000),
-        owned_by: 'hubproxy',
-      }],
-    });
+    return await proxyOpenAI(url.pathname + url.search, req, config);
   }
   return new Response('not found', { status: 404 });
 }
