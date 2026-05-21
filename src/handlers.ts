@@ -462,13 +462,14 @@ export async function handleRpc(
     case 'plugin/uninstall':
       return jsonResponse(rpcResult(body.id, toJson({})));
     case 'model/list':
-      return jsonResponse(rpcResult(
-        body.id,
-        toJson({
-          data: [{ id: config.defaultModel }],
-          nextCursor: null,
+      return await proxyOpenAI(
+        '/v1/models',
+        new Request('http://localhost/v1/models', {
+          method: 'GET',
+          headers: req.headers,
         }),
-      ));
+        config,
+      );
     case 'modelProvider/capabilities/read':
       return jsonResponse(rpcResult(
         body.id,
