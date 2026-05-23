@@ -37,6 +37,57 @@ function accountFromConfig(config: ProxyConfig): Record<string, unknown> {
   };
 }
 
+function normalizeCollaborationModeKind(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const mode = (value as { mode?: unknown }).mode;
+  if (typeof mode !== 'string') return null;
+  const normalized = mode.trim().toLowerCase();
+  return normalized || null;
+}
+
+function requestThreadId(req: Request): string {
+  const directThreadId = req.headers.get('thread-id') ?? req.headers.get('session-id');
+  if (directThreadId) return directThreadId;
+  const metadata = req.headers.get('x-codex-turn-metadata');
+  if (!metadata) return '';
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return typeof parsed.thread_id === 'string'
+      ? parsed.thread_id
+      : typeof parsed.session_id === 'string'
+      ? parsed.session_id
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+function requestTurnId(req: Request): string {
+  const directTurnId = req.headers.get('turn-id');
+  if (directTurnId) return directTurnId;
+  const metadata = req.headers.get('x-codex-turn-metadata');
+  if (!metadata) return '';
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return typeof parsed.turn_id === 'string' ? parsed.turn_id : '';
+  } catch {
+    return '';
+  }
+}
+
+function turnContextForThread(
+  state: HubState,
+  threadId: string,
+  turnId?: string,
+): { collaborationModeKind: string | null } | undefined {
+  if (!turnId) return undefined;
+  const currentTurn = state.listTurns(threadId).find((turn) => turn.id === turnId) ?? null;
+  if (!currentTurn) return undefined;
+  return {
+    collaborationModeKind: currentTurn?.collaborationModeKind ?? null,
+  };
+}
+
 function hasValidAuth(req: Request, config: ProxyConfig): boolean {
   if (!config.authToken) return true;
   const authorization = req.headers.get('authorization');
@@ -87,7 +138,11 @@ function writeAuthFailureLog(req: Request, config: ProxyConfig): void {
     kind: 'auth_failure',
     authorization: preview(authorization),
     xApiKey: preview(apiKey),
-    expectedAuth: config.authToken ? `${config.authToken.slice(0, 3)}...${config.authToken.slice(-3)} (len=${config.authToken.length})` : 'none',
+    expectedAuth: config.authToken
+      ? `${config.authToken.slice(0, 3)}...${
+        config.authToken.slice(-3)
+      } (len=${config.authToken.length})`
+      : 'none',
   });
 }
 
@@ -323,7 +378,11 @@ export async function handleRpc(
     }
     case 'turn/start': {
       const threadId = String(params.threadId ?? '');
-      const turn = state.startTurn(threadId, Array.isArray(params.input) ? params.input : []);
+      const turn = state.startTurn(
+        threadId,
+        Array.isArray(params.input) ? params.input : [],
+        normalizeCollaborationModeKind(params.collaborationMode),
+      );
       return turn
         ? jsonResponse(rpcResult(body.id, toJson({ turn })))
         : jsonResponse(rpcError(body.id, -32000, 'thread not found'), 404);
@@ -776,11 +835,13 @@ export async function handleRpc(
         }),
       ));
     case 'item/tool/requestUserInput':
-      state.emitUserInputRequest(
-        String(params.threadId ?? ''),
-        String(params.turnId ?? ''),
-        String(params.itemId ?? crypto.randomUUID()),
-      );
+      {
+        const threadId = String(params.threadId ?? '');
+        const turnId = String(params.turnId ?? '');
+        const requestId = String(params.itemId ?? crypto.randomUUID());
+        state.emitUserInputRequest(threadId, turnId, requestId);
+        state.incrementElicitation(threadId);
+      }
       return jsonResponse(rpcResult(
         body.id,
         toJson({
@@ -795,6 +856,7 @@ export async function handleRpc(
         typeof params.turnId === 'string' ? String(params.turnId) : null,
         String(params.serverName ?? 'local'),
       );
+      state.incrementElicitation(String(params.threadId ?? ''));
       return jsonResponse(rpcResult(
         body.id,
         toJson({
@@ -1139,15 +1201,15 @@ export async function handleRpc(
           data: [
             {
               name: 'default',
-              mode: null,
-              model: config.defaultModel,
+              mode: 'default',
+              model: null,
               reasoning_effort: null,
             },
             {
               name: 'plan',
               mode: 'plan',
-              model: config.defaultModel,
-              reasoning_effort: null,
+              model: null,
+              reasoning_effort: 'medium',
             },
           ],
         }),
@@ -1182,6 +1244,7 @@ export async function handleRpc(
         String(params.threadId ?? ''),
         String(params.requestId ?? ''),
       );
+      state.decrementElicitation(String(params.threadId ?? ''));
       return jsonResponse(rpcResult(
         body.id,
         toJson({
@@ -1264,7 +1327,9 @@ export async function handleHttpWithState(
   const url = new URL(req.url);
   const isApiRoute = url.pathname.startsWith('/v1/') || url.pathname === '/rpc';
   if (isApiRoute) {
-    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.clone().text();
+    const body = req.method === 'GET' || req.method === 'HEAD'
+      ? undefined
+      : await req.clone().text();
     writeRequestLog({
       path: url.pathname + url.search,
       method: req.method,
@@ -1310,9 +1375,14 @@ export async function handleHttpWithState(
   if (url.pathname === '/rpc' && req.method === 'POST') return await handleRpc(req, state, config);
   if (url.pathname.startsWith('/v1/responses') || url.pathname.startsWith('/v1/chat/completions')) {
     const scenario = (globalThis as { HUBPROXY_SCENARIO?: ResponsesScenario }).HUBPROXY_SCENARIO;
+    const threadId = requestThreadId(req);
+    const turnId = requestTurnId(req);
+    const turnContext = threadId
+      ? turnContextForThread(state, threadId, turnId || undefined)
+      : undefined;
     return scenario
-      ? await mockResponsesOpenAI(url.pathname + url.search, req, config, scenario)
-      : await proxyOpenAI(url.pathname + url.search, req, config);
+      ? await mockResponsesOpenAI(url.pathname + url.search, req, config, scenario, turnContext)
+      : await proxyOpenAI(url.pathname + url.search, req, config, turnContext);
   }
   return new Response('not found', { status: 404 });
 }

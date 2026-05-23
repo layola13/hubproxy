@@ -10,4 +10,7 @@ if pgrep -f "$pattern" >/dev/null 2>&1; then
   sleep 1
 fi
 
+# Clean up logs older than 1 day to manage disk space.
+find logs/ -name "*.json" -mtime +1 -delete 2>/dev/null || true
+
 exec deno task start

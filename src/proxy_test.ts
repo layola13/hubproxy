@@ -139,8 +139,20 @@ Deno.test('normalizeModelListResponseBody returns the original body', () => {
     object: 'list',
     success: true,
     data: [
-      { id: 'mimo-v2.5-pro', object: 'model', created: 1, owned_by: 'custom', supported_endpoint_types: ['openai'] },
-      { id: 'models/gemma-4-31b-it', object: 'model', created: 2, owned_by: 'custom', supported_endpoint_types: ['openai'] },
+      {
+        id: 'mimo-v2.5-pro',
+        object: 'model',
+        created: 1,
+        owned_by: 'custom',
+        supported_endpoint_types: ['openai'],
+      },
+      {
+        id: 'models/gemma-4-31b-it',
+        object: 'model',
+        created: 2,
+        owned_by: 'custom',
+        supported_endpoint_types: ['openai'],
+      },
     ],
   });
   const body = normalizeModelListResponseBody(input);
@@ -289,9 +301,9 @@ Deno.test('proxyOpenAI preserves tool names in chat fallback tool messages', asy
     const body = JSON.parse(seen.body ?? '{}') as {
       messages?: Array<{ role?: string; name?: string; tool_call_id?: string }>;
     };
-    assertEquals(body.messages?.[0]?.role, 'tool');
-    assertEquals(body.messages?.[0]?.tool_call_id, 'call-1');
-    assertEquals(body.messages?.[0]?.name, 'exec_command');
+    const toolMessage = body.messages?.find((message) => message.role === 'tool');
+    assertEquals(toolMessage?.tool_call_id, 'call-1');
+    assertEquals(toolMessage?.name, 'exec_command');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -334,7 +346,9 @@ Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () =
     );
 
     const body = JSON.parse(seen.body ?? '{}') as {
-      tools?: Array<{ type?: string; function?: { name?: string; description?: string; parameters?: unknown } }>;
+      tools?: Array<
+        { type?: string; function?: { name?: string; description?: string; parameters?: unknown } }
+      >;
     };
     assertEquals(body.tools?.length, 1);
     assertEquals(body.tools?.[0]?.type, 'function');
@@ -370,7 +384,11 @@ Deno.test('proxyOpenAI drops non-function tools for chat upstreams', async () =>
               type: 'namespace',
               name: 'mcp__code_index__',
               tools: [
-                { type: 'function', name: 'search', parameters: { type: 'object', properties: {} } },
+                {
+                  type: 'function',
+                  name: 'search',
+                  parameters: { type: 'object', properties: {} },
+                },
               ],
             },
             {
@@ -394,9 +412,58 @@ Deno.test('proxyOpenAI drops non-function tools for chat upstreams', async () =>
     const body = JSON.parse(seen.body ?? '{}') as {
       tools?: Array<{ type?: string; function?: { name?: string } }>;
     };
-    assertEquals(body.tools?.length, 1);
+    assertEquals(body.tools?.length, 2);
     assertEquals(body.tools?.[0]?.type, 'function');
-    assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
+    assertEquals(body.tools?.[0]?.function?.name, 'mcp__code_index__search');
+    assertEquals(body.tools?.[1]?.type, 'function');
+    assertEquals(body.tools?.[1]?.function?.name, 'exec_command');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI keeps plan and goal tools available in chat fallback', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          tools: [
+            { type: 'function', name: 'exec_command', parameters: {} },
+            { type: 'function', name: 'update_plan', parameters: {} },
+            { type: 'function', name: 'get_goal', parameters: {} },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    assertEquals(body.tools?.map((tool) => tool.function?.name), [
+      'exec_command',
+      'update_plan',
+      'get_goal',
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -408,12 +475,15 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     seen.url = String(input);
     seen.body = typeof init?.body === 'string' ? init.body : undefined;
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: 'ok' } }],
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
   }) as typeof fetch;
 
   try {
@@ -438,6 +508,7 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
         ...config,
         responsesBaseUrl: null,
       },
+      { collaborationModeKind: 'plan' },
     );
     assertEquals(resp.status, 200);
     assertEquals(resp.headers.get('content-type'), 'application/json; charset=utf-8');
@@ -447,8 +518,8 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
       messages?: Array<{ role?: string; content?: string }>;
     };
     assertEquals(body.model, 'models/mimo-v2.5-pro');
-    assertEquals(body.messages?.[0]?.role, 'user');
-    assertEquals(body.messages?.[0]?.content, 'hello');
+    const userMessage = body.messages?.find((message) => message.role === 'user');
+    assertEquals(userMessage?.content, 'hello');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -498,6 +569,7 @@ Deno.test('proxyOpenAI falls back to chat stream when responses upstream returns
         ...config,
         responsesBaseUrl: null,
       },
+      { collaborationModeKind: 'plan' },
     );
     assertEquals(resp.status, 200);
     assertEquals(resp.headers.get('content-type'), 'text/event-stream; charset=utf-8');
@@ -506,7 +578,305 @@ Deno.test('proxyOpenAI falls back to chat stream when responses upstream returns
     assertEquals(text.includes('event: response.created'), true);
     assertEquals(text.includes('event: response.reasoning_summary_part.added'), false);
     assertEquals(text.includes('event: response.output_text.delta'), true);
+    assertEquals(text.includes('event: response.done'), true);
     assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI normalizes chat fallback tool calls for Codex exec', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_read","type":"function","function":{"name":"read","arguments":"{\\"filePath\\":\\"/tmp/demo.txt\\"}"},"index":0},{"id":"call_cmd","type":"function","function":{"name":"exec_command","arguments":"{\\"command\\":\\"deno check src/main.ts\\"}"},"index":1}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [
+            { type: 'function', name: 'exec_command', parameters: {} },
+            { type: 'function', name: 'update_plan', parameters: {} },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('"name":"read"'), false);
+    assertEquals((text.match(/"name":"exec_command"/g) ?? []).length, 2);
+    assertEquals(text.includes(`\\\"cmd\\\":\\\"cat '/tmp/demo.txt'\\\"`), true);
+    assertEquals(text.includes('\\"cmd\\":\\"deno check src/main.ts\\"'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves plan and goal tool calls in chat fallback', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_plan","type":"function","function":{"name":"update_plan","arguments":"{\\"plan\\":[]}"},"index":0}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [
+            { type: 'function', name: 'exec_command', parameters: {} },
+            { type: 'function', name: 'update_plan', parameters: {} },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('"name":"update_plan"'), true);
+    assertEquals(text.includes('"name":"get_goal"'), false);
+    assertEquals(text.includes('"name":"exec_command"'), false);
+    assertEquals(text.includes('Tool update_plan is unavailable in chat fallback'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI converts progress-only chat stops into continuation tool calls', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"我会继续读取核心文件并运行检查。"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [
+            { type: 'function', name: 'exec_command', parameters: {} },
+            { type: 'function', name: 'update_plan', parameters: {} },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('我会继续读取核心文件并运行检查。'), true);
+    assertEquals(text.includes('"name":"exec_command"'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI does not force continuation for progress-only chat in ordinary mode', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"我会继续读取核心文件并运行检查。"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [
+            { type: 'function', name: 'exec_command', parameters: {} },
+            { type: 'function', name: 'update_plan', parameters: {} },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('我会继续读取核心文件并运行检查。'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), false);
+    assertEquals(text.includes('"name":"exec_command"'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI does not force continuation for a normal final answer', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"我已完成评估，下面是结论。"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('Progress-only message received in chat fallback'), false);
+    assertEquals(text.includes('我已完成评估，下面是结论。'), true);
+    assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves namespaced chat fallback tool calls', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_mcp","type":"function","function":{"name":"mcp__code_index__describe_index","arguments":"{}"},"index":0}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [{
+            type: 'namespace',
+            name: 'mcp__code_index__',
+            tools: [{ type: 'function', name: 'describe_index', parameters: {} }],
+          }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('"type":"function_call"'), true);
+    assertEquals(text.includes('"namespace":"mcp__code_index__"'), true);
+    assertEquals(text.includes('"name":"describe_index"'), true);
+    assertEquals(text.includes('"name":"mcp__code_index__describe_index"'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -521,17 +891,20 @@ Deno.test('proxyOpenAI falls back to chat JSON when stream is false', async () =
     if (url.includes('/v1/responses')) {
       return new Response('not found', { status: 404 });
     }
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: 'ok' } }],
-      usage: {
-        prompt_tokens: 1,
-        completion_tokens: 1,
-        total_tokens: 2,
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+        },
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
       },
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
+    );
   }) as typeof fetch;
 
   try {
@@ -561,7 +934,15 @@ Deno.test('proxyOpenAI falls back to chat JSON when stream is false', async () =
     assertEquals(resp.headers.get('content-type'), 'application/json; charset=utf-8');
     assertEquals(calls[0], 'http://127.0.0.1:8789/v1/chat/completions');
     const body = await resp.json() as {
-      output?: Array<{ type?: string; role?: string; content?: Array<{ type?: string; text?: string }>; summary?: Array<{ type?: string; text?: string }>; encrypted_content?: string | null }>;
+      output?: Array<
+        {
+          type?: string;
+          role?: string;
+          content?: Array<{ type?: string; text?: string }>;
+          summary?: Array<{ type?: string; text?: string }>;
+          encrypted_content?: string | null;
+        }
+      >;
       output_text?: string;
       usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
     };
@@ -584,21 +965,24 @@ Deno.test('proxyOpenAI maps thought tags into reasoning output items', async () 
     }
     const body = JSON.parse(String(init?.body ?? '{}')) as { stream?: boolean };
     assertEquals(body.stream, false);
-    return new Response(JSON.stringify({
-      choices: [{
-        message: {
-          content: '<thought>internal thought</thought>Hello there',
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: '<thought>internal thought</thought>Hello there',
+          },
+        }],
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 2,
+          total_tokens: 5,
         },
-      }],
-      usage: {
-        prompt_tokens: 3,
-        completion_tokens: 2,
-        total_tokens: 5,
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
       },
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
+    );
   }) as typeof fetch;
 
   try {
@@ -650,12 +1034,15 @@ Deno.test('proxyOpenAI strips responses-only fields when falling back to chat', 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     seen.body = typeof init?.body === 'string' ? init.body : undefined;
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: 'ok' } }],
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
   }) as typeof fetch;
 
   try {
@@ -696,8 +1083,64 @@ Deno.test('proxyOpenAI strips responses-only fields when falling back to chat', 
     assertEquals(body.prompt_cache_key, undefined);
     assertEquals(body.include, undefined);
     assertEquals(body.reasoning, undefined);
-    assertEquals(body.messages?.[0]?.role, 'user');
-    assertEquals(body.messages?.[0]?.content, 'hello');
+    const userMessage = body.messages?.find((message) => message.role === 'user');
+    assertEquals(userMessage?.content, 'hello');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves responses-only fields for real responses upstream', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ output: [], status: 'completed' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          store: false,
+          prompt_cache_key: 'abc',
+          include: ['reasoning.encrypted_content'],
+          reasoning: { effort: 'medium', summary: 'auto' },
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      store?: unknown;
+      prompt_cache_key?: unknown;
+      include?: unknown;
+      reasoning?: unknown;
+      input?: Array<{ type?: string; role?: string }>;
+    };
+    assertEquals(body.store, false);
+    assertEquals(body.prompt_cache_key, 'abc');
+    assertEquals(body.include, ['reasoning.encrypted_content']);
+    assertEquals((body.reasoning as { effort?: string } | undefined)?.effort, 'medium');
+    assertEquals(body.input?.[0]?.type, 'message');
+    assertEquals(body.input?.[0]?.role, 'user');
   } finally {
     globalThis.fetch = originalFetch;
   }

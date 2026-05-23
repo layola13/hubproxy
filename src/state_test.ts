@@ -50,9 +50,10 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
     },
   ]);
   assertEquals(Array.isArray(state.listTurns('thr_1')), true);
-  const startedTurn = state.startTurn('thr_1', []);
+  const startedTurn = state.startTurn('thr_1', [], 'plan');
   assert(startedTurn !== null);
   const startedTurnId = startedTurn!.id;
+  assertEquals(startedTurn!.collaborationModeKind, 'plan');
   assertEquals(state.steerTurn('thr_1', startedTurnId, [])?.id, startedTurnId);
   assertEquals(state.interruptTurn('thr_1', startedTurnId)?.status, 'interrupted');
   state.emitWarning('careful', 'thr_1');

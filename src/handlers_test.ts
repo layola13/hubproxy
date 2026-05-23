@@ -976,11 +976,19 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const collabListJson = await collabList.json() as {
-    result: { data: Array<{ name: string; model: string | null; mode: string | null }> };
+    result: {
+      data: Array<
+        { name: string; model: string | null; mode: string | null; reasoning_effort: string | null }
+      >;
+    };
   };
   assertEquals(collabListJson.result.data[0].name, 'default');
   assertEquals(collabListJson.result.data[1].name, 'plan');
+  assertEquals(collabListJson.result.data[0].mode, 'default');
   assertEquals(collabListJson.result.data[1].mode, 'plan');
+  assertEquals(collabListJson.result.data[0].model, null);
+  assertEquals(collabListJson.result.data[1].model, null);
+  assertEquals(collabListJson.result.data[1].reasoning_effort, 'medium');
 
   const mcpStatusList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1000,6 +1008,46 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { data: Array<{ name: string; authStatus: string }> };
   };
   assertEquals(mcpStatusListJson.result.data[0].authStatus, 'unsupported');
+
+  const mcpResourceList = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 301,
+        method: 'mcpServer/resource/list',
+        params: { server: 'local' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const mcpResourceListJson = await mcpResourceList.json() as {
+    error: { code: number; message: string };
+  };
+  assertEquals(mcpResourceList.status, 404);
+  assertEquals(mcpResourceListJson.error.code, -32601);
+
+  const mcpResourceTemplates = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 302,
+        method: 'mcpServer/resource/templates',
+        params: { server: 'local' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const mcpResourceTemplatesJson = await mcpResourceTemplates.json() as {
+    error: { code: number; message: string };
+  };
+  assertEquals(mcpResourceTemplates.status, 404);
+  assertEquals(mcpResourceTemplatesJson.error.code, -32601);
 
   const voiceList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1054,6 +1102,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(mcpToolCallJson.result.isError, false);
   assertEquals(mcpToolCallJson.result.meta.threadId, 'thr_test');
   assertEquals(mcpToolCallJson.result.meta.turnId, null);
+  state.drainNotifications();
 
   const requestUserInput = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1077,6 +1126,35 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { answers: { default: { answers: string[] } } };
   };
   assertEquals(requestUserInputJson.result.answers.default.answers[0], 'continue');
+  const requestUserInputNotifications = state.drainNotifications();
+  assertEquals(
+    requestUserInputNotifications.some((entry) => entry.method === 'item/tool/requestUserInput'),
+    true,
+  );
+  assertEquals(
+    requestUserInputNotifications.some((entry) => entry.method === 'serverRequest/resolved'),
+    false,
+  );
+
+  const elicitationAfterRequest = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 341,
+        method: 'thread/decrement_elicitation',
+        params: { threadId: 'thr_test' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const elicitationAfterRequestJson = await elicitationAfterRequest.json() as {
+    result: { count: number; paused: boolean };
+  };
+  assertEquals(elicitationAfterRequestJson.result.count > 0, true);
+  assertEquals(elicitationAfterRequestJson.result.paused, true);
 
   const elicitationRequest = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1100,6 +1178,37 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     result: { action: string; content: null; meta: null };
   };
   assertEquals(elicitationRequestJson.result.action, 'accept');
+  const elicitationRequestNotifications = state.drainNotifications();
+  assertEquals(
+    elicitationRequestNotifications.some((entry) =>
+      entry.method === 'mcpServer/elicitation/request'
+    ),
+    true,
+  );
+  assertEquals(
+    elicitationRequestNotifications.some((entry) => entry.method === 'serverRequest/resolved'),
+    false,
+  );
+
+  const elicitationAfterMcp = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 35,
+        method: 'thread/decrement_elicitation',
+        params: { threadId: 'thr_test' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const elicitationAfterMcpJson = await elicitationAfterMcp.json() as {
+    result: { count: number; paused: boolean };
+  };
+  assertEquals(elicitationAfterMcpJson.result.count > 0, true);
+  assertEquals(elicitationAfterMcpJson.result.paused, true);
 
   const appList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1335,6 +1444,64 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   };
   assertEquals(typeof turnStartJson.result.turn.id, 'string');
   assertEquals(turnStartJson.result.turn.status, 'inProgress');
+
+  const turnStartPlan = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 271,
+        method: 'turn/start',
+        params: {
+          threadId: 'thr_test',
+          input: [],
+          collaborationMode: {
+            mode: 'plan',
+            settings: { developerInstructions: null },
+          },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const turnStartPlanJson = await turnStartPlan.json() as {
+    result: { turn: { id: string; collaborationModeKind?: string | null; status: 'inProgress' } };
+  };
+  assertEquals(typeof turnStartPlanJson.result.turn.id, 'string');
+  assertEquals(turnStartPlanJson.result.turn.status, 'inProgress');
+  assertEquals(turnStartPlanJson.result.turn.collaborationModeKind, 'plan');
+  const turnStartPlanNotifications = state.drainNotifications();
+  const startedTurnNotification = turnStartPlanNotifications.find((entry) =>
+    entry.method === 'turn/started' &&
+    (entry.params as Record<string, unknown>)?.threadId === 'thr_test' &&
+    ((entry.params as Record<string, unknown>).turn as Record<string, unknown>)?.id ===
+      turnStartPlanJson.result.turn.id
+  );
+  assert(startedTurnNotification);
+  assertEquals(
+    turnStartPlanNotifications.some((entry) =>
+      entry.method === 'turn/completed' &&
+      (entry.params as Record<string, unknown>)?.threadId === 'thr_test' &&
+      ((entry.params as Record<string, unknown>).turn as Record<string, unknown>)?.id ===
+        turnStartPlanJson.result.turn.id
+    ),
+    false,
+  );
+  assertEquals(
+    turnStartPlanNotifications.some((entry) =>
+      entry.method === 'item/completed' &&
+      (entry.params as Record<string, unknown>)?.threadId === 'thr_test' &&
+      (entry.params as Record<string, unknown>)?.turnId === turnStartPlanJson.result.turn.id
+    ),
+    false,
+  );
+  assertEquals(
+    ((startedTurnNotification!.params as Record<string, unknown>).turn as Record<string, unknown>)
+      .collaborationModeKind,
+    'plan',
+  );
 
   const turnSteer = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -2046,7 +2213,9 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const stateReadDirectoryJson = await stateReadDirectory.json() as { result: { entries: unknown[] } };
+  const stateReadDirectoryJson = await stateReadDirectory.json() as {
+    result: { entries: unknown[] };
+  };
   assertEquals(Array.isArray(stateReadDirectoryJson.result.entries), true);
 
   const watch = await handleHttpWithState(
@@ -2081,6 +2250,198 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(unwatch.status, 200);
+});
+
+Deno.test('handleHttpWithState resolves turn context from thread and turn ids', async () => {
+  const state = new HubState();
+  await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'thread/start',
+        params: { threadId: 'thr_ctx' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const turnStart = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'turn/start',
+        params: {
+          threadId: 'thr_ctx',
+          input: [],
+          collaborationMode: { mode: 'plan' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const turnStartJson = await turnStart.json() as { result: { turn: { id: string } } };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    void init;
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"我会继续读取核心文件并运行检查。"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const planResp = await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'thread-id': 'thr_ctx',
+          'turn-id': turnStartJson.result.turn.id,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: false,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      config,
+      state,
+    );
+    const planText = await planResp.text();
+    assertEquals(planText.includes('"name":"exec_command"'), true);
+
+    const secondTurn = await handleHttpWithState(
+      new Request('http://localhost/rpc', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'turn/start',
+          params: { threadId: 'thr_ctx', input: [] },
+        }),
+      }),
+      config,
+      state,
+    );
+    const secondTurnJson = await secondTurn.json() as { result: { turn: { id: string } } };
+    const normalResp = await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'thread-id': 'thr_ctx',
+          'turn-id': secondTurnJson.result.turn.id,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      config,
+      state,
+    );
+    const normalText = await normalResp.text();
+    assertEquals(normalText.includes('"name":"exec_command"'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('handleHttpWithState ignores stale turn ids when resolving turn context', async () => {
+  const state = new HubState();
+  await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'thread/start',
+        params: { threadId: 'thr_stale' },
+      }),
+    }),
+    config,
+    state,
+  );
+  await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'turn/start',
+        params: {
+          threadId: 'thr_stale',
+          input: [],
+          collaborationMode: { mode: 'plan' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"我会继续读取核心文件并运行检查。"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'thread-id': 'thr_stale',
+          'turn-id': 'missing-turn',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      config,
+      state,
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('Progress-only message received in chat fallback'), false);
+    assertEquals(text.includes('"name":"exec_command"'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test('handleHttpWithState writes request logs for API routes', async () => {
@@ -2190,7 +2551,15 @@ Deno.test('handleHttpWithState serves models anonymously and still protects rpc 
     assertEquals(publicModels.status, 200);
     const publicModelsJson = await publicModels.json() as {
       object: string;
-      data: Array<{ id: string; object: string; created?: number; owned_by?: string; supported_endpoint_types?: string[] }>;
+      data: Array<
+        {
+          id: string;
+          object: string;
+          created?: number;
+          owned_by?: string;
+          supported_endpoint_types?: string[];
+        }
+      >;
     };
     assertEquals(publicModelsJson.object, 'list');
     assertEquals(publicModelsJson.data[0].id, 'remote-model-1');

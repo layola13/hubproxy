@@ -76,6 +76,7 @@ export type ThreadTurn = {
   status: 'completed' | 'interrupted' | 'failed' | 'inProgress';
   createdAt: number;
   updatedAt: number;
+  collaborationModeKind?: string | null;
   itemsView?: 'notLoaded' | 'summary' | 'full';
   startedAt?: number | null;
   completedAt?: number | null;

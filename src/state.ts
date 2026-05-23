@@ -57,18 +57,24 @@ const publicThread = (thread: Thread, turns: ThreadTurn[] = [], includeTurns = f
   turns: includeTurns ? [...turns] : [],
 });
 
-const newTurn = (items: unknown[] = []): ThreadTurn => {
+const newTurn = (
+  items: unknown[] = [],
+  collaborationModeKind: string | null = null,
+  status: ThreadTurn['status'] = 'completed',
+): ThreadTurn => {
   const ts = now();
+  const completedAt = status === 'inProgress' ? null : ts;
   return {
     id: crypto.randomUUID(),
     items,
-    status: 'completed',
+    status,
     createdAt: ts,
     updatedAt: ts,
+    collaborationModeKind,
     itemsView: 'full',
     startedAt: ts,
-    completedAt: ts,
-    durationMs: 0,
+    completedAt,
+    durationMs: completedAt === null ? null : 0,
     error: null,
   };
 };
@@ -255,6 +261,23 @@ export class HubState {
     this.emitFileChangeNotifications(threadId, turnId, item);
     this.emitCommandExecutionNotifications(threadId, turnId, item);
     this.emitMcpToolCallNotifications(threadId, turnId, item);
+  }
+
+  private emitCompletedItem(threadId: string, turnId: string, item: unknown): void {
+    const startedAtMs = Date.now();
+    this.pushNotification({
+      method: 'item/started',
+      params: { threadId, turnId, startedAtMs, item },
+    });
+    this.emitItemNotifications(threadId, turnId, item);
+    this.pushNotification({
+      method: 'rawResponseItem/completed',
+      params: { threadId, turnId, item },
+    });
+    this.pushNotification({
+      method: 'item/completed',
+      params: { threadId, turnId, completedAtMs: Date.now(), item },
+    });
   }
 
   emitFileChangePatchUpdated(
@@ -471,12 +494,15 @@ export class HubState {
     return true;
   }
 
-  startTurn(threadId: string, items: unknown[]): ThreadTurn | null {
+  startTurn(
+    threadId: string,
+    items: unknown[],
+    collaborationModeKind: string | null = null,
+  ): ThreadTurn | null {
     const thread = this.state.threads.get(threadId);
     if (!thread) return null;
     const turns = this.state.turns.get(threadId) ?? [];
-    const turn = newTurn(items);
-    turn.status = 'inProgress';
+    const turn = newTurn(items, collaborationModeKind, 'inProgress');
     turn.itemsView = 'full';
     turns.push(turn);
     this.state.turns.set(threadId, turns);
@@ -491,19 +517,7 @@ export class HubState {
       method: 'turn/plan/updated',
       params: { threadId, turnId: turn.id, plan: [], explanation: null },
     });
-    this.pushNotification({
-      method: 'item/started',
-      params: { threadId, turnId: turn.id, startedAtMs: Date.now(), item: items[0] ?? null },
-    });
-    this.emitItemNotifications(threadId, turn.id, items[0]);
-    this.pushNotification({
-      method: 'rawResponseItem/completed',
-      params: { threadId, turnId: turn.id, item: items[0] ?? null },
-    });
-    this.pushNotification({
-      method: 'item/completed',
-      params: { threadId, turnId: turn.id, completedAtMs: Date.now(), item: items[0] ?? null },
-    });
+    for (const item of items) this.emitCompletedItem(threadId, turn.id, item);
     return turn;
   }
 
@@ -512,6 +526,7 @@ export class HubState {
     if (!turn) return null;
     turn.items.push(...items);
     turn.updatedAt = now();
+    for (const item of items) this.emitCompletedItem(threadId, turnId, item);
     return turn;
   }
 
