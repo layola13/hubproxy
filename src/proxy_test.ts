@@ -469,7 +469,7 @@ Deno.test('proxyOpenAI keeps plan and goal tools available in chat fallback', as
   }
 });
 
-Deno.test('proxyOpenAI falls back to chat when responses base url is missing', async () => {
+Deno.test('proxyOpenAI falls back to chat when responses base url is missing in ordinary mode', async () => {
   const seen: { url?: string; body?: string } = {};
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -508,7 +508,6 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
         ...config,
         responsesBaseUrl: null,
       },
-      { collaborationModeKind: 'plan' },
     );
     assertEquals(resp.status, 200);
     assertEquals(resp.headers.get('content-type'), 'application/json; charset=utf-8');
@@ -518,6 +517,14 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing', a
       messages?: Array<{ role?: string; content?: string }>;
     };
     assertEquals(body.model, 'models/mimo-v2.5-pro');
+    assertEquals(
+      body.messages?.some((message) =>
+        message.content?.includes(
+          'Compatibility note: you are using Chat Completions as a Responses API fallback.',
+        )
+      ),
+      false,
+    );
     const userMessage = body.messages?.find((message) => message.role === 'user');
     assertEquals(userMessage?.content, 'hello');
   } finally {
@@ -580,6 +587,56 @@ Deno.test('proxyOpenAI falls back to chat stream when responses upstream returns
     assertEquals(text.includes('event: response.output_text.delta'), true);
     assertEquals(text.includes('event: response.done'), true);
     assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI keeps the chat fallback notice in plan mode', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    assertEquals(
+      body.messages?.some((message) =>
+        message.content?.includes(
+          'Compatibility note: you are using Chat Completions as a Responses API fallback.',
+        )
+      ),
+      true,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

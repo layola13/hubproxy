@@ -570,7 +570,9 @@ function extractChatFallbackFromResponsesBody(
     if (instructions) {
       messages.unshift({ role: 'system', content: instructions });
     }
-    messages.unshift({ role: 'system', content: CHAT_FALLBACK_SYSTEM_NOTICE });
+    if (planModeLike) {
+      messages.unshift({ role: 'system', content: CHAT_FALLBACK_SYSTEM_NOTICE });
+    }
     const request: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(parsed)) {
       if (key === 'input' || key === 'instructions' || key === 'reasoning') continue;
@@ -1164,9 +1166,10 @@ function continueAfterProgressCommand(): string {
 }
 
 function hasFinalAnswerMarkers(text: string): boolean {
-  return /项目用途|主要模块|主要风险|主要检查|实际运行|检查结果|发现的主要风险|评估结果|以下是|结论|总结如下|我已完成/.test(
-    text,
-  );
+  return /项目用途|主要模块|主要风险|主要检查|实际运行|检查结果|发现的主要风险|评估结果|以下是|结论|总结如下|我已完成/
+    .test(
+      text,
+    );
 }
 
 function normalizeChatToolCall(
@@ -1481,7 +1484,11 @@ function responsesFallbackResponseFromChat(
   planModeLike = false,
 ): Response {
   if (stream) {
-    const { events } = collectResponsesEventsFromChatChunkText(chatResponseBody, namespaces, planModeLike);
+    const { events } = collectResponsesEventsFromChatChunkText(
+      chatResponseBody,
+      namespaces,
+      planModeLike,
+    );
     return new Response(buildMockSseBody(events), {
       status: 200,
       headers: { 'content-type': 'text/event-stream; charset=utf-8' },
@@ -1636,7 +1643,12 @@ async function forwardWithFallback(
       fallback: true,
     });
     const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
-    return responsesFallbackResponseFromChat(text, fallback.stream, namespaces, fallback.planModeLike);
+    return responsesFallbackResponseFromChat(
+      text,
+      fallback.stream,
+      namespaces,
+      fallback.planModeLike,
+    );
   }
 
   const responsesResponse = await send(firstTarget, responsesPath, responsesRequestBody).catch(
@@ -1754,7 +1766,12 @@ async function forwardWithFallback(
     fallback: true,
   });
   const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
-  return responsesFallbackResponseFromChat(text, fallback.stream, namespaces, fallback.planModeLike);
+  return responsesFallbackResponseFromChat(
+    text,
+    fallback.stream,
+    namespaces,
+    fallback.planModeLike,
+  );
 }
 
 export async function proxyOpenAI(
@@ -1768,7 +1785,15 @@ export async function proxyOpenAI(
     : await req.clone().text();
   const body = maybeRewriteRequestBody(path, rawBody);
   const headers = forwardHeaders(req.headers, config.defaultApiKey, config.authToken);
-  const upstream = await forwardWithFallback(path, req, config, body, headers, rawBody, turnContext);
+  const upstream = await forwardWithFallback(
+    path,
+    req,
+    config,
+    body,
+    headers,
+    rawBody,
+    turnContext,
+  );
   if (path === '/v1/models' && upstream.ok) {
     const text = await upstream.clone().text();
     void writeModelListLog({
