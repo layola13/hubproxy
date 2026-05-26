@@ -289,6 +289,7 @@ const SERVER_NAME_MAP: Record<string, string> = {
   'Mimir': 'mcp__mimir__',
   'mimir': 'mcp__mimir__',
   'code_index': 'mcp__code_index__',
+  'code-index': 'mcp__code_index__',
 };
 
 function robustNormalizeServerName(name: string, namespaces?: Set<string>): string {
@@ -301,12 +302,12 @@ function robustNormalizeServerName(name: string, namespaces?: Set<string>): stri
   return normalized;
 }
 
-function robustDenormalizeServerName(name: string): string {
-  if (name === 'mcp__code_index__') return 'code_index';
+export function robustDenormalizeServerName(name: string): string {
+  if (name === 'mcp__code_index__') return 'code-index';
   if (name === 'mcp__mimir__') return 'mimir';
   const match = name.match(/^mcp__(.*)__$/);
   if (match) {
-    return match[1];
+    return match[1].replace(/_/g, '-');
   }
   return name;
 }

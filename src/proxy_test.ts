@@ -442,9 +442,9 @@ Deno.test('proxyOpenAI de-normalizes server names and normalizes dot-notation to
     const data = JSON.parse(dataLine!.slice(6));
     const mcpItem = data.item;
     
-    // 1. Verify that server name is de-normalized back to 'code_index' for the client
+    // 1. Verify that server name is de-normalized back to 'code-index' for the client
     const args = JSON.parse(mcpItem.arguments);
-    assertEquals(args.server, 'code_index');
+    assertEquals(args.server, 'code-index');
 
     // 2. Verify that the namespaced dot notation is correctly un-flattened
     assertEquals(mcpItem.namespace, 'mcp__code_index__');
