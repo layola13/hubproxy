@@ -324,6 +324,77 @@ Deno.test('proxyOpenAI preserves tool names in chat fallback tool messages', asy
   }
 });
 
+Deno.test('proxyOpenAI preserves already-normalized MCP server names', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ output: [], status: 'completed' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call-1',
+              name: 'read_mcp_resource',
+              arguments: JSON.stringify({
+                server: 'mcp__code_index__',
+                uri: 'file:///tmp/one',
+              }),
+            },
+            {
+              type: 'function_call',
+              call_id: 'call-2',
+              name: 'read_mcp_resource',
+              arguments: JSON.stringify({
+                server: 'Code Index',
+                uri: 'file:///tmp/two',
+              }),
+            },
+            {
+              type: 'function_call',
+              call_id: 'call-3',
+              name: 'read_mcp_resource',
+              arguments: JSON.stringify({
+                server: 'mcp__mcp_code_index___',
+                uri: 'file:///tmp/three',
+              }),
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      input?: Array<{ arguments?: string }>;
+    };
+    const firstArgs = JSON.parse(body.input?.[0]?.arguments ?? '{}') as { server?: string };
+    const secondArgs = JSON.parse(body.input?.[1]?.arguments ?? '{}') as { server?: string };
+    const thirdArgs = JSON.parse(body.input?.[2]?.arguments ?? '{}') as { server?: string };
+    assertEquals(firstArgs.server, 'mcp__code_index__');
+    assertEquals(secondArgs.server, 'mcp__code_index__');
+    assertEquals(thirdArgs.server, 'mcp__code_index__');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;

@@ -295,6 +295,9 @@ const SERVER_NAME_MAP: Record<string, string> = {
 
 function robustNormalizeServerName(name: string, namespaces?: Set<string>): string {
   if (SERVER_NAME_MAP[name]) return SERVER_NAME_MAP[name];
+  if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*__$/.test(name)) return name;
+  const doubleWrapped = name.match(/^mcp__mcp_([a-z0-9]+(?:_[a-z0-9]+)*)___$/);
+  if (doubleWrapped) return `mcp__${doubleWrapped[1]}__`;
   const normalized = `mcp__${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}__`;
   if (namespaces?.has(normalized)) return normalized;
   return normalized;
