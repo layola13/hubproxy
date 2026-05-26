@@ -923,7 +923,7 @@ Deno.test('proxyOpenAI converts progress-only chat stops into continuation tool 
         ...config,
         responsesBaseUrl: null,
       },
-      { collaborationModeKind: 'plan' },
+      { collaborationModeKind: 'goal' },
     );
     const text = await resp.text();
     assertEquals(text.includes('我会继续读取核心文件并运行检查。'), true);
@@ -970,7 +970,7 @@ Deno.test('proxyOpenAI converts English progress-only chat stops into continuati
         ...config,
         responsesBaseUrl: null,
       },
-      { collaborationModeKind: 'plan' },
+      { collaborationModeKind: 'goal' },
     );
     const text = await resp.text();
     assertEquals(text.includes('Let me check the test failure details'), true);
@@ -1161,7 +1161,7 @@ Deno.test('proxyOpenAI injects continuation before native responses completion',
         ...config,
         responsesBaseUrl: 'http://127.0.0.1:8788/v1',
       },
-      { collaborationModeKind: 'plan' },
+      { collaborationModeKind: 'goal' },
     );
     const text = await resp.text();
     const toolIndex = text.indexOf('"name":"exec_command"');

@@ -17,7 +17,6 @@ export function loadDotenvIntoEnv(path: string): void {
     if (eq <= 0) continue;
     const key = line.slice(0, eq).trim();
     if (!key || key.toUpperCase().startsWith('CODEX_')) continue;
-    if (key === 'HUBPROXY_LOG_DIR') continue;
     let value = line.slice(eq + 1).trim();
     if (
       (value.startsWith('"') && value.endsWith('"')) ||

@@ -55,14 +55,13 @@ function proxyLogSummary(
 }
 
 function writeModelListLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR');
-  if (!logDir) return;
+  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/models-${stamp}-${crypto.randomUUID()}.json`;
     const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(JSON.stringify(proxyLogSummary('models-log', entry, file)));
+    console.log(text.trimEnd());
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break the proxy path.
@@ -84,14 +83,13 @@ function getEnvOrNull(name: string): string | null {
 }
 
 function writeUpstreamLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR');
-  if (!logDir) return;
+  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/upstream-${stamp}-${crypto.randomUUID()}.json`;
     const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(JSON.stringify(proxyLogSummary('upstream-log', entry, file)));
+    console.log(text.trimEnd());
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break the proxy path.
@@ -415,13 +413,13 @@ export function buildMockResponsesEventsFromInput(input: ResponsesInputItem[]): 
 }
 
 function writeResponseLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR');
-  if (!logDir) return;
+  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/response-${stamp}-${crypto.randomUUID()}.json`;
     const text = JSON.stringify(entry, null, 2) + '\n';
+    console.log(text.trimEnd());
     Deno.writeTextFileSync(file, text);
   } catch {
     // Ignore
@@ -1043,6 +1041,7 @@ function normalizeResponsesSseBody(
   namespaces?: Set<string>,
   planModeLike = false,
   allowedTools?: Set<string>,
+  collaborationModeKind?: string | null,
 ): string {
   const thoughtSplitter = createThoughtStreamSplitter();
   const state = {
@@ -1302,7 +1301,7 @@ function normalizeResponsesSseBody(
   });
   if (
     !hasToolCall &&
-    shouldInjectContinuationTool(state.messageText, planModeLike, allowedTools)
+    shouldInjectContinuationTool(state.messageText, planModeLike, allowedTools, collaborationModeKind)
   ) {
     events.push(normalizeResponsesEvent({
       type: 'response.output_item.done',
@@ -1588,7 +1587,9 @@ function shouldInjectContinuationTool(
   text: string,
   planModeLike: boolean,
   allowedTools?: Set<string>,
+  collaborationModeKind?: string | null,
 ): boolean {
+  if (collaborationModeKind === 'plan') return false;
   if (!planModeLike) return false;
   if (allowedTools && !allowedTools.has('exec_command')) return false;
   const normalized = text.trim();
@@ -1632,6 +1633,7 @@ function collectResponsesEventsFromChatChunkText(
   namespaces?: Set<string>,
   planModeLike = false,
   allowedTools?: Set<string>,
+  collaborationModeKind?: string | null,
 ): {
   events: ResponsesEvent[];
   usage: Record<string, unknown> | null;
@@ -1776,7 +1778,7 @@ function collectResponsesEventsFromChatChunkText(
   }
   if (
     sawStopWithoutToolCall &&
-    shouldInjectContinuationTool(messageState.text, planModeLike, allowedTools)
+    shouldInjectContinuationTool(messageState.text, planModeLike, allowedTools, collaborationModeKind)
   ) {
     events.push(normalizeResponsesEvent({
       type: 'response.output_item.done',
@@ -1842,6 +1844,7 @@ function responsesFallbackResponseFromChat(
   namespaces?: Set<string>,
   planModeLike = false,
   allowedTools?: Set<string>,
+  collaborationModeKind?: string | null,
 ): Response {
   if (stream) {
     const { events } = collectResponsesEventsFromChatChunkText(
@@ -1849,6 +1852,7 @@ function responsesFallbackResponseFromChat(
       namespaces,
       planModeLike,
       allowedTools,
+      collaborationModeKind,
     );
     return new Response(buildMockSseBody(events), {
       status: 200,
@@ -1913,7 +1917,7 @@ function responsesFallbackResponseFromChat(
 
   if (
     planModeLike && split.visibleText &&
-    shouldInjectContinuationTool(split.visibleText, true, allowedTools)
+    shouldInjectContinuationTool(split.visibleText, true, allowedTools, collaborationModeKind)
   ) {
     output.push({
       type: 'function_call',
@@ -2025,6 +2029,7 @@ async function forwardWithFallback(
       namespaces,
       fallback.planModeLike,
       allowedTools,
+      turnContext?.collaborationModeKind,
     );
   }
 
@@ -2053,7 +2058,7 @@ async function forwardWithFallback(
     const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
     const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
     if (contentType.includes('text/event-stream')) {
-      return new Response(normalizeResponsesSseBody(text, namespaces, planModeLike, allowedTools), {
+      return new Response(normalizeResponsesSseBody(text, namespaces, planModeLike, allowedTools, turnContext?.collaborationModeKind), {
         status: responsesResponse.status,
         headers: rewrittenBodyHeaders(responsesResponse.headers),
       });
@@ -2121,6 +2126,7 @@ async function forwardWithFallback(
           namespaces,
           planModeLike,
           allowedTools,
+          turnContext?.collaborationModeKind,
         );
       }
     }
@@ -2156,6 +2162,7 @@ async function forwardWithFallback(
     namespaces,
     fallback.planModeLike,
     allowedTools,
+    turnContext?.collaborationModeKind,
   );
 }
 

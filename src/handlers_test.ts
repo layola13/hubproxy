@@ -2279,7 +2279,7 @@ Deno.test('handleHttpWithState resolves turn context from thread and turn ids', 
         params: {
           threadId: 'thr_ctx',
           input: [],
-          collaborationMode: { mode: 'plan' },
+          collaborationMode: { mode: 'goal' },
         },
       }),
     }),
@@ -2490,8 +2490,8 @@ Deno.test('handleHttpWithState infers plan mode from responses instructions with
     );
     const text = await resp.text();
     assertEquals(text.includes('Let me check the test failure details'), true);
-    assertEquals(text.includes('"name":"exec_command"'), true);
-    assertEquals(text.includes('Progress-only message received in chat fallback'), true);
+    assertEquals(text.includes('"name":"exec_command"'), false);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2716,7 +2716,7 @@ Deno.test('handleHttpWithState writes request logs for API routes', async () => 
   }
 });
 
-Deno.test('handleHttpWithState does not write logs by default', async () => {
+Deno.test('handleHttpWithState does write logs by default', async () => {
   const state = new HubState();
   const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
   const originalCwd = Deno.cwd();
@@ -2747,7 +2747,7 @@ Deno.test('handleHttpWithState does not write logs by default', async () => {
     } catch {
       logsExists = false;
     }
-    assertEquals(logsExists, false);
+    assertEquals(logsExists, true);
   } finally {
     Deno.chdir(originalCwd);
     if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
