@@ -1,18 +1,26 @@
 import { assertEquals } from 'jsr:@std/assert@1';
 import { loadConfig, loadDotenvIntoEnv } from './env.ts';
 
-Deno.test('loadDotenvIntoEnv loads plain keys and skips CODEX_ keys', async () => {
+Deno.test('loadDotenvIntoEnv loads plain keys and skips CODEX_ and log-dir keys', async () => {
   const file = await Deno.makeTempFile({ suffix: '.env' });
   try {
     await Deno.writeTextFile(
       file,
-      ['PORT=9999', 'CODEX_SECRET=skip-me', "DEFAULT_MODEL='gpt-test'"].join('\n'),
+      [
+        'PORT=9999',
+        'CODEX_SECRET=skip-me',
+        'HUBPROXY_LOG_DIR=logs',
+        "DEFAULT_MODEL='gpt-test'",
+      ].join('\n'),
     );
+    Deno.env.delete('HUBPROXY_LOG_DIR');
     loadDotenvIntoEnv(file);
     assertEquals(Deno.env.get('PORT'), '9999');
     assertEquals(Deno.env.get('DEFAULT_MODEL'), 'gpt-test');
     assertEquals(Deno.env.get('CODEX_SECRET'), undefined);
+    assertEquals(Deno.env.get('HUBPROXY_LOG_DIR'), undefined);
   } finally {
+    Deno.env.delete('HUBPROXY_LOG_DIR');
     await Deno.remove(file).catch(() => {});
   }
 });

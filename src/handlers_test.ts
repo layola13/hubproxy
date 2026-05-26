@@ -2716,6 +2716,46 @@ Deno.test('handleHttpWithState writes request logs for API routes', async () => 
   }
 });
 
+Deno.test('handleHttpWithState does not write logs by default', async () => {
+  const state = new HubState();
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const originalCwd = Deno.cwd();
+  const cwd = await Deno.makeTempDir();
+  try {
+    Deno.env.delete('HUBPROXY_LOG_DIR');
+    Deno.chdir(cwd);
+    await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer client-secret',
+          'x-api-key': 'client-secret',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      config,
+      state,
+    ).catch(() => {});
+
+    let logsExists = true;
+    try {
+      await Deno.stat(`${cwd}/logs`);
+    } catch {
+      logsExists = false;
+    }
+    assertEquals(logsExists, false);
+  } finally {
+    Deno.chdir(originalCwd);
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(cwd, { recursive: true }).catch(() => {});
+  }
+});
+
 Deno.test('handleHttpWithState writes auth failure previews', async () => {
   const state = new HubState();
   const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');

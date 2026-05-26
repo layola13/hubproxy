@@ -35,14 +35,34 @@ export function normalizeModelListResponseBody(body: string): string {
   return body;
 }
 
+function proxyLogSummary(
+  kind: string,
+  entry: Record<string, unknown>,
+  file: string,
+): Record<string, unknown> {
+  const body = typeof entry.body === 'string' ? entry.body : undefined;
+  return {
+    kind,
+    file,
+    path: entry.path,
+    target: entry.target,
+    requestPath: entry.requestPath,
+    method: entry.method,
+    status: entry.status,
+    fallback: entry.fallback,
+    bodyBytes: body ? new TextEncoder().encode(body).length : 0,
+  };
+}
+
 function writeModelListLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR');
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/models-${stamp}-${crypto.randomUUID()}.json`;
     const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(text.trimEnd());
+    console.log(JSON.stringify(proxyLogSummary('models-log', entry, file)));
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break the proxy path.
@@ -64,13 +84,14 @@ function getEnvOrNull(name: string): string | null {
 }
 
 function writeUpstreamLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR');
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/upstream-${stamp}-${crypto.randomUUID()}.json`;
     const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(text.trimEnd());
+    console.log(JSON.stringify(proxyLogSummary('upstream-log', entry, file)));
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break the proxy path.
@@ -391,7 +412,8 @@ export function buildMockResponsesEventsFromInput(input: ResponsesInputItem[]): 
 }
 
 function writeResponseLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR');
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');

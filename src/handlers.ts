@@ -253,14 +253,26 @@ function redactHeaders(headers: Headers): Record<string, string> {
   return out;
 }
 
+function logSummary(entry: Record<string, unknown>, file: string): Record<string, unknown> {
+  const body = typeof entry.body === 'string' ? entry.body : undefined;
+  return {
+    kind: 'request-log',
+    file,
+    path: entry.path,
+    method: entry.method,
+    bodyBytes: body ? new TextEncoder().encode(body).length : 0,
+  };
+}
+
 function writeRequestLog(entry: Record<string, unknown>): void {
-  const logDir = Deno.env.get('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/request-${stamp}-${crypto.randomUUID()}.json`;
     const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(text.trimEnd());
+    console.log(JSON.stringify(logSummary(entry, file)));
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break request handling.
