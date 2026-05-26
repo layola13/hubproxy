@@ -2318,6 +2318,7 @@ Deno.test('handleHttpWithState resolves turn context from thread and turn ids', 
         body: JSON.stringify({
           model: 'gpt-4.1',
           stream: false,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
           input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
         }),
       }),
@@ -2441,6 +2442,244 @@ Deno.test('handleHttpWithState ignores stale turn ids when resolving turn contex
     assertEquals(text.includes('"name":"exec_command"'), false);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('handleHttpWithState infers plan mode from responses instructions without local turn', async () => {
+  const state = new HubState();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"Let me check the test failure details and the permission issue."},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'thread-id': 'thr_no_state',
+          'x-codex-turn-metadata': JSON.stringify({
+            thread_id: 'thr_no_state',
+            turn_id: 'turn_no_state',
+          }),
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          instructions: '# Plan Mode (Conversational)\nYou are in **Plan Mode**.',
+          stream: true,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      config,
+      state,
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('Let me check the test failure details'), true);
+    assertEquals(text.includes('"name":"exec_command"'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('handleHttpWithState infers goal mode from goal context without local turn', async () => {
+  const state = new HubState();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"Let me check the test failure details and the permission issue."},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'thread-id': 'thr_goal_no_state',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [{
+            type: 'message',
+            role: 'developer',
+            content: [{
+              type: 'input_text',
+              text: '<goal_context>Continue working toward the active thread goal.</goal_context>',
+            }],
+          }],
+        }),
+      }),
+      config,
+      state,
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('"name":"exec_command"'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('handleHttpWithState infers code mode from explicit metadata without local turn', async () => {
+  const state = new HubState();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"Let me check the test failure details and the permission issue."},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'thread-id': 'thr_code_no_state',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          client_metadata: { mode: 'code' },
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      config,
+      state,
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('"name":"exec_command"'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('handleHttpWithState infers Codex default collaboration mode as code without local turn', async () => {
+  const state = new HubState();
+  const originalFetch = globalThis.fetch;
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"Let me check the test failure details and the permission issue."},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    const resp = await handleHttpWithState(
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'thread-id': 'thr_default_no_state',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          instructions: 'Base Codex instructions.',
+          stream: true,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [
+            {
+              type: 'message',
+              role: 'developer',
+              content: [{
+                type: 'input_text',
+                text: '<collaboration_mode># Plan Mode (Conversational)</collaboration_mode>',
+              }],
+            },
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'PLAN_OK' }],
+            },
+            {
+              type: 'message',
+              role: 'developer',
+              content: [{
+                type: 'input_text',
+                text: '<collaboration_mode># Collaboration Mode: Default</collaboration_mode>',
+              }],
+            },
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hi' }],
+            },
+          ],
+        }),
+      }),
+      config,
+      state,
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('"name":"exec_command"'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), true);
+
+    const modeLogs = Array.from(Deno.readDirSync(logDir))
+      .filter((entry) => entry.isFile)
+      .map((entry) => JSON.parse(Deno.readTextFileSync(`${logDir}/${entry.name}`)))
+      .filter((entry) => entry.path === 'internal/mode-resolution');
+    assertEquals(modeLogs.at(-1)?.collaborationModeKind, 'code');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true }).catch(() => {});
   }
 });
 

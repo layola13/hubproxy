@@ -1,4 +1,5 @@
 import { mockResponsesOpenAI, proxyOpenAI, readJson } from './proxy.ts';
+import type { ProxyTurnContext } from './proxy.ts';
 import { HubState } from './state.ts';
 import { isRpcRequest, rpcError, rpcResult } from './jsonrpc.ts';
 import type { ProxyConfig, ProxyResult, ResponsesScenario } from './types.ts';
@@ -86,6 +87,147 @@ function turnContextForThread(
   return {
     collaborationModeKind: currentTurn?.collaborationModeKind ?? null,
   };
+}
+
+function textFromContent(content: unknown): string[] {
+  if (typeof content === 'string') return content ? [content] : [];
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((part) => {
+    if (!part || typeof part !== 'object') return [];
+    const record = part as Record<string, unknown>;
+    const text = typeof record.text === 'string' ? record.text : '';
+    return text ? [text] : [];
+  });
+}
+
+function collectModeTexts(parsed: Record<string, unknown>): {
+  instructionTexts: string[];
+  allTexts: string[];
+} {
+  const instructionTexts: string[] = [];
+  const allTexts: string[] = [];
+  const add = (value: unknown, instruction = false) => {
+    if (typeof value !== 'string' || !value) return;
+    allTexts.push(value);
+    if (instruction) instructionTexts.push(value);
+  };
+
+  add(parsed.instructions, true);
+  add(parsed.system, true);
+
+  const input = Array.isArray(parsed.input) ? parsed.input : [];
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const role = typeof record.role === 'string' ? record.role.toLowerCase() : '';
+    const isInstructionRole = role === 'developer' || role === 'system';
+    for (const text of textFromContent(record.content)) add(text, isInstructionRole);
+    add(record.text, isInstructionRole);
+  }
+
+  return { instructionTexts, allTexts };
+}
+
+function modeFromExplicitFields(parsed: Record<string, unknown>): string | null {
+  const candidates = [
+    parsed.collaborationMode,
+    parsed.collaboration_mode,
+    parsed.client_metadata,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const record = candidate as Record<string, unknown>;
+    const raw = record.mode ?? record.kind ?? record.collaborationModeKind;
+    if (typeof raw !== 'string') continue;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'plan' || normalized === 'goal' || normalized === 'code') {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function modeFromInstructionTexts(instructionTexts: string[]): string | null {
+  const modeMarker =
+    /# Plan Mode \(Conversational\)|You are in \*\*Plan Mode\*\*|<collaboration_mode>\s*# Plan Mode|# Collaboration Mode:\s*(Code|Default)|<collaboration_mode>\s*# Collaboration Mode:\s*(Code|Default)/gi;
+  let latestMode: string | null = null;
+  for (const text of instructionTexts) {
+    for (const match of text.matchAll(modeMarker)) {
+      latestMode = match[1] || match[2] ? 'code' : 'plan';
+    }
+  }
+  return latestMode;
+}
+
+function inferCollaborationModeKindFromBody(body: string | undefined): string | null {
+  if (!body) return null;
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    const explicit = modeFromExplicitFields(parsed);
+    if (explicit) return explicit;
+
+    const { instructionTexts, allTexts } = collectModeTexts(parsed);
+    const allJoined = allTexts.join('\n');
+    if (
+      /<goal_context>|Continue working toward the active thread goal/i.test(allJoined)
+    ) {
+      return 'goal';
+    }
+
+    return modeFromInstructionTexts(instructionTexts);
+  } catch {
+    return null;
+  }
+}
+
+function writeModeResolutionLog(entry: Record<string, unknown>): void {
+  writeRequestLog({
+    path: 'internal/mode-resolution',
+    ...entry,
+  });
+}
+
+function resolveTurnContext(
+  state: HubState,
+  threadId: string,
+  turnId: string | undefined,
+  requestBody: string | undefined,
+): ProxyTurnContext | undefined {
+  const stateContext = threadId ? turnContextForThread(state, threadId, turnId) : undefined;
+  if (stateContext?.collaborationModeKind) {
+    writeModeResolutionLog({
+      source: 'state',
+      collaborationModeKind: stateContext.collaborationModeKind,
+      threadId,
+      turnId: turnId ?? null,
+      foundState: true,
+    });
+    return stateContext;
+  }
+
+  const inferred = inferCollaborationModeKindFromBody(requestBody);
+  if (inferred) {
+    writeModeResolutionLog({
+      source: 'request',
+      collaborationModeKind: inferred,
+      threadId: threadId || null,
+      turnId: turnId ?? null,
+      foundState: stateContext !== undefined,
+    });
+    return { collaborationModeKind: inferred };
+  }
+
+  if (stateContext) {
+    writeModeResolutionLog({
+      source: 'state',
+      collaborationModeKind: stateContext.collaborationModeKind,
+      threadId,
+      turnId: turnId ?? null,
+      foundState: true,
+    });
+    return stateContext;
+  }
+  return undefined;
 }
 
 function hasValidAuth(req: Request, config: ProxyConfig): boolean {
@@ -1377,9 +1519,10 @@ export async function handleHttpWithState(
     const scenario = (globalThis as { HUBPROXY_SCENARIO?: ResponsesScenario }).HUBPROXY_SCENARIO;
     const threadId = requestThreadId(req);
     const turnId = requestTurnId(req);
-    const turnContext = threadId
-      ? turnContextForThread(state, threadId, turnId || undefined)
-      : undefined;
+    const requestBody = req.method === 'GET' || req.method === 'HEAD'
+      ? undefined
+      : await req.clone().text();
+    const turnContext = resolveTurnContext(state, threadId, turnId || undefined, requestBody);
     return scenario
       ? await mockResponsesOpenAI(url.pathname + url.search, req, config, scenario, turnContext)
       : await proxyOpenAI(url.pathname + url.search, req, config, turnContext);

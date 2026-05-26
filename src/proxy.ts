@@ -311,6 +311,14 @@ function writeResponseLog(entry: Record<string, unknown>): void {
   }
 }
 
+function rewrittenBodyHeaders(headers: Headers): Headers {
+  const out = new Headers(headers);
+  out.delete('content-length');
+  out.delete('content-encoding');
+  out.delete('transfer-encoding');
+  return out;
+}
+
 async function forwardJson(url: string, init: RequestInit): Promise<Response> {
   const resp = await fetch(url, init);
   return resp;
@@ -321,6 +329,8 @@ function maybeRewriteRequestBody(path: string, body: string | undefined): string
   if (!path.includes('/chat/completions') && !path.includes('/responses')) return body;
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
+    const isResponses = path.includes('/responses');
+    const model = typeof parsed.model === 'string' ? parsed.model : '';
 
     // Only chat-completions fallback needs these fields stripped. When we are
     // sending a real Responses request upstream, preserve them so plan mode and
@@ -331,12 +341,15 @@ function maybeRewriteRequestBody(path: string, body: string | undefined): string
       delete parsed.include;
       delete parsed.reasoning;
     }
+    if (isResponses && isGeminiModel(model)) {
+      delete parsed.store;
+      delete parsed.prompt_cache_key;
+    }
 
     if (Array.isArray(parsed.input)) {
       parsed.input = normalizeResponseInputItems(parsed.input);
     }
     if (Array.isArray(parsed.tools)) {
-      const isResponses = path.includes('/responses');
       const normalizedTools = normalizeChatToolsValue(parsed.tools, !isResponses);
       if (normalizedTools.length > 0) {
         parsed.tools = normalizedTools;
@@ -348,6 +361,10 @@ function maybeRewriteRequestBody(path: string, body: string | undefined): string
   } catch {
     return body;
   }
+}
+
+function isGeminiModel(model: string): boolean {
+  return model === 'gemini' || model.startsWith('gemini-') || model.startsWith('models/gemini-');
 }
 
 function sanitizeToolName(name: unknown): string {
@@ -484,6 +501,29 @@ function normalizeChatToolsValue(tools: unknown, wrap = true): unknown[] {
   });
 }
 
+function extractAllowedChatToolNames(tools: unknown): Set<string> {
+  const names = new Set<string>();
+  const toolList = typeof tools === 'string'
+    ? (() => {
+      try {
+        const parsed = JSON.parse(tools) as Record<string, unknown>;
+        return parsed.tools;
+      } catch {
+        return [];
+      }
+    })()
+    : tools;
+  for (const tool of normalizeChatToolsValue(toolList, true)) {
+    if (!tool || typeof tool !== 'object') continue;
+    const record = tool as Record<string, unknown>;
+    const fn = record.function && typeof record.function === 'object'
+      ? record.function as Record<string, unknown>
+      : null;
+    if (typeof fn?.name === 'string' && fn.name) names.add(fn.name);
+  }
+  return names;
+}
+
 function sanitizeResponsesFallbackRequest(request: Record<string, unknown>): void {
   delete request.store;
   delete request.prompt_cache_key;
@@ -512,6 +552,60 @@ const CHAT_FALLBACK_SYSTEM_NOTICE =
   'Do not stop after only a progress update or plan. If you say you will inspect or run something, ' +
   'call an available tool in the same response; otherwise provide the final answer.';
 
+function mapContentPartForChat(part: Record<string, unknown>): Record<string, unknown> {
+  const partType = typeof part.type === 'string' ? part.type : '';
+  if (partType === 'input_text' || partType === 'text' || partType === 'output_text') {
+    return { type: 'text', text: typeof part.text === 'string' ? part.text : '' };
+  }
+  if (partType === 'input_image') {
+    const url = typeof part.image_url === 'string' ? part.image_url : '';
+    return { type: 'image_url', image_url: { url } };
+  }
+  if (partType === 'image_url') {
+    if (part.image_url && typeof part.image_url === 'object') {
+      return { type: 'image_url', image_url: part.image_url };
+    }
+    return {
+      type: 'image_url',
+      image_url: { url: typeof part.image_url === 'string' ? part.image_url : '' },
+    };
+  }
+  return part;
+}
+
+function contentToChatContent(content: unknown): unknown {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts = content.flatMap((part) =>
+    part && typeof part === 'object' ? [part as Record<string, unknown>] : []
+  );
+  const hasNonText = parts.some((part) => {
+    const partType = typeof part.type === 'string' ? part.type : '';
+    return partType !== 'input_text' && partType !== 'text' && partType !== 'output_text';
+  });
+  if (!hasNonText) {
+    return parts
+      .map((part) => typeof part.text === 'string' ? part.text : '')
+      .join('');
+  }
+  return parts.map(mapContentPartForChat);
+}
+
+function pushSystemMessage(
+  messages: Array<Record<string, unknown>>,
+  systemTexts: string[],
+): void {
+  const content = systemTexts.map((text) => text.trim()).filter(Boolean).join('\n\n');
+  if (content) messages.unshift({ role: 'system', content });
+}
+
+function toolOutputText(record: Record<string, unknown>): string {
+  if (typeof record.output === 'string') return record.output;
+  if (record.output !== undefined) return JSON.stringify(record.output);
+  if (typeof record.content === 'string') return record.content;
+  return '';
+}
+
 function extractChatFallbackFromResponsesBody(
   body: string | undefined,
   planModeLike = false,
@@ -519,32 +613,58 @@ function extractChatFallbackFromResponsesBody(
   if (!body) return null;
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
-    const input = Array.isArray(parsed.input) ? parsed.input : [];
+    const input = Array.isArray(parsed.input) ? normalizeResponseInputItems(parsed.input) : [];
     const model = typeof parsed.model === 'string' ? parsed.model : '';
     const messages: Array<Record<string, unknown>> = [];
+    const systemTexts: string[] = [];
     const instructions = typeof parsed.instructions === 'string' ? parsed.instructions : '';
-    for (const item of input) {
+    if (planModeLike) systemTexts.push(CHAT_FALLBACK_SYSTEM_NOTICE);
+    if (instructions) systemTexts.push(instructions);
+
+    for (let index = 0; index < input.length; index++) {
+      const item = input[index];
       if (!item || typeof item !== 'object') continue;
       const record = item as Record<string, unknown>;
       const type = typeof record.type === 'string' ? record.type : '';
+      if (type === 'function_call') {
+        const toolCalls: Array<Record<string, unknown>> = [];
+        while (index < input.length) {
+          const current = input[index];
+          if (!current || typeof current !== 'object') break;
+          const currentRecord = current as Record<string, unknown>;
+          if (currentRecord.type !== 'function_call') break;
+          const callId = typeof currentRecord.call_id === 'string'
+            ? currentRecord.call_id
+            : `call_${crypto.randomUUID().replace(/-/g, '')}`;
+          const name = sanitizeToolName(currentRecord.name);
+          const args = typeof currentRecord.arguments === 'string' ? currentRecord.arguments : '{}';
+          if (name) {
+            toolCalls.push({
+              id: callId,
+              type: 'function',
+              function: { name, arguments: args },
+            });
+          }
+          index++;
+        }
+        index--;
+        if (toolCalls.length > 0) {
+          messages.push({ role: 'assistant', content: null, tool_calls: toolCalls });
+        }
+        continue;
+      }
       if (type === 'message' || type === 'assistant_message') {
-        const role = typeof record.role === 'string'
+        const rawRole = typeof record.role === 'string'
           ? record.role
           : (type === 'message' ? 'user' : 'assistant');
-        const content = Array.isArray(record.content)
-          ? record.content.flatMap((part) => {
-            if (!part || typeof part !== 'object') return [];
-            const partRecord = part as Record<string, unknown>;
-            const partType = typeof partRecord.type === 'string' ? partRecord.type : '';
-            const text = typeof partRecord.text === 'string' ? partRecord.text : '';
-            if (!text) return [];
-            if (partType === 'input_text' || partType === 'text' || partType === 'output_text') {
-              return [text];
-            }
-            return [];
-          }).join('\n')
-          : '';
-        if (content) {
+        const role = rawRole === 'developer' ? 'system' : rawRole;
+        const content = contentToChatContent(record.content);
+        if (role === 'system') {
+          if (typeof content === 'string') systemTexts.push(content);
+        } else if (
+          (typeof content === 'string' && content) ||
+          (Array.isArray(content) && content.length > 0)
+        ) {
           messages.push({ role, content });
         }
         continue;
@@ -554,7 +674,7 @@ function extractChatFallbackFromResponsesBody(
         type === 'function_call_output' || type === 'custom_tool_call_output' ||
         type === 'tool_search_output' || type === 'mcp_tool_call_output'
       ) {
-        const output = typeof record.output === 'string' ? record.output : '';
+        const output = toolOutputText(record);
         const name = typeof record.name === 'string' ? record.name : '';
         if (output) {
           const message: Record<string, unknown> = {
@@ -567,12 +687,7 @@ function extractChatFallbackFromResponsesBody(
         }
       }
     }
-    if (instructions) {
-      messages.unshift({ role: 'system', content: instructions });
-    }
-    if (planModeLike) {
-      messages.unshift({ role: 'system', content: CHAT_FALLBACK_SYSTEM_NOTICE });
-    }
+    pushSystemMessage(messages, systemTexts);
     const request: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(parsed)) {
       if (key === 'input' || key === 'instructions' || key === 'reasoning') continue;
@@ -608,8 +723,6 @@ function extractChatFallbackFromResponsesBody(
     sanitizeResponsesFallbackRequest(request);
     request.model = model || String(request.model ?? '');
     request.messages = messages;
-    const normalizedInput = normalizeResponseInputItems(input);
-    request.input = normalizedInput;
     const stream = parsed.stream !== false;
     request.stream = stream;
     if (stream) {
@@ -689,6 +802,7 @@ function normalizeResponsesSseBody(
   body: string,
   namespaces?: Set<string>,
   planModeLike = false,
+  allowedTools?: Set<string>,
 ): string {
   const thoughtSplitter = createThoughtStreamSplitter();
   const state = {
@@ -701,10 +815,22 @@ function normalizeResponsesSseBody(
     assistantItemId: `msg_${crypto.randomUUID().replace(/-/g, '')}`,
   };
   const events: ResponsesEvent[] = [];
+  const completionEvents: ResponsesEvent[] = [];
   const toolCalls = new Map<string, ChatToolCall & { itemId: string; index: number }>();
-  let sawStopWithoutToolCall = false;
 
   const processPayload = (payload: Record<string, any>, eventType: string) => {
+    if (
+      eventType === 'response.completed' ||
+      eventType === 'response.done' ||
+      eventType === 'response.incomplete'
+    ) {
+      completionEvents.push({
+        type: eventType,
+        ...payload,
+      });
+      return;
+    }
+
     if (eventType === 'response.output_text.delta') {
       state.sawTextDelta = true;
       const delta = typeof payload.delta === 'string' ? payload.delta : '';
@@ -843,7 +969,7 @@ function normalizeResponsesSseBody(
           });
         }
       }
-      for (const toolCall of parseChatToolCallDelta(delta)) {
+      for (const toolCall of parseChatToolCallDelta(delta, namespaces, allowedTools)) {
         const existing = toolCalls.get(toolCall.id);
         if (existing) {
           existing.arguments += toolCall.arguments;
@@ -861,9 +987,6 @@ function normalizeResponsesSseBody(
     const finishReason = choice && typeof choice.finish_reason === 'string'
       ? choice.finish_reason
       : '';
-    if (finishReason === 'stop') {
-      sawStopWithoutToolCall = toolCalls.size === 0;
-    }
     if (finishReason === 'tool_calls' || finishReason === 'stop') {
       const sortedCalls = Array.from(toolCalls.values()).sort((a, b) => a.index - b.index);
       for (const call of sortedCalls) {
@@ -942,7 +1065,14 @@ function normalizeResponsesSseBody(
     });
   }
 
-  if (sawStopWithoutToolCall && shouldInjectContinuationTool(state.messageText, planModeLike)) {
+  const hasToolCall = events.some((event) => {
+    const item = event.item as Record<string, unknown> | undefined;
+    return item && typeof item.type === 'string' && isToolCallType(item.type);
+  });
+  if (
+    !hasToolCall &&
+    shouldInjectContinuationTool(state.messageText, planModeLike, allowedTools)
+  ) {
     events.push(normalizeResponsesEvent({
       type: 'response.output_item.done',
       item: {
@@ -958,6 +1088,7 @@ function normalizeResponsesSseBody(
   if (!events.some((e) => e.type === 'response.done')) {
     events.push({ type: 'response.done', response: { id: state.responseId, status: 'completed' } });
   }
+  events.push(...completionEvents);
   if (!events.some((e) => e.type === 'response.completed')) {
     events.push({
       type: 'response.completed',
@@ -1151,10 +1282,14 @@ function isProgressOnlyMessage(text: string): boolean {
   if (/项目用途|主要模块|主要风险|主要检查|实际运行|检查结果|风险[:：]/.test(normalized)) {
     return false;
   }
-  return (
-    /我(?:会|将|先|再|继续)|接下来|下一步|按.*顺序|最后/.test(normalized) &&
-    /读取|查看|检查|运行|执行|评估|汇总|总结|了解|分析/.test(normalized)
-  );
+  const chineseProgress = /我(?:会|将|先|再|继续)|接下来|下一步|按.*顺序|最后/.test(normalized) &&
+    /读取|查看|检查|运行|执行|评估|汇总|总结|了解|分析/.test(normalized);
+  const englishProgress =
+    /\b(?:let me|i(?:'ll| will| am going to)?|i’ll|next|now|then|after that)\b/i
+      .test(normalized) &&
+    /\b(?:check|inspect|read|look|run|execute|verify|investigate|analy[sz]e|review|gather|open)\b/i
+      .test(normalized);
+  return chineseProgress || englishProgress;
 }
 
 function continueAfterProgressCommand(): string {
@@ -1166,7 +1301,7 @@ function continueAfterProgressCommand(): string {
 }
 
 function hasFinalAnswerMarkers(text: string): boolean {
-  return /项目用途|主要模块|主要风险|主要检查|实际运行|检查结果|发现的主要风险|评估结果|以下是|结论|总结如下|我已完成/
+  return /项目用途|主要模块|主要风险|主要检查|实际运行|检查结果|发现的主要风险|评估结果|以下是|结论|总结如下|我已完成|summary|conclusion|findings|done|completed/i
     .test(
       text,
     );
@@ -1175,8 +1310,10 @@ function hasFinalAnswerMarkers(text: string): boolean {
 function normalizeChatToolCall(
   call: ChatToolCall,
   namespaces?: Set<string>,
+  allowedTools?: Set<string>,
 ): ChatToolCall | null {
   if (call.name === 'exec_command') {
+    if (allowedTools && !allowedTools.has('exec_command')) return null;
     try {
       const args = JSON.parse(call.arguments || '{}') as Record<string, unknown>;
       if (typeof args.cmd !== 'string' && typeof args.command === 'string') {
@@ -1190,7 +1327,12 @@ function normalizeChatToolCall(
     return call;
   }
 
+  if (allowedTools?.has(call.name)) {
+    return call;
+  }
+
   if (call.name === 'read') {
+    if (allowedTools && !allowedTools.has('exec_command')) return null;
     try {
       const args = JSON.parse(call.arguments || '{}') as Record<string, unknown>;
       const path = typeof args.filePath === 'string'
@@ -1217,20 +1359,35 @@ function normalizeChatToolCall(
     }
   }
 
-  return call;
+  if (allowedTools?.has('exec_command')) {
+    return {
+      ...call,
+      name: 'exec_command',
+      arguments: JSON.stringify({ cmd: unsupportedToolNoticeCommand(call.name || 'unknown') }),
+    };
+  }
+
+  return allowedTools && allowedTools.size > 0 ? null : call;
 }
 
-function shouldInjectContinuationTool(text: string, planModeLike: boolean): boolean {
+function shouldInjectContinuationTool(
+  text: string,
+  planModeLike: boolean,
+  allowedTools?: Set<string>,
+): boolean {
   if (!planModeLike) return false;
+  if (allowedTools && !allowedTools.has('exec_command')) return false;
   const normalized = text.trim();
   if (!normalized) return false;
   if (hasFinalAnswerMarkers(normalized)) return false;
-  return true;
+  if (/<proposed_plan>[\s\S]*<\/proposed_plan>/i.test(normalized)) return false;
+  return isProgressOnlyMessage(normalized);
 }
 
 function parseChatToolCallDelta(
   delta: Record<string, unknown>,
   namespaces?: Set<string>,
+  allowedTools?: Set<string>,
 ): Array<ChatToolCall> {
   const rawToolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
   return rawToolCalls.flatMap((entry) => {
@@ -1243,11 +1400,15 @@ function parseChatToolCallDelta(
     const callId = typeof record.id === 'string' ? record.id : '';
     const name = typeof functionRecord.name === 'string' ? functionRecord.name : '';
     const argsPart = typeof functionRecord.arguments === 'string' ? functionRecord.arguments : '';
-    const call = normalizeChatToolCall({
-      id: `${index}:${callId || name || 'tool'}`,
-      name,
-      arguments: argsPart,
-    }, namespaces);
+    const call = normalizeChatToolCall(
+      {
+        id: `${index}:${callId || name || 'tool'}`,
+        name,
+        arguments: argsPart,
+      },
+      namespaces,
+      allowedTools,
+    );
     return call ? [call] : [];
   });
 }
@@ -1256,6 +1417,7 @@ function collectResponsesEventsFromChatChunkText(
   chatText: string,
   namespaces?: Set<string>,
   planModeLike = false,
+  allowedTools?: Set<string>,
 ): {
   events: ResponsesEvent[];
   usage: Record<string, unknown> | null;
@@ -1353,7 +1515,7 @@ function collectResponsesEventsFromChatChunkText(
           });
         }
       }
-      for (const toolCall of parseChatToolCallDelta(delta, namespaces)) {
+      for (const toolCall of parseChatToolCallDelta(delta, namespaces, allowedTools)) {
         const existing = toolCalls.get(toolCall.id);
         if (existing) {
           existing.arguments += toolCall.arguments;
@@ -1418,7 +1580,10 @@ function collectResponsesEventsFromChatChunkText(
       },
     });
   }
-  if (sawStopWithoutToolCall && shouldInjectContinuationTool(messageState.text, planModeLike)) {
+  if (
+    sawStopWithoutToolCall &&
+    shouldInjectContinuationTool(messageState.text, planModeLike, allowedTools)
+  ) {
     events.push(normalizeResponsesEvent({
       type: 'response.output_item.done',
       item: {
@@ -1482,12 +1647,14 @@ function responsesFallbackResponseFromChat(
   stream: boolean,
   namespaces?: Set<string>,
   planModeLike = false,
+  allowedTools?: Set<string>,
 ): Response {
   if (stream) {
     const { events } = collectResponsesEventsFromChatChunkText(
       chatResponseBody,
       namespaces,
       planModeLike,
+      allowedTools,
     );
     return new Response(buildMockSseBody(events), {
       status: 200,
@@ -1526,20 +1693,29 @@ function responsesFallbackResponseFromChat(
       : {};
     const name = typeof functionRecord.name === 'string' ? functionRecord.name : '';
     const args = typeof functionRecord.arguments === 'string' ? functionRecord.arguments : '';
+    const normalizedCall = normalizeChatToolCall(
+      { id, name, arguments: args },
+      namespaces,
+      allowedTools,
+    );
+    if (!normalizedCall) continue;
     const normalizedEvent = normalizeResponsesEvent({
       type: 'response.output_item.done',
       item: {
         id: `tc_${crypto.randomUUID().replace(/-/g, '')}`,
         type: 'function_call',
-        call_id: id,
-        name,
-        arguments: args,
+        call_id: normalizedCall.id,
+        name: normalizedCall.name,
+        arguments: normalizedCall.arguments,
       },
     }, namespaces);
     output.push(normalizedEvent.item as Record<string, unknown>);
   }
 
-  if (planModeLike && split.visibleText && shouldInjectContinuationTool(split.visibleText, true)) {
+  if (
+    planModeLike && split.visibleText &&
+    shouldInjectContinuationTool(split.visibleText, true, allowedTools)
+  ) {
     output.push({
       type: 'function_call',
       id: `tc_${crypto.randomUUID().replace(/-/g, '')}`,
@@ -1643,11 +1819,13 @@ async function forwardWithFallback(
       fallback: true,
     });
     const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
+    const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
     return responsesFallbackResponseFromChat(
       text,
       fallback.stream,
       namespaces,
       fallback.planModeLike,
+      allowedTools,
     );
   }
 
@@ -1674,10 +1852,11 @@ async function forwardWithFallback(
       body: text,
     });
     const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
+    const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
     if (contentType.includes('text/event-stream')) {
-      return new Response(normalizeResponsesSseBody(text, namespaces, planModeLike), {
+      return new Response(normalizeResponsesSseBody(text, namespaces, planModeLike, allowedTools), {
         status: responsesResponse.status,
-        headers: responsesResponse.headers,
+        headers: rewrittenBodyHeaders(responsesResponse.headers),
       });
     }
     const parsed = parseJsonBody(text);
@@ -1738,12 +1917,18 @@ async function forwardWithFallback(
     if (!Array.isArray(parsed.output) || parsed.output.length === 0) {
       const isChatCompletion = Array.isArray(parsed.choices);
       if (isChatCompletion) {
-        return responsesFallbackResponseFromChat(text, false, namespaces, planModeLike);
+        return responsesFallbackResponseFromChat(
+          text,
+          false,
+          namespaces,
+          planModeLike,
+          allowedTools,
+        );
       }
     }
     return new Response(JSON.stringify(parsed), {
       status: responsesResponse.status,
-      headers: responsesResponse.headers,
+      headers: rewrittenBodyHeaders(responsesResponse.headers),
     });
   }
 
@@ -1766,11 +1951,13 @@ async function forwardWithFallback(
     fallback: true,
   });
   const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
+  const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
   return responsesFallbackResponseFromChat(
     text,
     fallback.stream,
     namespaces,
     fallback.planModeLike,
+    allowedTools,
   );
 }
 

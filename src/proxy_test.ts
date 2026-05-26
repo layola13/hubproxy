@@ -243,12 +243,14 @@ Deno.test('proxyOpenAI fills missing function output names from prior calls', as
     );
 
     const body = JSON.parse(seen.body ?? '{}') as {
-      input?: Array<{ type?: string; call_id?: string; name?: string }>;
+      input?: unknown;
+      messages?: Array<{ role?: string; tool_calls?: Array<{ id?: string }> }>;
       tools?: Array<{ type?: string; function?: { name?: string } }>;
     };
-    assertEquals(body.input?.[1]?.type, 'function_call_output');
-    assertEquals(body.input?.[1]?.call_id, 'call-1');
-    assertEquals(body.input?.[1]?.name, 'exec_command');
+    assertEquals(body.input, undefined);
+    assertEquals(body.messages?.[0]?.role, 'assistant');
+    assertEquals(body.messages?.[0]?.tool_calls?.[0]?.id, 'call-1');
+    assertEquals(body.messages?.[1]?.role, 'tool');
     assertEquals(body.tools?.length, 1);
     assertEquals(body.tools?.[0]?.type, 'function');
     assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
@@ -549,7 +551,11 @@ Deno.test('proxyOpenAI falls back to chat stream when responses upstream returns
       ].join('\n'),
       {
         status: 200,
-        headers: { 'content-type': 'text/event-stream' },
+        headers: {
+          'content-type': 'text/event-stream',
+          'content-length': '12',
+          'content-encoding': 'gzip',
+        },
       },
     );
   }) as typeof fetch;
@@ -794,6 +800,100 @@ Deno.test('proxyOpenAI converts progress-only chat stops into continuation tool 
   }
 });
 
+Deno.test('proxyOpenAI converts English progress-only chat stops into continuation tool calls', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"Let me check the test failure details and the permission issue."},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('Let me check the test failure details'), true);
+    assertEquals(text.includes('"name":"exec_command"'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI does not inject continuation when exec_command is unavailable', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"Let me check the test failure details and the permission issue."},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [{ type: 'function', name: 'update_plan', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('Let me check the test failure details'), true);
+    assertEquals(text.includes('"name":"exec_command"'), false);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI does not force continuation for progress-only chat in ordinary mode', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
@@ -883,6 +983,155 @@ Deno.test('proxyOpenAI does not force continuation for a normal final answer', a
     assertEquals(text.includes('Progress-only message received in chat fallback'), false);
     assertEquals(text.includes('我已完成评估，下面是结论。'), true);
     assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI injects continuation before native responses completion', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'event: response.created',
+        'data: {"type":"response.created","response":{"id":"resp_native","status":"in_progress"}}',
+        '',
+        'event: response.output_item.done',
+        'data: {"type":"response.output_item.done","item":{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"Let me check the test failure details and the permission issue."}]}}',
+        '',
+        'event: response.completed',
+        'data: {"type":"response.completed","response":{"id":"resp_native","status":"completed"}}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    const toolIndex = text.indexOf('"name":"exec_command"');
+    const doneIndex = text.indexOf('event: response.done');
+    const completedIndex = text.indexOf('event: response.completed');
+    assertEquals(resp.headers.get('content-length'), null);
+    assertEquals(resp.headers.get('content-encoding'), null);
+    assertEquals(toolIndex > 0, true);
+    assertEquals(doneIndex > toolIndex, true);
+    assertEquals(doneIndex < completedIndex, true);
+    assertEquals(completedIndex > toolIndex, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI does not inject native responses continuation without exec_command', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'event: response.output_item.done',
+        'data: {"type":"response.output_item.done","item":{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"Let me check the test failure details and the permission issue."}]}}',
+        '',
+        'event: response.completed',
+        'data: {"type":"response.completed","response":{"id":"resp_native","status":"completed"}}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [{ type: 'function', name: 'update_plan', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('Let me check the test failure details'), true);
+    assertEquals(text.includes('"name":"exec_command"'), false);
+    assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI does not inject continuation for proposed plan output', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"<proposed_plan>\\n# Plan\\nDo the work.\\n</proposed_plan>"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+    const text = await resp.text();
+    assertEquals(text.includes('<proposed_plan>'), true);
+    assertEquals(text.includes('Progress-only message received in chat fallback'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1134,12 +1383,14 @@ Deno.test('proxyOpenAI strips responses-only fields when falling back to chat', 
       prompt_cache_key?: unknown;
       include?: unknown;
       reasoning?: unknown;
+      input?: unknown;
       messages?: Array<{ role?: string; content?: string }>;
     };
     assertEquals(body.store, undefined);
     assertEquals(body.prompt_cache_key, undefined);
     assertEquals(body.include, undefined);
     assertEquals(body.reasoning, undefined);
+    assertEquals(body.input, undefined);
     const userMessage = body.messages?.find((message) => message.role === 'user');
     assertEquals(userMessage?.content, 'hello');
   } finally {
@@ -1194,6 +1445,62 @@ Deno.test('proxyOpenAI preserves responses-only fields for real responses upstre
     };
     assertEquals(body.store, false);
     assertEquals(body.prompt_cache_key, 'abc');
+    assertEquals(body.include, ['reasoning.encrypted_content']);
+    assertEquals((body.reasoning as { effort?: string } | undefined)?.effort, 'medium');
+    assertEquals(body.input?.[0]?.type, 'message');
+    assertEquals(body.input?.[0]?.role, 'user');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI strips Gemini-incompatible responses fields for native responses upstream', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ output: [], status: 'completed' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemini-3.5-flash',
+          store: false,
+          prompt_cache_key: 'abc',
+          include: ['reasoning.encrypted_content'],
+          reasoning: { effort: 'medium', summary: 'auto' },
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      store?: unknown;
+      prompt_cache_key?: unknown;
+      include?: unknown;
+      reasoning?: unknown;
+      input?: Array<{ type?: string; role?: string }>;
+    };
+    assertEquals(body.store, undefined);
+    assertEquals(body.prompt_cache_key, undefined);
     assertEquals(body.include, ['reasoning.encrypted_content']);
     assertEquals((body.reasoning as { effort?: string } | undefined)?.effort, 'medium');
     assertEquals(body.input?.[0]?.type, 'message');
