@@ -301,6 +301,16 @@ function robustNormalizeServerName(name: string, namespaces?: Set<string>): stri
   return normalized;
 }
 
+function robustDenormalizeServerName(name: string): string {
+  if (name === 'mcp__code_index__') return 'code_index';
+  if (name === 'mcp__mimir__') return 'mimir';
+  const match = name.match(/^mcp__(.*)__$/);
+  if (match) {
+    return match[1];
+  }
+  return name;
+}
+
 export function normalizeResponsesEvent(
   event: ResponsesEvent,
   namespaces?: Set<string>,
@@ -323,12 +333,32 @@ export function normalizeResponsesEvent(
     const kind = item.type;
     const name = typeof item.name === 'string' ? item.name : '';
 
+    // De-normalize server names in arguments (e.g. "mcp__code_index__" -> "code_index")
+    if (typeof item.arguments === 'string') {
+      try {
+        const args = JSON.parse(item.arguments);
+        if (typeof args.server === 'string') {
+          const original = args.server;
+          const denormalized = robustDenormalizeServerName(original);
+          if (denormalized !== original) {
+            args.server = denormalized;
+            item.arguments = JSON.stringify(args);
+          }
+        }
+      } catch {
+        // Ignore parse errors in arguments
+      }
+    }
+
     // Un-flatten namespaced tools (e.g. mcp__code_index__search ->
     // function_call { namespace: "mcp__code_index__", name: "search" }).
     if (kind === 'function_call' && namespaces) {
       for (const ns of namespaces) {
         if (name.startsWith(ns) && name.length > ns.length) {
-          const toolName = name.slice(ns.length);
+          let toolName = name.slice(ns.length);
+          if (toolName.startsWith('.')) {
+            toolName = toolName.slice(1);
+          }
           const rewrittenItem: Record<string, unknown> = {
             ...item,
             type: kind,
@@ -338,23 +368,6 @@ export function normalizeResponsesEvent(
           };
           return { ...event, item: rewrittenItem };
         }
-      }
-    }
-
-    // Normalize server names in arguments (e.g. "Code Index" -> "mcp__code_index__")
-    if (typeof item.arguments === 'string') {
-      try {
-        const args = JSON.parse(item.arguments);
-        if (typeof args.server === 'string') {
-          const original = args.server;
-          const normalized = robustNormalizeServerName(original, namespaces);
-          if (normalized !== original) {
-            args.server = normalized;
-            item.arguments = JSON.stringify(args);
-          }
-        }
-      } catch {
-        // Ignore parse errors in arguments
       }
     }
 
@@ -1525,6 +1538,17 @@ function normalizeChatToolCall(
   namespaces?: Set<string>,
   allowedTools?: Set<string>,
 ): ChatToolCall | null {
+  let name = call.name;
+  if (namespaces) {
+    for (const ns of namespaces) {
+      if (name.startsWith(ns + '.')) {
+        name = ns + name.slice(ns.length + 1);
+        call = { ...call, name };
+        break;
+      }
+    }
+  }
+
   if (call.name === 'exec_command') {
     if (allowedTools && !allowedTools.has('exec_command')) return null;
     try {

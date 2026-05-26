@@ -395,6 +395,66 @@ Deno.test('proxyOpenAI preserves already-normalized MCP server names', async () 
   }
 });
 
+Deno.test('proxyOpenAI de-normalizes server names and normalizes dot-notation tool calls for the client', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'event: response.output_item.done',
+        'data: {"type":"response.output_item.done","item":{"id":"tc_mcp","type":"function_call","name":"mcp__code_index__.read_mcp_resource","arguments":"{\\"server\\":\\"mcp__code_index__\\",\\"uri\\":\\"file:///tmp/demo\\"}"}}',
+        '',
+        'event: response.completed',
+        'data: {"type":"response.completed","response":{"id":"resp_mcp","status":"completed"}}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [
+            { type: 'namespace', name: 'mcp__code_index__' },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const text = await resp.text();
+    const dataLine = text.split('\n').find(line => line.startsWith('data: '));
+    const data = JSON.parse(dataLine!.slice(6));
+    const mcpItem = data.item;
+    
+    // 1. Verify that server name is de-normalized back to 'code_index' for the client
+    const args = JSON.parse(mcpItem.arguments);
+    assertEquals(args.server, 'code_index');
+
+    // 2. Verify that the namespaced dot notation is correctly un-flattened
+    assertEquals(mcpItem.namespace, 'mcp__code_index__');
+    assertEquals(mcpItem.name, 'read_mcp_resource');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
 Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;
