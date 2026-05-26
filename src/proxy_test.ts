@@ -16,6 +16,19 @@ const config: ProxyConfig = {
   dataDir: '/tmp',
 };
 
+function parseSseEvents(text: string): Array<{ event: string; data: Record<string, unknown> }> {
+  return text.trim().split(/\n\n+/).flatMap((block) => {
+    const lines = block.split(/\r?\n/);
+    const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() ?? '';
+    const data = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+      .join('\n');
+    if (!event || !data) return [];
+    return [{ event, data: JSON.parse(data) as Record<string, unknown> }];
+  });
+}
+
 Deno.test('proxyOpenAI forwards auth and base url', async () => {
   const seen: { url?: string; init?: RequestInit } = {};
   const originalFetch = globalThis.fetch;
@@ -593,6 +606,56 @@ Deno.test('proxyOpenAI falls back to chat stream when responses upstream returns
     assertEquals(text.includes('event: response.output_text.delta'), true);
     assertEquals(text.includes('event: response.done'), true);
     assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI does not chat-fallback Gemini tool history', async () => {
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes('/v1/chat/completions')) {
+      throw new Error('Gemini tool history must not use chat fallback');
+    }
+    return new Response('responses unavailable', { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemini-3-flash-preview',
+          stream: true,
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call-1',
+              name: 'exec_command',
+              arguments: '{"cmd":"date"}',
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-1',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+      { collaborationModeKind: 'code' },
+    );
+
+    assertEquals(resp.status, 404);
+    assertEquals(calls, ['http://127.0.0.1:8788/v1/responses']);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1330,6 +1393,272 @@ Deno.test('proxyOpenAI maps thought tags into reasoning output items', async () 
     assertEquals(body.output?.[1]?.type, 'message');
     assertEquals(body.output?.[1]?.content?.[0]?.text, 'Hello there');
     assertEquals(body.output_text, 'Hello there');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI maps chat stream thinking fields into reasoning events', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"reasoning_content":"think one"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"thinking":" and two"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const eventNames = events.map((event) => event.event);
+    const reasoningAdded = eventNames.indexOf('response.output_item.added');
+    const summaryPart = eventNames.indexOf('response.reasoning_summary_part.added');
+    const firstSummaryDelta = eventNames.indexOf('response.reasoning_summary_text.delta');
+    const reasoningDone = events.findIndex((event) =>
+      event.event === 'response.output_item.done' &&
+      (event.data.item as { type?: string } | undefined)?.type === 'reasoning'
+    );
+    const messageDelta = events.findIndex((event) =>
+      event.event === 'response.output_text.delta' && event.data.delta === 'answer'
+    );
+    assertEquals(reasoningAdded >= 0, true);
+    assertEquals(summaryPart > reasoningAdded, true);
+    assertEquals(firstSummaryDelta > summaryPart, true);
+    assertEquals(reasoningDone > firstSummaryDelta, true);
+    assertEquals(messageDelta > reasoningDone, true);
+
+    const summaryDeltas = events
+      .filter((event) => event.event === 'response.reasoning_summary_text.delta')
+      .map((event) => event.data.delta);
+    assertEquals(summaryDeltas, ['think one', ' and two']);
+    const doneItem = events[reasoningDone].data.item as {
+      summary?: Array<{ text?: string }>;
+    };
+    assertEquals(doneItem.summary?.[0]?.text, 'think one and two');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI maps chat JSON reasoning_content into reasoning output items', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            reasoning_content: 'json think',
+            content: 'answer',
+          },
+        }],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = await resp.json() as {
+      output?: Array<{
+        type?: string;
+        content?: Array<{ text?: string }>;
+        summary?: Array<{ text?: string }>;
+      }>;
+      output_text?: string;
+    };
+    assertEquals(body.output?.[0]?.type, 'reasoning');
+    assertEquals(body.output?.[0]?.summary?.[0]?.text, 'json think');
+    assertEquals(body.output?.[1]?.type, 'message');
+    assertEquals(body.output?.[1]?.content?.[0]?.text, 'answer');
+    assertEquals(body.output_text, 'answer');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI normalizes native thinking response stream items', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'event: response.output_item.done',
+        'data: {"type":"response.output_item.done","item":{"id":"think_native","type":"thinking","text":"native stream think"}}',
+        '',
+        'event: response.completed',
+        'data: {"type":"response.completed","response":{"id":"resp_native","status":"completed"}}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const done = events.find((event) => event.event === 'response.output_item.done');
+    const item = done?.data.item as {
+      type?: string;
+      content?: Array<{ text?: string }>;
+      summary?: Array<{ text?: string }>;
+    } | undefined;
+    assertEquals(item?.type, 'reasoning');
+    assertEquals(item?.summary?.[0]?.text, 'native stream think');
+    assertEquals(item?.content?.[0]?.text, 'native stream think');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI normalizes native JSON thinking output items', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      JSON.stringify({
+        output: [
+          { id: 'think_json', type: 'thinking', text: 'native json think' },
+          {
+            id: 'msg_json',
+            type: 'message',
+            role: 'assistant',
+            reasoning_content: 'message json think',
+            content: [{ type: 'output_text', text: 'answer' }],
+          },
+        ],
+        output_text: 'answer',
+        status: 'completed',
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const body = await resp.json() as {
+      output?: Array<{
+        type?: string;
+        content?: Array<{ text?: string }>;
+        summary?: Array<{ text?: string }>;
+      }>;
+      output_text?: string;
+    };
+    assertEquals(body.output?.[0]?.type, 'reasoning');
+    assertEquals(body.output?.[0]?.summary?.[0]?.text, 'native json think');
+    assertEquals(body.output?.[1]?.type, 'reasoning');
+    assertEquals(body.output?.[1]?.summary?.[0]?.text, 'message json think');
+    assertEquals(body.output?.[2]?.type, 'message');
+    assertEquals(body.output?.[2]?.content?.[0]?.text, 'answer');
+    assertEquals(body.output_text, 'answer');
   } finally {
     globalThis.fetch = originalFetch;
   }

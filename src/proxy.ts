@@ -108,15 +108,33 @@ function isToolOutputKind(type: string): type is ResponsesToolOutputKind {
   );
 }
 
+const REASONING_ITEM_TYPES = new Set(['reasoning', 'thinking', 'thought', 'reason']);
+const REASONING_TEXT_FIELDS = [
+  'reasoning',
+  'reasoning_content',
+  'thinking',
+  'thought',
+  'reason',
+  'text',
+];
+
+function isReasoningType(type: unknown): boolean {
+  return typeof type === 'string' && REASONING_ITEM_TYPES.has(type);
+}
+
 function isReasoningItem(item: ResponsesInputItem): boolean {
-  return item.type === 'reasoning';
+  return isReasoningType(item.type);
 }
 
 function normalizeReasoningSummary(
   summary: unknown,
 ): Array<{ type: 'summary_text'; text: string }> {
+  if (typeof summary === 'string') {
+    return summary ? [{ type: 'summary_text', text: summary }] : [];
+  }
   if (!Array.isArray(summary)) return [];
   return summary.flatMap((part) => {
+    if (typeof part === 'string') return part ? [{ type: 'summary_text', text: part }] : [];
     if (!part || typeof part !== 'object') return [];
     const text = typeof (part as { text?: unknown }).text === 'string'
       ? (part as { text: string }).text
@@ -129,8 +147,12 @@ function normalizeReasoningSummary(
 function normalizeReasoningContent(
   content: unknown,
 ): Array<{ type: 'reasoning_text'; text: string }> {
+  if (typeof content === 'string') {
+    return content ? [{ type: 'reasoning_text', text: content }] : [];
+  }
   if (!Array.isArray(content)) return [];
   return content.flatMap((part) => {
+    if (typeof part === 'string') return part ? [{ type: 'reasoning_text', text: part }] : [];
     if (!part || typeof part !== 'object') return [];
     const text = typeof (part as { text?: unknown }).text === 'string'
       ? (part as { text: string }).text
@@ -140,23 +162,90 @@ function normalizeReasoningContent(
   });
 }
 
-function normalizeReasoningItem(item: ResponsesInputItem): ResponsesEvent {
+function normalizeReasoningTextValue(text: string): string {
+  if (!text.includes('<thought>')) return text;
+  const split = extractThoughtSegments(text);
+  return split.reasoningText || split.visibleText;
+}
+
+function extractReasoningTextFromRecord(record: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const field of REASONING_TEXT_FIELDS) {
+    const value = record[field];
+    if (typeof value !== 'string') continue;
+    const text = normalizeReasoningTextValue(value);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    parts.push(text);
+  }
+  return parts.join('\n');
+}
+
+function extractReasoningDeltaText(record: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const field of REASONING_TEXT_FIELDS) {
+    if (field === 'text') continue;
+    const value = record[field];
+    if (typeof value !== 'string') continue;
+    const text = normalizeReasoningTextValue(value);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    parts.push(text);
+  }
+  return parts.join('');
+}
+
+function mergeReasoningTexts(parts: Array<string | undefined>): string {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    if (!part) continue;
+    const text = part.trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out.join('\n');
+}
+
+function reasoningItemId(): string {
+  return `rs_${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+function normalizeReasoningItemPayload(item: Record<string, unknown>): Record<string, unknown> {
   const raw = item as Record<string, unknown>;
   const summary = normalizeReasoningSummary(raw.summary);
-  const fallbackText = typeof raw.text === 'string' ? raw.text : '';
+  const content = normalizeReasoningContent(raw.content);
+  const fallbackText = mergeReasoningTexts([
+    extractReasoningTextFromRecord(raw),
+    content.map((part) => part.text).join('\n'),
+  ]);
   const normalizedSummary = summary.length > 0
     ? summary
     : fallbackText
     ? [{ type: 'summary_text', text: fallbackText }]
     : [];
   const normalized: Record<string, unknown> = {
-    id: typeof raw.id === 'string' ? raw.id : `rs_${crypto.randomUUID().replace(/-/g, '')}`,
+    ...raw,
+    id: typeof raw.id === 'string' ? raw.id : reasoningItemId(),
     type: 'reasoning',
     summary: normalizedSummary,
   };
+  if (content.length > 0) {
+    normalized.content = content;
+  } else if (fallbackText) {
+    normalized.content = [{ type: 'reasoning_text', text: fallbackText }];
+  }
   if (typeof raw.encrypted_content === 'string') {
     normalized.encrypted_content = raw.encrypted_content;
   }
+  return normalized;
+}
+
+function normalizeReasoningItem(item: ResponsesInputItem): ResponsesEvent {
+  const normalized = normalizeReasoningItemPayload(item as Record<string, unknown>);
   return {
     type: 'response.output_item.done',
     item: normalized,
@@ -200,8 +289,11 @@ export function normalizeResponsesEvent(
   const item = event.item as Record<string, unknown> | undefined;
   if (!item) return event;
 
-  if (typeof item.type === 'string' && item.type === 'reasoning') {
-    return normalizeReasoningItem(item as ResponsesInputItem);
+  if (isReasoningType(item.type)) {
+    return {
+      ...event,
+      item: normalizeReasoningItemPayload(item),
+    };
   }
 
   // Handle tool call normalization
@@ -615,6 +707,7 @@ function extractChatFallbackFromResponsesBody(
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const input = Array.isArray(parsed.input) ? normalizeResponseInputItems(parsed.input) : [];
     const model = typeof parsed.model === 'string' ? parsed.model : '';
+    if (isUnsafeGeminiChatFallback(model, input)) return null;
     const messages: Array<Record<string, unknown>> = [];
     const systemTexts: string[] = [];
     const instructions = typeof parsed.instructions === 'string' ? parsed.instructions : '';
@@ -740,19 +833,37 @@ function extractChatFallbackFromResponsesBody(
   }
 }
 
+function isUnsafeGeminiChatFallback(model: string, input: unknown[]): boolean {
+  if (!isGeminiModel(model)) return false;
+  return input.some((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const type = typeof (item as Record<string, unknown>).type === 'string'
+      ? (item as Record<string, string>).type
+      : '';
+    return isToolCallType(type) || isToolOutputKind(type);
+  });
+}
+
 function responseTextFromChatBody(body: string): string {
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
-    const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
-    const choice = choices[0] as Record<string, unknown> | undefined;
-    const message = choice && typeof choice === 'object'
-      ? choice.message as Record<string, unknown> | undefined
-      : undefined;
-    const content = typeof message?.content === 'string' ? message.content : '';
-    return content || body;
+    const message = firstChatMessage(parsed);
+    if (message) return typeof message.content === 'string' ? message.content : '';
+    return body;
   } catch {
     return body;
   }
+}
+
+function firstChatMessage(parsed: Record<string, unknown> | null): Record<string, unknown> | null {
+  const choice = Array.isArray(parsed?.choices)
+    ? parsed.choices[0] as Record<string, unknown> | undefined
+    : undefined;
+  const message = choice && typeof choice === 'object' && choice.message &&
+      typeof choice.message === 'object'
+    ? choice.message as Record<string, unknown>
+    : null;
+  return message;
 }
 
 function parseJsonBody(body: string): Record<string, unknown> | null {
@@ -798,6 +909,110 @@ function rewriteResponseMessageItem(
   };
 }
 
+type ReasoningStreamState = {
+  itemId: string;
+  text: string;
+  started: boolean;
+  done: boolean;
+};
+
+function createReasoningStreamState(): ReasoningStreamState {
+  return {
+    itemId: reasoningItemId(),
+    text: '',
+    started: false,
+    done: false,
+  };
+}
+
+function restartReasoningStreamState(state: ReasoningStreamState): void {
+  state.itemId = reasoningItemId();
+  state.text = '';
+  state.started = false;
+  state.done = false;
+}
+
+function ensureReasoningStreamStarted(
+  events: ResponsesEvent[],
+  state: ReasoningStreamState,
+): void {
+  if (state.started) return;
+  state.started = true;
+  events.push({
+    type: 'response.output_item.added',
+    item: {
+      id: state.itemId,
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: '' }],
+    },
+  });
+  events.push({ type: 'response.reasoning_summary_part.added', summary_index: 0 });
+}
+
+function appendReasoningTextDelta(
+  events: ResponsesEvent[],
+  state: ReasoningStreamState,
+  text: string,
+  separator = '',
+): void {
+  if (!text) return;
+  if (state.done) restartReasoningStreamState(state);
+  const delta = state.text && separator ? `${separator}${text}` : text;
+  if (!delta) return;
+  ensureReasoningStreamStarted(events, state);
+  state.text += delta;
+  events.push({
+    type: 'response.reasoning_summary_text.delta',
+    summary_index: 0,
+    delta,
+  });
+}
+
+function reasoningOutputItem(id: string, text: string): Record<string, unknown> {
+  return {
+    id,
+    type: 'reasoning',
+    summary: [{ type: 'summary_text', text }],
+    content: [{ type: 'reasoning_text', text }],
+  };
+}
+
+function finalizeReasoningStreamItem(
+  events: ResponsesEvent[],
+  state: ReasoningStreamState,
+  namespaces?: Set<string>,
+): void {
+  if (!state.started || state.done) return;
+  events.push(normalizeResponsesEvent({
+    type: 'response.output_item.done',
+    item: reasoningOutputItem(state.itemId, state.text),
+  }, namespaces));
+  state.done = true;
+}
+
+function pushReasoningDoneItem(
+  events: ResponsesEvent[],
+  text: string,
+  namespaces?: Set<string>,
+): void {
+  const normalizedText = text.trim();
+  if (!normalizedText) return;
+  events.push(normalizeResponsesEvent({
+    type: 'response.output_item.done',
+    item: reasoningOutputItem(reasoningItemId(), normalizedText),
+  }, namespaces));
+}
+
+function mergeReasoningTextFromMessageItem(
+  item: Record<string, unknown>,
+  extractedText: string,
+): string {
+  return mergeReasoningTexts([
+    extractedText,
+    extractReasoningTextFromRecord(item),
+  ]);
+}
+
 function normalizeResponsesSseBody(
   body: string,
   namespaces?: Set<string>,
@@ -807,8 +1022,8 @@ function normalizeResponsesSseBody(
   const thoughtSplitter = createThoughtStreamSplitter();
   const state = {
     messageText: '',
-    reasoningText: '',
-    reasoningStarted: false,
+    nativeReasoningText: '',
+    generatedReasoning: createReasoningStreamState(),
     messageStarted: false,
     sawTextDelta: false,
     responseId: `resp_${crypto.randomUUID().replace(/-/g, '')}`,
@@ -837,16 +1052,10 @@ function normalizeResponsesSseBody(
       if (delta) {
         const split = thoughtSplitter.consume(delta);
         if (split.reasoningText) {
-          state.reasoningText += (state.reasoningText ? '\n' : '') + split.reasoningText;
-          if (!state.reasoningStarted) {
-            state.reasoningStarted = true;
-            events.push({ type: 'response.reasoning_summary_part.added', summary_index: 0 });
-          }
-          events.push({
-            type: 'response.reasoning_summary_text.delta',
-            summary_index: 0,
-            delta: split.reasoningText,
-          });
+          state.nativeReasoningText = mergeReasoningTexts([
+            state.nativeReasoningText,
+            split.reasoningText,
+          ]);
         }
         if (split.visibleText) {
           state.messageText += split.visibleText;
@@ -861,6 +1070,7 @@ function normalizeResponsesSseBody(
         ? payload.item as Record<string, unknown>
         : null;
       if (item && item.type === 'message' && eventType === 'response.output_item.done') {
+        let extractedReasoningText = state.nativeReasoningText;
         const rewritten = state.sawTextDelta
           ? rewriteResponseMessageItem(item, state.messageText)
           : (() => {
@@ -875,16 +1085,10 @@ function normalizeResponsesSseBody(
               }
               const split = extractThoughtSegments(record.text);
               if (split.reasoningText) {
-                state.reasoningText += (state.reasoningText ? '\n' : '') + split.reasoningText;
-                if (!state.reasoningStarted) {
-                  state.reasoningStarted = true;
-                  events.push({ type: 'response.reasoning_summary_part.added', summary_index: 0 });
-                }
-                events.push({
-                  type: 'response.reasoning_summary_text.delta',
-                  summary_index: 0,
-                  delta: split.reasoningText,
-                });
+                extractedReasoningText = mergeReasoningTexts([
+                  extractedReasoningText,
+                  split.reasoningText,
+                ]);
               }
               if (split.visibleText) {
                 visibleParts.push({ ...record, text: split.visibleText });
@@ -893,10 +1097,18 @@ function normalizeResponsesSseBody(
             }
             return { ...item, content: visibleParts };
           })();
+        const itemReasoningText = mergeReasoningTextFromMessageItem(item, extractedReasoningText);
+        if (!state.sawTextDelta) {
+          pushReasoningDoneItem(events, itemReasoningText, namespaces);
+        }
+        state.nativeReasoningText = '';
         events.push(normalizeResponsesEvent({
           type: 'response.output_item.done',
           item: rewritten,
         }, namespaces));
+        if (state.sawTextDelta) {
+          pushReasoningDoneItem(events, itemReasoningText, namespaces);
+        }
         return;
       }
       events.push(normalizeResponsesEvent({
@@ -922,22 +1134,18 @@ function normalizeResponsesSseBody(
         ? choice.delta as Record<string, unknown>
         : null;
     if (delta) {
+      const reasoningDelta = extractReasoningDeltaText(delta);
+      if (reasoningDelta) {
+        appendReasoningTextDelta(events, state.generatedReasoning, reasoningDelta);
+      }
       const content = typeof delta.content === 'string' ? delta.content : '';
       if (content) {
         const split = thoughtSplitter.consume(content);
         if (split.reasoningText) {
-          state.reasoningText += (state.reasoningText ? '\n' : '') + split.reasoningText;
-          if (!state.reasoningStarted) {
-            state.reasoningStarted = true;
-            events.push({ type: 'response.reasoning_summary_part.added', summary_index: 0 });
-          }
-          events.push({
-            type: 'response.reasoning_summary_text.delta',
-            summary_index: 0,
-            delta: split.reasoningText,
-          });
+          appendReasoningTextDelta(events, state.generatedReasoning, split.reasoningText, '\n');
         }
         if (split.visibleText) {
+          finalizeReasoningStreamItem(events, state.generatedReasoning, namespaces);
           if (!state.messageStarted) {
             state.messageStarted = true;
             events.push({
@@ -952,21 +1160,6 @@ function normalizeResponsesSseBody(
           }
           state.messageText += split.visibleText;
           events.push({ type: 'response.output_text.delta', delta: split.visibleText });
-        }
-      }
-      if (!content && typeof delta.reasoning === 'string') {
-        const split = thoughtSplitter.consume(delta.reasoning);
-        if (split.reasoningText) {
-          state.reasoningText += (state.reasoningText ? '\n' : '') + split.reasoningText;
-          if (!state.reasoningStarted) {
-            state.reasoningStarted = true;
-            events.push({ type: 'response.reasoning_summary_part.added', summary_index: 0 });
-          }
-          events.push({
-            type: 'response.reasoning_summary_text.delta',
-            summary_index: 0,
-            delta: split.reasoningText,
-          });
         }
       }
       for (const toolCall of parseChatToolCallDelta(delta, namespaces, allowedTools)) {
@@ -1043,16 +1236,29 @@ function normalizeResponsesSseBody(
     }
   }
 
-  if (state.reasoningStarted) {
-    events.push(normalizeResponsesEvent({
-      type: 'response.output_item.done',
-      item: {
-        id: `rs_${crypto.randomUUID().replace(/-/g, '')}`,
-        type: 'reasoning',
-        summary: [{ type: 'summary_text', text: state.reasoningText }],
-      },
-    }, namespaces));
+  const tail = thoughtSplitter.flush();
+  if (tail.reasoningText) {
+    appendReasoningTextDelta(events, state.generatedReasoning, tail.reasoningText, '\n');
   }
+  if (tail.visibleText) {
+    finalizeReasoningStreamItem(events, state.generatedReasoning, namespaces);
+    if (!state.messageStarted) {
+      state.messageStarted = true;
+      events.push({
+        type: 'response.output_item.added',
+        item: {
+          id: state.assistantItemId,
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: '' }],
+        },
+      });
+    }
+    state.messageText += tail.visibleText;
+    events.push({ type: 'response.output_text.delta', delta: tail.visibleText });
+  }
+  finalizeReasoningStreamItem(events, state.generatedReasoning, namespaces);
+  pushReasoningDoneItem(events, state.nativeReasoningText, namespaces);
   if (state.messageStarted) {
     events.push({
       type: 'response.output_item.done',
@@ -1210,17 +1416,10 @@ function responsesFallbackEventsFromChat(chatBody: string, planModeLike = false)
   const events: ResponsesEvent[] = [
     { type: 'response.created', response: { id: responseId } },
   ];
+  const reasoningState = createReasoningStreamState();
   if (split.reasoningText) {
-    const summaryIndex = 0;
-    events.push({
-      type: 'response.reasoning_summary_part.added',
-      summary_index: summaryIndex,
-    });
-    events.push({
-      type: 'response.reasoning_summary_text.delta',
-      summary_index: summaryIndex,
-      delta: split.reasoningText,
-    });
+    appendReasoningTextDelta(events, reasoningState, split.reasoningText);
+    finalizeReasoningStreamItem(events, reasoningState);
   }
   if (split.visibleText) {
     events.push({
@@ -1235,16 +1434,6 @@ function responsesFallbackEventsFromChat(chatBody: string, planModeLike = false)
             text: split.visibleText,
           },
         ],
-      },
-    });
-  }
-  if (split.reasoningText) {
-    events.push({
-      type: 'response.output_item.done',
-      item: {
-        id: `rs_${crypto.randomUUID().replace(/-/g, '')}`,
-        type: 'reasoning',
-        summary: [{ type: 'summary_text', text: split.reasoningText }],
       },
     });
   }
@@ -1429,10 +1618,7 @@ function collectResponsesEventsFromChatChunkText(
     started: false,
     text: '',
   };
-  const reasoningState = {
-    started: false,
-    text: '',
-  };
+  const reasoningState = createReasoningStreamState();
   const thoughtSplitter = createThoughtStreamSplitter();
   const toolCalls = new Map<string, ChatToolCall & { itemId: string; index: number }>();
   let usage: Record<string, unknown> | null = null;
@@ -1461,26 +1647,19 @@ function collectResponsesEventsFromChatChunkText(
         ? choice.delta as Record<string, unknown>
         : null;
     if (delta) {
+      const reasoningDelta = extractReasoningDeltaText(delta);
+      if (reasoningDelta) {
+        appendReasoningTextDelta(events, reasoningState, reasoningDelta);
+      }
       const content = typeof delta.content === 'string' ? delta.content : '';
       if (content) {
         const split = thoughtSplitter.consume(content);
         if (split.reasoningText) {
-          reasoningState.text += (reasoningState.text ? '\n' : '') + split.reasoningText;
-          if (!reasoningState.started) {
-            reasoningState.started = true;
-            events.push({
-              type: 'response.reasoning_summary_part.added',
-              summary_index: 0,
-            });
-          }
-          events.push({
-            type: 'response.reasoning_summary_text.delta',
-            summary_index: 0,
-            delta: split.reasoningText,
-          });
+          appendReasoningTextDelta(events, reasoningState, split.reasoningText, '\n');
         }
         const visibleContent = split.visibleText;
         if (visibleContent) {
+          finalizeReasoningStreamItem(events, reasoningState, namespaces);
           if (!messageState.started) {
             messageState.started = true;
             events.push({
@@ -1495,24 +1674,6 @@ function collectResponsesEventsFromChatChunkText(
           }
           messageState.text += visibleContent;
           events.push({ type: 'response.output_text.delta', delta: visibleContent });
-        }
-      }
-      if (!content && typeof delta.reasoning === 'string') {
-        const split = thoughtSplitter.consume(delta.reasoning);
-        if (split.reasoningText) {
-          reasoningState.text += (reasoningState.text ? '\n' : '') + split.reasoningText;
-          if (!reasoningState.started) {
-            reasoningState.started = true;
-            events.push({
-              type: 'response.reasoning_summary_part.added',
-              summary_index: 0,
-            });
-          }
-          events.push({
-            type: 'response.reasoning_summary_text.delta',
-            summary_index: 0,
-            delta: split.reasoningText,
-          });
         }
       }
       for (const toolCall of parseChatToolCallDelta(delta, namespaces, allowedTools)) {
@@ -1557,18 +1718,26 @@ function collectResponsesEventsFromChatChunkText(
   }
   const tail = thoughtSplitter.flush();
   if (tail.reasoningText) {
-    reasoningState.text += (reasoningState.text ? '\n' : '') + tail.reasoningText;
+    appendReasoningTextDelta(events, reasoningState, tail.reasoningText, '\n');
   }
-  if (reasoningState.started) {
-    events.push(normalizeResponsesEvent({
-      type: 'response.output_item.done',
-      item: {
-        id: `rs_${crypto.randomUUID().replace(/-/g, '')}`,
-        type: 'reasoning',
-        summary: [{ type: 'summary_text', text: reasoningState.text }],
-      },
-    }, namespaces));
+  if (tail.visibleText) {
+    finalizeReasoningStreamItem(events, reasoningState, namespaces);
+    if (!messageState.started) {
+      messageState.started = true;
+      events.push({
+        type: 'response.output_item.added',
+        item: {
+          id: assistantItemId,
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: '' }],
+        },
+      });
+    }
+    messageState.text += tail.visibleText;
+    events.push({ type: 'response.output_text.delta', delta: tail.visibleText });
   }
+  finalizeReasoningStreamItem(events, reasoningState, namespaces);
   if (messageState.started) {
     events.push({
       type: 'response.output_item.done',
@@ -1662,15 +1831,20 @@ function responsesFallbackResponseFromChat(
     });
   }
   const parsed = parseJsonBody(chatResponseBody);
+  const message = firstChatMessage(parsed);
   const rawContent = responseTextFromChatBody(chatResponseBody);
   const split = extractThoughtSegments(rawContent);
+  const reasoningText = mergeReasoningTexts([
+    message ? extractReasoningTextFromRecord(message) : '',
+    split.reasoningText,
+  ]);
   const output: Array<Record<string, unknown>> = [];
-  if (split.reasoningText) {
+  if (reasoningText) {
     output.push({
       type: 'reasoning',
-      summary: [{ type: 'summary_text', text: split.reasoningText }],
+      summary: [{ type: 'summary_text', text: reasoningText }],
       encrypted_content: null,
-      content: [{ type: 'reasoning_text', text: split.reasoningText }],
+      content: [{ type: 'reasoning_text', text: reasoningText }],
     });
   }
   if (split.visibleText) {
@@ -1870,6 +2044,7 @@ async function forwardWithFallback(
     for (const item of output) {
       if (!item || typeof item !== 'object') continue;
       if (item.type === 'message') {
+        let itemReasoningText = extractReasoningTextFromRecord(item);
         const content = Array.isArray(item.content) ? item.content : [];
         const visibleParts: Array<Record<string, unknown>> = [];
         for (const part of content) {
@@ -1881,16 +2056,14 @@ async function forwardWithFallback(
           }
           const split = extractThoughtSegments(record.text);
           if (split.reasoningText) {
-            normalizedOutput.push({
-              type: 'reasoning',
-              summary: [{ type: 'summary_text', text: split.reasoningText }],
-              encrypted_content: null,
-              content: [{ type: 'reasoning_text', text: split.reasoningText }],
-            });
+            itemReasoningText = mergeReasoningTexts([itemReasoningText, split.reasoningText]);
           }
           if (split.visibleText) {
             visibleParts.push({ ...record, text: split.visibleText });
           }
+        }
+        if (itemReasoningText) {
+          normalizedOutput.push(reasoningOutputItem(reasoningItemId(), itemReasoningText));
         }
         normalizedOutput.push({ ...item, content: visibleParts });
         continue;

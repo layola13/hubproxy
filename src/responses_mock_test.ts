@@ -21,7 +21,7 @@ const config: ProxyConfig = {
 Deno.test('mock responses emits SSE events for responses path', async () => {
   const state = new HubState();
   (globalThis as { HUBPROXY_SCENARIO?: ResponsesScenario }).HUBPROXY_SCENARIO = {
-      events: [
+    events: [
       { type: 'response.created', response: { id: 'mock_response_0' } },
       {
         type: 'response.output_item.done',
@@ -191,6 +191,8 @@ Deno.test('buildMockResponsesEventsFromInput keeps reasoning items in reasoning 
     {
       type: 'reasoning',
       summary: [{ type: 'summary_text', text: 'internal thought' }],
+      status: 'completed',
+      thought_signature: 'sig_123',
     },
   ]);
 
@@ -199,10 +201,39 @@ Deno.test('buildMockResponsesEventsFromInput keeps reasoning items in reasoning 
   const payload = events[0].item as {
     type: string;
     summary?: Array<{ type: string; text: string }>;
+    status?: string;
+    thought_signature?: string;
     output_kind?: string;
   };
   assertEquals(payload.type, 'reasoning');
   assertEquals(payload.summary?.[0]?.type, 'summary_text');
   assertEquals(payload.summary?.[0]?.text, 'internal thought');
+  assertEquals(payload.status, 'completed');
+  assertEquals(payload.thought_signature, 'sig_123');
   assertEquals(payload.output_kind, undefined);
+});
+
+Deno.test('buildMockResponsesEventsFromInput preserves thinking metadata while normalizing', () => {
+  const events = buildMockResponsesEventsFromInput([
+    {
+      type: 'thinking',
+      text: 'native thought',
+      status: 'completed',
+      thought_signature: 'sig_thinking',
+    },
+  ]);
+
+  assertEquals(events.length, 1);
+  const payload = events[0].item as {
+    type: string;
+    summary?: Array<{ text: string }>;
+    content?: Array<{ text: string }>;
+    status?: string;
+    thought_signature?: string;
+  };
+  assertEquals(payload.type, 'reasoning');
+  assertEquals(payload.summary?.[0]?.text, 'native thought');
+  assertEquals(payload.content?.[0]?.text, 'native thought');
+  assertEquals(payload.status, 'completed');
+  assertEquals(payload.thought_signature, 'sig_thinking');
 });
