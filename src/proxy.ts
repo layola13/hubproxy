@@ -303,9 +303,10 @@ function robustNormalizeServerName(name: string, namespaces?: Set<string>): stri
 }
 
 export function robustDenormalizeServerName(name: string): string {
-  if (name === 'mcp__code_index__') return 'code-index';
-  if (name === 'mcp__mimir__') return 'mimir';
-  const match = name.match(/^mcp__(.*)__$/);
+  const normalized = robustNormalizeServerName(name);
+  if (normalized === 'mcp__code_index__') return 'code-index';
+  if (normalized === 'mcp__mimir__') return 'mimir';
+  const match = normalized.match(/^mcp__(.*)__$/);
   if (match) {
     return match[1].replace(/_/g, '-');
   }
@@ -1534,12 +1535,25 @@ function hasFinalAnswerMarkers(text: string): boolean {
     );
 }
 
-function normalizeChatToolCall(
+export function normalizeChatToolCall(
   call: ChatToolCall,
   namespaces?: Set<string>,
   allowedTools?: Set<string>,
 ): ChatToolCall | null {
   let name = call.name;
+
+  // Support robust dot-notation mapping for any raw/partially normalized namespace (e.g. "code_index.read_mcp_resource" -> "mcp__code_index__read_mcp_resource")
+  if (name.includes('.')) {
+    const parts = name.split('.');
+    const prefix = parts[0];
+    const rest = parts.slice(1).join('.');
+    const normalizedPrefix = robustNormalizeServerName(prefix);
+    if (namespaces && namespaces.has(normalizedPrefix)) {
+      name = normalizedPrefix + rest;
+      call = { ...call, name };
+    }
+  }
+
   if (namespaces) {
     for (const ns of namespaces) {
       if (name.startsWith(ns + '.')) {
@@ -1547,6 +1561,23 @@ function normalizeChatToolCall(
         call = { ...call, name };
         break;
       }
+    }
+  }
+
+  // De-normalize server names in arguments immediately if present (e.g. "code_index" -> "code-index")
+  if (typeof call.arguments === 'string') {
+    try {
+      const args = JSON.parse(call.arguments);
+      if (typeof args.server === 'string') {
+        const original = args.server;
+        const denormalized = robustDenormalizeServerName(original);
+        if (denormalized !== original) {
+          args.server = denormalized;
+          call = { ...call, arguments: JSON.stringify(args) };
+        }
+      }
+    } catch {
+      // Ignore
     }
   }
 

@@ -1,5 +1,11 @@
 import { assertEquals, assertMatch } from 'jsr:@std/assert@1';
-import { normalizeModelListResponseBody, proxyOpenAI } from './proxy.ts';
+import {
+  normalizeChatToolCall,
+  normalizeModelListResponseBody,
+  normalizeResponsesEvent,
+  proxyOpenAI,
+  robustDenormalizeServerName,
+} from './proxy.ts';
 import type { ProxyConfig } from './types.ts';
 
 const config: ProxyConfig = {
@@ -1969,3 +1975,134 @@ Deno.test('proxyOpenAI strips Gemini-incompatible responses fields for native re
     globalThis.fetch = originalFetch;
   }
 });
+
+Deno.test('robustDenormalizeServerName handles various formats', () => {
+  assertEquals(robustDenormalizeServerName('mcp__code_index__'), 'code-index');
+  assertEquals(robustDenormalizeServerName('mcp__mimir__'), 'mimir');
+  assertEquals(robustDenormalizeServerName('mcp__secure_coder__'), 'secure-coder');
+  assertEquals(robustDenormalizeServerName('mcp__hello_world__'), 'hello-world');
+  assertEquals(robustDenormalizeServerName('non_mcp_name'), 'non-mcp-name');
+  assertEquals(robustDenormalizeServerName('mcp__my_custom_server_name__'), 'my-custom-server-name');
+
+  // Verify that raw and partially normalized server names resolve properly too
+  assertEquals(robustDenormalizeServerName('code_index'), 'code-index');
+  assertEquals(robustDenormalizeServerName('code-index'), 'code-index');
+  assertEquals(robustDenormalizeServerName('mimir'), 'mimir');
+});
+
+Deno.test('normalizeChatToolCall handles dot-notation namespaces and denormalizes server argument in arguments', () => {
+  const namespaces = new Set(['mcp__code_index__', 'mcp__mimir__']);
+
+  // Case 1: dot-notation call with unnormalized prefix (code_index)
+  const call1 = {
+    id: '1:tool',
+    name: 'code_index.read_mcp_resource',
+    arguments: JSON.stringify({ server: 'code_index', uri: 'skill://code-index/SKILL.md' }),
+  };
+  const res1 = normalizeChatToolCall(call1, namespaces);
+  assertEquals(res1?.name, 'mcp__code_index__read_mcp_resource');
+  const args1 = JSON.parse(res1?.arguments ?? '{}');
+  assertEquals(args1.server, 'code-index');
+
+  // Case 2: dot-notation call with hyphenated prefix (code-index)
+  const call2 = {
+    id: '2:tool',
+    name: 'code-index.read_mcp_resource',
+    arguments: JSON.stringify({ server: 'code-index', uri: 'skill://code-index/SKILL.md' }),
+  };
+  const res2 = normalizeChatToolCall(call2, namespaces);
+  assertEquals(res2?.name, 'mcp__code_index__read_mcp_resource');
+  const args2 = JSON.parse(res2?.arguments ?? '{}');
+  assertEquals(args2.server, 'code-index');
+
+  // Case 3: dot-notation call with fully normalized prefix (mcp__code_index__)
+  const call3 = {
+    id: '3:tool',
+    name: 'mcp__code_index__.read_mcp_resource',
+    arguments: JSON.stringify({ server: 'mcp__code_index__', uri: 'skill://code-index/SKILL.md' }),
+  };
+  const res3 = normalizeChatToolCall(call3, namespaces);
+  assertEquals(res3?.name, 'mcp__code_index__read_mcp_resource');
+  const args3 = JSON.parse(res3?.arguments ?? '{}');
+  assertEquals(args3.server, 'code-index');
+});
+
+Deno.test('normalizeResponsesEvent un-flattens namespaced tools and denormalizes server names in arguments', () => {
+  const namespaces = new Set(['mcp__code_index__', 'mcp__mimir__']);
+
+  // Case 1: un-flatten tool call
+  const event1 = {
+    type: 'response.output_item.added',
+    item: {
+      type: 'function_call',
+      name: 'mcp__code_index__search',
+      arguments: JSON.stringify({ query: 'hello' }),
+    },
+  };
+
+  const res1 = normalizeResponsesEvent(event1, namespaces);
+  assertEquals(res1.type, 'response.output_item.added');
+  assertEquals((res1.item as Record<string, unknown>).type, 'function_call');
+  assertEquals((res1.item as Record<string, unknown>).name, 'search');
+  assertEquals((res1.item as Record<string, unknown>).namespace, 'mcp__code_index__');
+  assertEquals((res1.item as Record<string, unknown>).output_kind, 'function_call_output');
+
+  // Case 2: dot-notation in namespaced tools
+  const event2 = {
+    type: 'response.output_item.added',
+    item: {
+      type: 'function_call',
+      name: 'mcp__code_index__.search',
+      arguments: JSON.stringify({ query: 'hello' }),
+    },
+  };
+
+  const res2 = normalizeResponsesEvent(event2, namespaces);
+  assertEquals((res2.item as Record<string, unknown>).name, 'search');
+  assertEquals((res2.item as Record<string, unknown>).namespace, 'mcp__code_index__');
+
+  // Case 3: server name restoration in arguments (denormalization to hyphenated client registered server name)
+  const event3 = {
+    type: 'response.output_item.done',
+    item: {
+      type: 'function_call',
+      name: 'mcp__code_index__read_mcp_resource',
+      arguments: JSON.stringify({ server: 'mcp__code_index__', uri: 'file:///foo' }),
+    },
+  };
+
+  const res3 = normalizeResponsesEvent(event3, namespaces);
+  const args3 = JSON.parse((res3.item as Record<string, unknown>).arguments as string);
+  assertEquals(args3.server, 'code-index');
+  assertEquals((res3.item as Record<string, unknown>).name, 'read_mcp_resource');
+  assertEquals((res3.item as Record<string, unknown>).namespace, 'mcp__code_index__');
+
+  // Case 4: other server name restoration in arguments (e.g. from code_index to code-index)
+  const event4 = {
+    type: 'response.output_item.done',
+    item: {
+      type: 'function_call',
+      name: 'mcp__code_index__read_mcp_resource',
+      arguments: JSON.stringify({ server: 'code_index', uri: 'file:///foo' }),
+    },
+  };
+
+  const res4 = normalizeResponsesEvent(event4, namespaces);
+  const args4 = JSON.parse((res4.item as Record<string, unknown>).arguments as string);
+  assertEquals(args4.server, 'code-index');
+
+  // Case 5: custom server name mapping in arguments
+  const event5 = {
+    type: 'response.output_item.done',
+    item: {
+      type: 'function_call',
+      name: 'mcp__custom_tool__some_tool',
+      arguments: JSON.stringify({ server: 'mcp__custom_tool__' }),
+    },
+  };
+
+  const res5 = normalizeResponsesEvent(event5, new Set(['mcp__custom_tool__']));
+  const args5 = JSON.parse((res5.item as Record<string, unknown>).arguments as string);
+  assertEquals(args5.server, 'custom-tool');
+});
+
