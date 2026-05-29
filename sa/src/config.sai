@@ -1,0 +1,38 @@
+// config.sai — HubProxy configuration loader
+// Reads .env file and produces a ProxyConfig structure.
+
+// ProxyConfig memory layout
+#def CFG_SIZE       = 170
+#def CFG_PORT       = +0
+#def CFG_HOST_PTR   = +2
+#def CFG_HOST_LEN   = +10
+#def CFG_AUTH_PTR   = +18
+#def CFG_AUTH_LEN   = +26
+#def CFG_CHAT_PTR   = +34
+#def CFG_CHAT_LEN   = +42
+#def CFG_MODEL_PTR  = +50
+#def CFG_MODEL_LEN  = +58
+#def CFG_KEY_PTR    = +66
+#def CFG_KEY_LEN    = +74
+#def CFG_DIR_PTR    = +82
+#def CFG_DIR_LEN    = +90
+#def CFG_RBASE_PTR  = +98
+#def CFG_RBASE_LEN  = +106
+#def CFG_LOG_PTR    = +114
+#def CFG_LOG_LEN    = +122
+#def CFG_ENV_BUF    = +130  // u64 owned sa_fs_read_file buffer handle
+#def CFG_PLAN_PTR   = +138
+#def CFG_PLAN_LEN   = +146
+#def CFG_EMAIL_PTR  = +154
+#def CFG_EMAIL_LEN  = +162
+
+// cfg_load(env_path_ptr, env_path_len, out_cfg_ptr) -> u32
+// Loads .env from the given path and populates the config struct.
+// Returns 0 on success, non-zero on error.
+@extern cfg_load(&env_path: ptr, env_path_len: u64, &out_cfg: ptr) -> u32
+
+// cfg_get_port(cfg_ptr) -> u16
+@extern cfg_get_port(&cfg: ptr) -> u16
+
+// cfg_get_host(cfg_ptr, &out_ptr, &out_len) -> u32
+@extern cfg_get_host(&cfg: ptr, &out_ptr: ptr, &out_len: ptr) -> u32

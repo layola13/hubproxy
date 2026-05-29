@@ -2716,7 +2716,7 @@ Deno.test('handleHttpWithState writes request logs for API routes', async () => 
   }
 });
 
-Deno.test('handleHttpWithState does write logs by default', async () => {
+Deno.test('handleHttpWithState does not write logs by default', async () => {
   const state = new HubState();
   const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
   const originalCwd = Deno.cwd();
@@ -2747,7 +2747,7 @@ Deno.test('handleHttpWithState does write logs by default', async () => {
     } catch {
       logsExists = false;
     }
-    assertEquals(logsExists, true);
+    assertEquals(logsExists, false);
   } finally {
     Deno.chdir(originalCwd);
     if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');

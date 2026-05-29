@@ -1,8 +1,11 @@
 {
   "tasks": {
-    "dev": "deno run --watch --allow-net --allow-env --allow-read --allow-write src/main.ts",
-    "start": "deno run --allow-net --allow-env --allow-read --allow-write src/main.ts",
-    "check": "deno check src/main.ts"
+    "dev": "cd sa && /home/vscode/.sa/bin/sa build main.sa -o hubproxy --json && ../restart.sh",
+    "start": "./restart.sh",
+    "check": "cd sa && /home/vscode/.sa/bin/sa build main.sa -o hubproxy --json",
+    "deno:dev": "deno run --watch --allow-net --allow-env --allow-read --allow-write src/main.ts",
+    "deno:start": "deno run --allow-net --allow-env --allow-read --allow-write src/main.ts",
+    "deno:check": "deno check src/main.ts"
   },
   "fmt": {
     "useTabs": false,

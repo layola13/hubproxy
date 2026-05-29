@@ -1,0 +1,8 @@
+// strings.sai — Byte-level string comparison utilities for SA
+// All comparisons operate on raw (ptr, len) pairs.
+
+@extern sa_bytes_eq(&a: ptr, a_len: u64, &b: ptr, b_len: u64) -> u8
+@extern sa_bytes_find(&hay: ptr, hay_len: u64, &needle: ptr, needle_len: u64) -> i64
+@extern sa_bytes_find_byte(&hay: ptr, hay_len: u64, needle_byte: u8) -> i64
+@extern sa_bytes_copy(&dst: ptr, &src: ptr, len: u64) -> u64
+@extern sa_bytes_to_u64(&buf: ptr, buf_len: u64) -> i64

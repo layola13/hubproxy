@@ -54,14 +54,22 @@ function proxyLogSummary(
   };
 }
 
+function logDirFromEnv(): string | null {
+  const value = getEnvOrNull('HUBPROXY_LOG_DIR');
+  if (!value) return null;
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
 function writeModelListLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = logDirFromEnv();
+  const text = JSON.stringify(entry, null, 2) + '\n';
+  console.log(text.trimEnd());
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/models-${stamp}-${crypto.randomUUID()}.json`;
-    const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(text.trimEnd());
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break the proxy path.
@@ -83,13 +91,14 @@ function getEnvOrNull(name: string): string | null {
 }
 
 function writeUpstreamLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = logDirFromEnv();
+  const text = JSON.stringify(entry, null, 2) + '\n';
+  console.log(text.trimEnd());
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/upstream-${stamp}-${crypto.randomUUID()}.json`;
-    const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(text.trimEnd());
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break the proxy path.
@@ -428,13 +437,14 @@ export function buildMockResponsesEventsFromInput(input: ResponsesInputItem[]): 
 }
 
 function writeResponseLog(entry: Record<string, unknown>): void {
-  const logDir = getEnvOrNull('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = logDirFromEnv();
+  const text = JSON.stringify(entry, null, 2) + '\n';
+  console.log(text.trimEnd());
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/response-${stamp}-${crypto.randomUUID()}.json`;
-    const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(text.trimEnd());
     Deno.writeTextFileSync(file, text);
   } catch {
     // Ignore
@@ -452,6 +462,26 @@ function rewrittenBodyHeaders(headers: Headers): Headers {
 async function forwardJson(url: string, init: RequestInit): Promise<Response> {
   const resp = await fetch(url, init);
   return resp;
+}
+
+function isJsonWriteMethod(method: string): boolean {
+  return method === 'POST' || method === 'PUT' || method === 'PATCH';
+}
+
+function emptyJsonBodyResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: '400',
+        message: 'Request body must be a non-empty JSON document.',
+        type: 'BadRequest',
+      },
+    }),
+    {
+      status: 400,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    },
+  );
 }
 
 function maybeRewriteRequestBody(path: string, body: string | undefined): string | undefined {
@@ -1070,7 +1100,7 @@ function normalizeResponsesSseBody(
   };
   const events: ResponsesEvent[] = [];
   const completionEvents: ResponsesEvent[] = [];
-  const toolCalls = new Map<string, ChatToolCall & { itemId: string; index: number }>();
+  const toolCalls = new Map<string, ChatToolCallChunk & { itemId: string }>();
 
   const processPayload = (payload: Record<string, any>, eventType: string) => {
     if (
@@ -1201,17 +1231,16 @@ function normalizeResponsesSseBody(
           events.push({ type: 'response.output_text.delta', delta: split.visibleText });
         }
       }
-      for (const toolCall of parseChatToolCallDelta(delta, namespaces, allowedTools)) {
-        const existing = toolCalls.get(toolCall.id);
+      for (const toolCall of parseChatToolCallDelta(delta)) {
+        const existing = toolCalls.get(toolCall.slotKey);
         if (existing) {
           existing.arguments += toolCall.arguments;
+          if (toolCall.callId) existing.callId = toolCall.callId;
           if (toolCall.name) existing.name = toolCall.name;
         } else {
-          const [indexStr] = toolCall.id.split(':');
-          toolCalls.set(toolCall.id, {
+          toolCalls.set(toolCall.slotKey, {
             ...toolCall,
             itemId: `tc_${crypto.randomUUID().replace(/-/g, '')}`,
-            index: parseInt(indexStr, 10) || 0,
           });
         }
       }
@@ -1222,16 +1251,24 @@ function normalizeResponsesSseBody(
     if (finishReason === 'tool_calls' || finishReason === 'stop') {
       const sortedCalls = Array.from(toolCalls.values()).sort((a, b) => a.index - b.index);
       for (const call of sortedCalls) {
-        const callIdParts = call.id.split(':');
-        const realCallId = callIdParts.length > 1 ? callIdParts.slice(1).join(':') : call.id;
+        const normalizedCall = normalizeChatToolCall(
+          {
+            id: `${call.index}:${call.callId || call.name || 'tool'}`,
+            name: call.name,
+            arguments: call.arguments,
+          },
+          namespaces,
+          allowedTools,
+        );
+        if (!normalizedCall || !normalizedCall.name) continue;
         events.push(normalizeResponsesEvent({
           type: 'response.output_item.done',
           item: {
             id: call.itemId,
             type: 'function_call',
-            call_id: realCallId,
-            name: call.name,
-            arguments: call.arguments,
+            call_id: call.callId || normalizedCall.id,
+            name: normalizedCall.name,
+            arguments: normalizedCall.arguments,
           },
         }, namespaces));
       }
@@ -1486,6 +1523,14 @@ type ChatToolCall = {
   arguments: string;
 };
 
+type ChatToolCallChunk = {
+  slotKey: string;
+  index: number;
+  callId: string;
+  name: string;
+  arguments: string;
+};
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -1657,9 +1702,7 @@ function shouldInjectContinuationTool(
 
 function parseChatToolCallDelta(
   delta: Record<string, unknown>,
-  namespaces?: Set<string>,
-  allowedTools?: Set<string>,
-): Array<ChatToolCall> {
+): Array<ChatToolCallChunk> {
   const rawToolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
   return rawToolCalls.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return [];
@@ -1671,16 +1714,13 @@ function parseChatToolCallDelta(
     const callId = typeof record.id === 'string' ? record.id : '';
     const name = typeof functionRecord.name === 'string' ? functionRecord.name : '';
     const argsPart = typeof functionRecord.arguments === 'string' ? functionRecord.arguments : '';
-    const call = normalizeChatToolCall(
-      {
-        id: `${index}:${callId || name || 'tool'}`,
-        name,
-        arguments: argsPart,
-      },
-      namespaces,
-      allowedTools,
-    );
-    return call ? [call] : [];
+    return [{
+      slotKey: String(index),
+      index,
+      callId,
+      name,
+      arguments: argsPart,
+    }];
   });
 }
 
@@ -1703,7 +1743,7 @@ function collectResponsesEventsFromChatChunkText(
   };
   const reasoningState = createReasoningStreamState();
   const thoughtSplitter = createThoughtStreamSplitter();
-  const toolCalls = new Map<string, ChatToolCall & { itemId: string; index: number }>();
+  const toolCalls = new Map<string, ChatToolCallChunk & { itemId: string }>();
   let usage: Record<string, unknown> | null = null;
   let sawStopWithoutToolCall = false;
   events.push({ type: 'response.created', response: { id: responseId } });
@@ -1759,17 +1799,16 @@ function collectResponsesEventsFromChatChunkText(
           events.push({ type: 'response.output_text.delta', delta: visibleContent });
         }
       }
-      for (const toolCall of parseChatToolCallDelta(delta, namespaces, allowedTools)) {
-        const existing = toolCalls.get(toolCall.id);
+      for (const toolCall of parseChatToolCallDelta(delta)) {
+        const existing = toolCalls.get(toolCall.slotKey);
         if (existing) {
           existing.arguments += toolCall.arguments;
+          if (toolCall.callId) existing.callId = toolCall.callId;
           if (toolCall.name) existing.name = toolCall.name;
         } else {
-          const [indexStr] = toolCall.id.split(':');
-          toolCalls.set(toolCall.id, {
+          toolCalls.set(toolCall.slotKey, {
             ...toolCall,
             itemId: `tc_${crypto.randomUUID().replace(/-/g, '')}`,
-            index: parseInt(indexStr, 10) || 0,
           });
         }
       }
@@ -1783,16 +1822,24 @@ function collectResponsesEventsFromChatChunkText(
     if (finishReason === 'tool_calls' || finishReason === 'stop') {
       const sortedCalls = Array.from(toolCalls.values()).sort((a, b) => a.index - b.index);
       for (const call of sortedCalls) {
-        const callIdParts = call.id.split(':');
-        const realCallId = callIdParts.length > 1 ? callIdParts.slice(1).join(':') : call.id;
+        const normalizedCall = normalizeChatToolCall(
+          {
+            id: `${call.index}:${call.callId || call.name || 'tool'}`,
+            name: call.name,
+            arguments: call.arguments,
+          },
+          namespaces,
+          allowedTools,
+        );
+        if (!normalizedCall || !normalizedCall.name) continue;
         events.push(normalizeResponsesEvent({
           type: 'response.output_item.done',
           item: {
             id: call.itemId,
             type: 'function_call',
-            call_id: realCallId,
-            name: call.name,
-            arguments: call.arguments,
+            call_id: call.callId || normalizedCall.id,
+            name: normalizedCall.name,
+            arguments: normalizedCall.arguments,
           },
         }, namespaces));
       }
@@ -2231,6 +2278,14 @@ export async function proxyOpenAI(
   const rawBody = req.method === 'GET' || req.method === 'HEAD'
     ? undefined
     : await req.clone().text();
+  if (
+    isJsonWriteMethod(req.method) &&
+    (path.includes('/responses') || path.includes('/chat/completions')) &&
+    rawBody !== undefined &&
+    !rawBody.trim()
+  ) {
+    return emptyJsonBodyResponse();
+  }
   const body = maybeRewriteRequestBody(path, rawBody);
   const headers = forwardHeaders(req.headers, config.defaultApiKey, config.authToken);
   const upstream = await forwardWithFallback(

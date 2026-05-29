@@ -1,0 +1,292 @@
+// strings.sa — Byte-level string utilities for SA
+@import "strings.sai"
+
+// sa_bytes_eq(a_ptr, a_len, b_ptr, b_len) -> u8
+// Returns 1 if byte sequences are equal, 0 otherwise.
+@ffi_wrapper sa_bytes_eq(&a: ptr, a_len: u64, &b: ptr, b_len: u64) -> u8:
+L_ENTRY:
+    len_diff = ne a_len, b_len
+    br len_diff -> L_EQ_NOT_EQ, L_CMP_LOOP_INIT
+
+L_CMP_LOOP_INIT:
+    !len_diff
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_CMP_COND
+
+L_CMP_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, a_len
+    br done -> L_EQ, L_CMP_BODY
+
+L_CMP_BODY:
+    !done
+    a_ptr = ptr_add a, i
+    b_ptr = ptr_add b, i
+    a_byte = load a_ptr+0 as u8
+    b_byte = load b_ptr+0 as u8
+    diff = ne a_byte, b_byte
+    br diff -> L_EQ_BYTE_DIFF, L_CMP_NEXT
+
+L_CMP_NEXT:
+    !diff
+    !a_byte
+    !b_byte
+    !a_ptr
+    !b_ptr
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    jmp L_CMP_COND
+
+L_EQ_BYTE_DIFF:
+    !diff
+    !a_byte
+    !b_byte
+    !a_ptr
+    !b_ptr
+    !i
+    !a_len
+    !b_len
+    !a
+    !b
+    return 0
+
+L_EQ:
+    !done
+    !i
+    !a_len
+    !b_len
+    !a
+    !b
+    return 1
+
+L_EQ_NOT_EQ:
+    !len_diff
+    !a_len
+    !b_len
+    !a
+    !b
+    return 0
+
+// sa_bytes_find(hay_ptr, hay_len, needle_ptr, needle_len) -> i64
+// Returns index of first occurrence, or -1 if not found.
+@ffi_wrapper sa_bytes_find(&hay: ptr, hay_len: u64, &needle: ptr, needle_len: u64) -> i64:
+L_ENTRY:
+    too_long = ugt needle_len, hay_len
+    br too_long -> L_FIND_TOO_LONG, L_FIND_INIT
+
+L_FIND_TOO_LONG:
+    !too_long
+    !hay
+    !hay_len
+    !needle
+    !needle_len
+    return -1
+
+L_FIND_INIT:
+    !too_long
+    limit = sub hay_len, needle_len
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_FIND_COND
+
+L_FIND_COND:
+    i = load i_ptr+0 as u64
+    done = ugt i, limit
+    br done -> L_NOT_FOUND, L_FIND_BODY
+
+L_FIND_BODY:
+    !done
+    hay_offset = ptr_add hay, i
+    match = call @sa_bytes_eq(&hay_offset, needle_len, &needle, needle_len)
+    is_match = eq match, 1
+    br is_match -> L_FOUND, L_FIND_NEXT
+
+L_FIND_NEXT:
+    !is_match
+    !match
+    !hay_offset
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    jmp L_FIND_COND
+
+L_FOUND:
+    !is_match
+    !match
+    !hay_offset
+    !limit
+    !hay
+    !hay_len
+    !needle
+    !needle_len
+    return i
+
+L_NOT_FOUND:
+    !done
+    !i
+    !limit
+    !hay
+    !hay_len
+    !needle
+    !needle_len
+    return -1
+
+// sa_bytes_find_byte(hay_ptr, hay_len, needle_byte) -> i64
+// Returns index of first occurrence of needle_byte, or -1.
+@ffi_wrapper sa_bytes_find_byte(&hay: ptr, hay_len: u64, needle_byte: u8) -> i64:
+L_ENTRY:
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_BF_COND
+
+L_BF_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, hay_len
+    br done -> L_BF_NOT_FOUND, L_BF_BODY
+
+L_BF_BODY:
+    !done
+    cur_ptr = ptr_add hay, i
+    cur = load cur_ptr+0 as u8
+    found = eq cur, needle_byte
+    br found -> L_BF_FOUND, L_BF_NEXT
+
+L_BF_NEXT:
+    !found
+    !cur
+    !cur_ptr
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    jmp L_BF_COND
+
+L_BF_FOUND:
+    !found
+    !cur
+    !cur_ptr
+    !hay
+    !hay_len
+    !needle_byte
+    return i
+
+L_BF_NOT_FOUND:
+    !done
+    !i
+    !hay
+    !hay_len
+    !needle_byte
+    return -1
+
+// sa_bytes_copy(dst_ptr, src_ptr, len) -> u64
+// Copies len bytes from src to dst. Returns number of bytes copied.
+@ffi_wrapper sa_bytes_copy(&dst: ptr, &src: ptr, len: u64) -> u64:
+L_ENTRY:
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_CPY_COND
+
+L_CPY_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, len
+    br done -> L_CPY_DONE, L_CPY_BODY
+
+L_CPY_BODY:
+    src_ptr = ptr_add src, i
+    dst_ptr = ptr_add dst, i
+    b = load src_ptr+0 as u8
+    store dst_ptr+0, b as u8
+    !b
+    !src_ptr
+    !dst_ptr
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_CPY_COND
+
+L_CPY_DONE:
+    !i
+    !done
+    !dst
+    !src
+    return len
+
+// sa_bytes_to_u64(buf_ptr, buf_len) -> i64
+// Parses an unsigned decimal integer from ASCII bytes.
+// Returns -1 on overflow or invalid input.
+@ffi_wrapper sa_bytes_to_u64(&buf: ptr, buf_len: u64) -> i64:
+L_ENTRY:
+    is_empty = eq buf_len, 0
+    br is_empty -> L_ATO_INVALID, L_ATO_INIT
+
+L_ATO_INVALID:
+    !is_empty
+    !buf
+    !buf_len
+    return -1
+
+L_ATO_INIT:
+    !is_empty
+    result_ptr = stack_alloc 8
+    store result_ptr+0, 0 as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_ATO_COND
+
+L_ATO_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, buf_len
+    br done -> L_ATO_DONE, L_ATO_BODY
+
+L_ATO_BODY:
+    !done
+    c_ptr = ptr_add buf, i
+    c = load c_ptr+0 as u8
+    is_digit = uge c, 48
+    is_digit2 = ule c, 57
+    valid = and is_digit, is_digit2
+    !is_digit
+    !is_digit2
+    br valid -> L_ATO_DIGIT, L_ATO_BAD
+
+L_ATO_DIGIT:
+    !valid
+    digit = sub c, 48
+    result = load result_ptr+0 as u64
+    new_result = mul result, 10
+    sum = add new_result, digit
+    store result_ptr+0, sum as u64
+    !digit
+    !result
+    !new_result
+    !sum
+    !c
+    !c_ptr
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    jmp L_ATO_COND
+
+L_ATO_BAD:
+    !valid
+    !c
+    !c_ptr
+    !i
+    !buf
+    !buf_len
+    return -1
+
+L_ATO_DONE:
+    !done
+    !i
+    final = load result_ptr+0 as u64
+    !buf
+    !buf_len
+    return final

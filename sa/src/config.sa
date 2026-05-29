@@ -1,0 +1,689 @@
+// config.sa - HubProxy .env config loader
+@import "config.sai"
+@import "sa_std/io/print.sai"
+@import "strings.sai"
+
+@extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> u64!
+@extern sa_fs_read_buffer_data(buffer: u64) -> &ptr
+@extern sa_fs_read_buffer_len(buffer: u64) -> u64
+@extern sa_fs_read_buffer_free(^buffer: u64) -> i32
+@extern sa_env_get(&key: ptr, key_len: u64) -> u64
+@extern sa_env_buffer_data(buffer: u64) -> &ptr
+@extern sa_env_buffer_len(buffer: u64) -> u64
+@extern sa_env_buffer_free(^buffer: u64) -> i32
+
+@const ERR_READ = utf8:"[config] error: cannot read .env file\n"
+@const OK_MSG = utf8:"[config] loaded\n"
+
+@const DEFAULT_HOST = utf8:"0.0.0.0"
+
+@const KEY_PORT = utf8:"SA_PORT"
+@const KEY_AUTH = utf8:"AUTH"
+@const KEY_CHAT = utf8:"CHAT_BASE_URL"
+@const KEY_MODEL = utf8:"DEFAULT_MODEL"
+@const KEY_API = utf8:"OPENAI_API_KEY"
+@const KEY_DIR = utf8:"DATA_DIR"
+@const KEY_HOST = utf8:"HOST"
+@const KEY_RBASE = utf8:"RESPONSES_BASE_URL"
+@const KEY_LOG_DIR = utf8:"HUBPROXY_LOG_DIR"
+@const KEY_PLAN = utf8:"ACCOUNT_PLAN_TYPE"
+@const KEY_EMAIL = utf8:"ACCOUNT_EMAIL"
+@const KEY_CODEX = utf8:"CODEX_"
+
+#def ERR_READ_LEN = 38
+#def OK_MSG_LEN = 16
+#def DEFAULT_HOST_LEN = 7
+
+#def KEY_PORT_LEN = 7
+#def KEY_AUTH_LEN = 4
+#def KEY_CHAT_LEN = 13
+#def KEY_MODEL_LEN = 13
+#def KEY_API_LEN = 14
+#def KEY_DIR_LEN = 8
+#def KEY_HOST_LEN = 4
+#def KEY_RBASE_LEN = 18
+#def KEY_LOG_DIR_LEN = 16
+#def KEY_PLAN_LEN = 17
+#def KEY_EMAIL_LEN = 13
+#def KEY_CODEX_LEN = 6
+
+#def ENV_MAX_BYTES = 65536
+
+@ffi_wrapper cfg_get_port(&cfg: ptr) -> u16:
+L_ENTRY:
+    port = load cfg+CFG_PORT as u16
+    !cfg
+    return port
+
+@ffi_wrapper cfg_get_host(&cfg: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    h_ptr = load cfg+CFG_HOST_PTR as ptr
+    h_len = load cfg+CFG_HOST_LEN as u64
+    store out_ptr+0, h_ptr as ptr
+    store out_len+0, h_len as u64
+    !h_ptr
+    !h_len
+    !cfg
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper cfg_zero(&cfg: ptr) -> u32:
+L_ENTRY:
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    jmp L_ZERO_COND
+
+L_ZERO_COND:
+    i = load i_slot+0 as u64
+    done = uge i, CFG_SIZE
+    br done -> L_ZERO_DONE, L_ZERO_BODY
+
+L_ZERO_BODY:
+    dst = ptr_add cfg, i
+    store dst+0, 0 as u8
+    !dst
+    next = add i, 1
+    store i_slot+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_ZERO_COND
+
+L_ZERO_DONE:
+    !i
+    !done
+    !cfg
+    return 0
+
+@ffi_wrapper cfg_store_str(&cfg: ptr, offset: u64, &val_ptr: ptr, val_len: u64) -> u32:
+L_ENTRY:
+    ptr_slot = ptr_add cfg, offset
+    store ptr_slot+0, val_ptr as ptr
+    off_len = add offset, 8
+    len_slot = ptr_add cfg, off_len
+    store len_slot+0, val_len as u64
+    !len_slot
+    !off_len
+    !ptr_slot
+    !cfg
+    !offset
+    !val_ptr
+    !val_len
+    return 0
+
+@ffi_wrapper cfg_overlay_process_env(&cfg: ptr) -> u32:
+L_ENTRY:
+    log_env = call @sa_env_get(&KEY_LOG_DIR, KEY_LOG_DIR_LEN)
+    has_log_env = ne log_env, 0
+    br has_log_env -> L_ENV_LOG_FOUND, L_ENV_DONE
+
+L_ENV_LOG_FOUND:
+    !has_log_env
+    log_env_ptr = call @sa_env_buffer_data(log_env)
+    log_env_len = call @sa_env_buffer_len(log_env)
+    log_env_empty = eq log_env_len, 0
+    br log_env_empty -> L_ENV_LOG_FREE_EMPTY, L_ENV_LOG_COPY
+
+L_ENV_LOG_COPY:
+    !log_env_empty
+    log_owned = alloc log_env_len
+    log_copy = call @sa_bytes_copy(&log_owned, &log_env_ptr, log_env_len)
+    !log_copy
+    log_store = call @cfg_store_str(&cfg, CFG_LOG_PTR, &log_owned, log_env_len)
+    !log_store
+    log_free = call @sa_env_buffer_free(^log_env)
+    !log_free
+    !log_owned
+    !log_env_ptr
+    !log_env_len
+    !cfg
+    return 0
+
+L_ENV_LOG_FREE_EMPTY:
+    !log_env_empty
+    log_free_empty = call @sa_env_buffer_free(^log_env)
+    !log_free_empty
+    !log_env_ptr
+    !log_env_len
+    !cfg
+    return 0
+
+L_ENV_DONE:
+    !has_log_env
+    !log_env
+    !cfg
+    return 0
+
+@ffi_wrapper cfg_is_space(byte: u8) -> u8:
+L_ENTRY:
+    is_sp = eq byte, 32
+    is_tab = eq byte, 9
+    is_cr = eq byte, 13
+    sp_or_tab = or is_sp, is_tab
+    is_ws = or sp_or_tab, is_cr
+    !is_sp
+    !is_tab
+    !is_cr
+    !sp_or_tab
+    !byte
+    return is_ws
+
+@ffi_wrapper cfg_trim_span(&in_ptr: ptr, in_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    start_slot = stack_alloc 8
+    end_slot = stack_alloc 8
+    store start_slot+0, 0 as u64
+    store end_slot+0, in_len as u64
+    jmp L_TRIM_LEFT_COND
+
+L_TRIM_LEFT_COND:
+    start = load start_slot+0 as u64
+    left_done = uge start, in_len
+    br left_done -> L_TRIM_EMPTY, L_TRIM_LEFT_BODY
+
+L_TRIM_LEFT_BODY:
+    !left_done
+    left_ptr = ptr_add in_ptr, start
+    left_byte = load left_ptr+0 as u8
+    left_space = call @cfg_is_space(left_byte)
+    is_left_space = eq left_space, 1
+    !left_space
+    !left_byte
+    !left_ptr
+    br is_left_space -> L_TRIM_LEFT_NEXT, L_TRIM_RIGHT_ENTER
+
+L_TRIM_LEFT_NEXT:
+    !is_left_space
+    next_start = add start, 1
+    store start_slot+0, next_start as u64
+    !next_start
+    !start
+    jmp L_TRIM_LEFT_COND
+
+L_TRIM_RIGHT_ENTER:
+    !is_left_space
+    jmp L_TRIM_RIGHT_COND
+
+L_TRIM_RIGHT_COND:
+    end = load end_slot+0 as u64
+    right_done = ule end, start
+    br right_done -> L_TRIM_FINISH_EMPTY_FROM_RIGHT, L_TRIM_RIGHT_BODY
+
+L_TRIM_RIGHT_BODY:
+    !right_done
+    last_idx = sub end, 1
+    right_ptr = ptr_add in_ptr, last_idx
+    right_byte = load right_ptr+0 as u8
+    right_space = call @cfg_is_space(right_byte)
+    is_right_space = eq right_space, 1
+    !right_space
+    !right_byte
+    !right_ptr
+    br is_right_space -> L_TRIM_RIGHT_NEXT, L_TRIM_FINISH
+
+L_TRIM_RIGHT_NEXT:
+    !is_right_space
+    store end_slot+0, last_idx as u64
+    !last_idx
+    !end
+    jmp L_TRIM_RIGHT_COND
+
+L_TRIM_FINISH:
+    !is_right_space
+    span_len = sub end, start
+    span_ptr = ptr_add in_ptr, start
+    store out_ptr+0, span_ptr as ptr
+    store out_len+0, span_len as u64
+    !span_ptr
+    !span_len
+    !end
+    !start
+    !in_ptr
+    !in_len
+    !out_ptr
+    !out_len
+    return 0
+
+L_TRIM_FINISH_EMPTY_FROM_RIGHT:
+    !right_done
+    !end
+    !start
+    jmp L_TRIM_EMPTY_RETURN
+
+L_TRIM_EMPTY:
+    !left_done
+    !start
+
+L_TRIM_EMPTY_RETURN:
+    empty_ptr = ptr_add in_ptr, 0
+    store out_ptr+0, empty_ptr as ptr
+    store out_len+0, 0 as u64
+    !empty_ptr
+    !in_ptr
+    !in_len
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper cfg_unquote_span(&in_ptr: ptr, in_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    can_quote = uge in_len, 2
+    br can_quote -> L_UNQUOTE_CHECK, L_UNQUOTE_KEEP
+
+L_UNQUOTE_CHECK:
+    !can_quote
+    first = load in_ptr+0 as u8
+    last_idx = sub in_len, 1
+    last_ptr = ptr_add in_ptr, last_idx
+    last = load last_ptr+0 as u8
+    first_single = eq first, 39
+    first_double = eq first, 34
+    quote_start = or first_single, first_double
+    same_quote = eq first, last
+    strip = and quote_start, same_quote
+    !first_single
+    !first_double
+    !quote_start
+    !same_quote
+    br strip -> L_UNQUOTE_STRIP, L_UNQUOTE_KEEP_FROM_CHECK
+
+L_UNQUOTE_STRIP:
+    !strip
+    stripped_ptr = ptr_add in_ptr, 1
+    stripped_len = sub in_len, 2
+    store out_ptr+0, stripped_ptr as ptr
+    store out_len+0, stripped_len as u64
+    !stripped_ptr
+    !stripped_len
+    !first
+    !last
+    !last_ptr
+    !last_idx
+    !in_ptr
+    !in_len
+    !out_ptr
+    !out_len
+    return 0
+
+L_UNQUOTE_KEEP_FROM_CHECK:
+    !strip
+    !first
+    !last
+    !last_ptr
+    !last_idx
+    jmp L_UNQUOTE_KEEP_STORE
+
+L_UNQUOTE_KEEP:
+    !can_quote
+
+L_UNQUOTE_KEEP_STORE:
+    store out_ptr+0, in_ptr as ptr
+    store out_len+0, in_len as u64
+    !in_ptr
+    !in_len
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper cfg_parse_line(&cfg: ptr, &line: ptr, line_len: u64) -> u32:
+L_ENTRY:
+    empty = eq line_len, 0
+    br empty -> L_LINE_SKIP_EMPTY, L_LINE_CHECK_COMMENT
+
+L_LINE_SKIP_EMPTY:
+    !empty
+    !cfg
+    !line
+    !line_len
+    return 0
+
+L_LINE_CHECK_COMMENT:
+    !empty
+    first = load line+0 as u8
+    is_comment = eq first, 35
+    !first
+    br is_comment -> L_LINE_SKIP_COMMENT, L_LINE_FIND_EQ
+
+L_LINE_SKIP_COMMENT:
+    !is_comment
+    !cfg
+    !line
+    !line_len
+    return 0
+
+L_LINE_FIND_EQ:
+    !is_comment
+    eq_idx = call @sa_bytes_find_byte(&line, line_len, 61)
+    has_eq = sge eq_idx, 1
+    br has_eq -> L_LINE_PAIR, L_LINE_SKIP_NO_EQ
+
+L_LINE_SKIP_NO_EQ:
+    !has_eq
+    !eq_idx
+    !cfg
+    !line
+    !line_len
+    return 0
+
+L_LINE_PAIR:
+    !has_eq
+    raw_key_ptr = ptr_add line, 0
+    raw_key_len = add eq_idx, 0
+    val_off = add eq_idx, 1
+    raw_val_ptr = ptr_add line, val_off
+    raw_val_len = sub line_len, val_off
+    !val_off
+    !eq_idx
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    val_ptr_slot = stack_alloc 8
+    val_len_slot = stack_alloc 8
+    unquoted_ptr_slot = stack_alloc 8
+    unquoted_len_slot = stack_alloc 8
+    key_trim_status = call @cfg_trim_span(&raw_key_ptr, raw_key_len, &key_ptr_slot, &key_len_slot)
+    !key_trim_status
+    val_trim_status = call @cfg_trim_span(&raw_val_ptr, raw_val_len, &val_ptr_slot, &val_len_slot)
+    !val_trim_status
+    trimmed_val_ptr = load val_ptr_slot+0 as ptr
+    trimmed_val_len = load val_len_slot+0 as u64
+    unquote_status = call @cfg_unquote_span(&trimmed_val_ptr, trimmed_val_len, &unquoted_ptr_slot, &unquoted_len_slot)
+    !unquote_status
+    key_ptr = load key_ptr_slot+0 as ptr
+    key_len = load key_len_slot+0 as u64
+    val_ptr = load unquoted_ptr_slot+0 as ptr
+    val_len = load unquoted_len_slot+0 as u64
+    !trimmed_val_ptr
+    !trimmed_val_len
+    !raw_key_ptr
+    !raw_key_len
+    !raw_val_ptr
+    !raw_val_len
+    key_can_codex = uge key_len, KEY_CODEX_LEN
+    br key_can_codex -> L_LINE_CHECK_CODEX, L_MATCH_PORT_FROM_SHORT
+
+L_MATCH_PORT_FROM_SHORT:
+    !key_can_codex
+    jmp L_MATCH_PORT
+
+L_LINE_CHECK_CODEX:
+    !key_can_codex
+    codex_match_raw = call @sa_bytes_eq(&key_ptr, KEY_CODEX_LEN, &KEY_CODEX, KEY_CODEX_LEN)
+    codex_match = eq codex_match_raw, 1
+    !codex_match_raw
+    br codex_match -> L_PAIR_DONE_FROM_CODEX, L_MATCH_PORT_FROM_CODEX
+
+L_PAIR_DONE_FROM_CODEX:
+    !codex_match
+    jmp L_PAIR_DONE
+
+L_MATCH_PORT_FROM_CODEX:
+    !codex_match
+    jmp L_MATCH_PORT
+
+L_MATCH_PORT:
+    port_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_PORT, KEY_PORT_LEN)
+    port_match = eq port_match_raw, 1
+    !port_match_raw
+    br port_match -> L_STORE_PORT, L_MATCH_AUTH
+
+L_STORE_PORT:
+    !port_match
+    parsed_port = call @sa_bytes_to_u64(&val_ptr, val_len)
+    port_valid = sge parsed_port, 0
+    br port_valid -> L_STORE_PORT_OK, L_STORE_PORT_SKIP
+
+L_STORE_PORT_OK:
+    !port_valid
+    port_u16 = trunc parsed_port as u16
+    store cfg+CFG_PORT, port_u16 as u16
+    !port_u16
+    !parsed_port
+    jmp L_PAIR_DONE
+
+L_STORE_PORT_SKIP:
+    !port_valid
+    !parsed_port
+    jmp L_PAIR_DONE
+
+L_MATCH_AUTH:
+    !port_match
+    auth_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_AUTH, KEY_AUTH_LEN)
+    auth_match = eq auth_match_raw, 1
+    !auth_match_raw
+    br auth_match -> L_STORE_AUTH, L_MATCH_CHAT
+
+L_STORE_AUTH:
+    !auth_match
+    auth_store = call @cfg_store_str(&cfg, CFG_AUTH_PTR, &val_ptr, val_len)
+    !auth_store
+    jmp L_PAIR_DONE
+
+L_MATCH_CHAT:
+    !auth_match
+    chat_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_CHAT, KEY_CHAT_LEN)
+    chat_match = eq chat_match_raw, 1
+    !chat_match_raw
+    br chat_match -> L_STORE_CHAT, L_MATCH_MODEL
+
+L_STORE_CHAT:
+    !chat_match
+    chat_store = call @cfg_store_str(&cfg, CFG_CHAT_PTR, &val_ptr, val_len)
+    !chat_store
+    jmp L_PAIR_DONE
+
+L_MATCH_MODEL:
+    !chat_match
+    model_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_MODEL, KEY_MODEL_LEN)
+    model_match = eq model_match_raw, 1
+    !model_match_raw
+    br model_match -> L_STORE_MODEL, L_MATCH_API
+
+L_STORE_MODEL:
+    !model_match
+    model_store = call @cfg_store_str(&cfg, CFG_MODEL_PTR, &val_ptr, val_len)
+    !model_store
+    jmp L_PAIR_DONE
+
+L_MATCH_API:
+    !model_match
+    api_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_API, KEY_API_LEN)
+    api_match = eq api_match_raw, 1
+    !api_match_raw
+    br api_match -> L_STORE_API, L_MATCH_DIR
+
+L_STORE_API:
+    !api_match
+    api_store = call @cfg_store_str(&cfg, CFG_KEY_PTR, &val_ptr, val_len)
+    !api_store
+    jmp L_PAIR_DONE
+
+L_MATCH_DIR:
+    !api_match
+    dir_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_DIR, KEY_DIR_LEN)
+    dir_match = eq dir_match_raw, 1
+    !dir_match_raw
+    br dir_match -> L_STORE_DIR, L_MATCH_HOST
+
+L_STORE_DIR:
+    !dir_match
+    dir_store = call @cfg_store_str(&cfg, CFG_DIR_PTR, &val_ptr, val_len)
+    !dir_store
+    jmp L_PAIR_DONE
+
+L_MATCH_HOST:
+    !dir_match
+    host_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_HOST, KEY_HOST_LEN)
+    host_match = eq host_match_raw, 1
+    !host_match_raw
+    br host_match -> L_STORE_HOST, L_MATCH_RBASE
+
+L_STORE_HOST:
+    !host_match
+    host_store = call @cfg_store_str(&cfg, CFG_HOST_PTR, &val_ptr, val_len)
+    !host_store
+    jmp L_PAIR_DONE
+
+L_MATCH_RBASE:
+    !host_match
+    rbase_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_RBASE, KEY_RBASE_LEN)
+    rbase_match = eq rbase_match_raw, 1
+    !rbase_match_raw
+    br rbase_match -> L_STORE_RBASE, L_MATCH_LOG_DIR
+
+L_STORE_RBASE:
+    !rbase_match
+    rbase_store = call @cfg_store_str(&cfg, CFG_RBASE_PTR, &val_ptr, val_len)
+    !rbase_store
+    jmp L_PAIR_DONE
+
+L_MATCH_LOG_DIR:
+    !rbase_match
+    log_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_LOG_DIR, KEY_LOG_DIR_LEN)
+    log_match = eq log_match_raw, 1
+    !log_match_raw
+    br log_match -> L_STORE_LOG_DIR, L_MATCH_PLAN
+
+L_STORE_LOG_DIR:
+    !log_match
+    log_store = call @cfg_store_str(&cfg, CFG_LOG_PTR, &val_ptr, val_len)
+    !log_store
+    jmp L_PAIR_DONE
+
+L_MATCH_PLAN:
+    !log_match
+    plan_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_PLAN, KEY_PLAN_LEN)
+    plan_match = eq plan_match_raw, 1
+    !plan_match_raw
+    br plan_match -> L_STORE_PLAN, L_MATCH_EMAIL
+
+L_STORE_PLAN:
+    !plan_match
+    plan_store = call @cfg_store_str(&cfg, CFG_PLAN_PTR, &val_ptr, val_len)
+    !plan_store
+    jmp L_PAIR_DONE
+
+L_MATCH_EMAIL:
+    !plan_match
+    email_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_EMAIL, KEY_EMAIL_LEN)
+    email_match = eq email_match_raw, 1
+    !email_match_raw
+    br email_match -> L_STORE_EMAIL, L_PAIR_DONE_FROM_EMAIL
+
+L_STORE_EMAIL:
+    !email_match
+    email_store = call @cfg_store_str(&cfg, CFG_EMAIL_PTR, &val_ptr, val_len)
+    !email_store
+    jmp L_PAIR_DONE
+
+L_PAIR_DONE_FROM_EMAIL:
+    !email_match
+    jmp L_PAIR_DONE
+
+L_PAIR_DONE:
+    !key_ptr
+    !key_len
+    !val_ptr
+    !val_len
+    !cfg
+    !line
+    !line_len
+    return 0
+
+@ffi_wrapper cfg_load(&env_path: ptr, env_path_len: u64, &out_cfg: ptr) -> u32:
+L_ENTRY:
+    zero_status = call @cfg_zero(&out_cfg)
+    !zero_status
+    store out_cfg+CFG_PORT, 8787 as u16
+    default_host_status = call @cfg_store_str(&out_cfg, CFG_HOST_PTR, &DEFAULT_HOST, DEFAULT_HOST_LEN)
+    !default_host_status
+
+    temp_path = *env_path
+    read_res = call @sa_fs_read_file(&temp_path, env_path_len, ENV_MAX_BYTES)
+    !temp_path
+    read_status = load read_res+0 as i32
+    env_buf = load read_res+8 as u64
+    !read_res
+    read_ok = eq read_status, 0
+    br read_ok -> L_READ_OK, L_READ_ERR
+
+L_READ_ERR:
+    !read_ok
+    !read_status
+    !env_buf
+    call @sa_print_bytes(&ERR_READ, ERR_READ_LEN)
+    !env_path
+    !env_path_len
+    !out_cfg
+    return 1
+
+L_READ_OK:
+    !read_ok
+    file_data = call @sa_fs_read_buffer_data(env_buf)
+    file_len = call @sa_fs_read_buffer_len(env_buf)
+    !read_status
+
+    offset_slot = stack_alloc 8
+    line_len_slot = stack_alloc 8
+    next_off_slot = stack_alloc 8
+    store offset_slot+0, 0 as u64
+    jmp L_PARSE_COND
+
+L_PARSE_COND:
+    offset = load offset_slot+0 as u64
+    done = uge offset, file_len
+    br done -> L_PARSE_DONE, L_PARSE_LINE
+
+L_PARSE_LINE:
+    !done
+    remaining = sub file_len, offset
+    line_ptr = ptr_add file_data, offset
+    lf_idx = call @sa_bytes_find_byte(&line_ptr, remaining, 10)
+    has_lf = sge lf_idx, 0
+    br has_lf -> L_LINE_HAS_LF, L_LINE_EOF
+
+L_LINE_HAS_LF:
+    !has_lf
+    store line_len_slot+0, lf_idx as u64
+    next_base = add offset, lf_idx
+    next_off = add next_base, 1
+    store next_off_slot+0, next_off as u64
+    !next_off
+    !next_base
+    !lf_idx
+    jmp L_LINE_PARSE
+
+L_LINE_EOF:
+    !has_lf
+    store line_len_slot+0, remaining as u64
+    store next_off_slot+0, file_len as u64
+    !lf_idx
+    jmp L_LINE_PARSE
+
+L_LINE_PARSE:
+    line_len = load line_len_slot+0 as u64
+    line_status = call @cfg_parse_line(&out_cfg, &line_ptr, line_len)
+    !line_status
+    next_offset = load next_off_slot+0 as u64
+    store offset_slot+0, next_offset as u64
+    !next_offset
+    !line_len
+    !line_ptr
+    !remaining
+    !offset
+    jmp L_PARSE_COND
+
+L_PARSE_DONE:
+    !done
+    !offset
+    !file_data
+    !file_len
+    store out_cfg+CFG_ENV_BUF, env_buf as u64
+    !env_buf
+    env_overlay_status = call @cfg_overlay_process_env(&out_cfg)
+    !env_overlay_status
+    call @sa_print_bytes(&OK_MSG, OK_MSG_LEN)
+    !env_path
+    !env_path_len
+    !out_cfg
+    return 0

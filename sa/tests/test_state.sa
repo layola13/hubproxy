@@ -1,0 +1,389 @@
+// test_state.sa — Unit tests for state management
+@import "../src/state.sa"
+@import "sa_std/io/print.sai"
+
+@const PASS = utf8:"PASS: "
+@const FAIL = utf8:"FAIL: "
+@const TEST_INIT = utf8:"state_init\n"
+@const TEST_THR_CREATE = utf8:"thread_create\n"
+@const TEST_THR_FIND = utf8:"thread_find\n"
+@const TEST_THR_ARCH = utf8:"thread_archive_unarchive\n"
+@const TEST_TURN_CREATE = utf8:"turn_create_rollback\n"
+@const TEST_GOAL_SET = utf8:"goal_set\n"
+@const TEST_THR_META = utf8:"thread_meta_elicitation\n"
+@const TEST_NOTIFY_BROADCAST = utf8:"notify_broadcast\n"
+@const TEST_RESET_RUNTIME = utf8:"reset_runtime\n"
+@const MODEL = utf8:"gpt-4"
+@const MODEL2 = utf8:"mimo-v2.5-pro"
+@const DIR = utf8:"/tmp/data"
+@const OBJ = utf8:"test objective"
+@const NAME = utf8:"renamed"
+@const PREVIEW = utf8:"preview"
+@const PROVIDER = utf8:"anthropic"
+@const FRAME = utf8:"event: test\ndata: {}\n\n"
+@const PROC = utf8:"proc-reset"
+@const WATCH = utf8:"watch-reset"
+
+#def PASS_LEN = 6
+#def FAIL_LEN = 6
+#def TEST_INIT_LEN = 11
+#def TEST_THR_CREATE_LEN = 14
+#def TEST_THR_FIND_LEN = 12
+#def TEST_THR_ARCH_LEN = 25
+#def TEST_TURN_CREATE_LEN = 21
+#def TEST_GOAL_SET_LEN = 9
+#def TEST_THR_META_LEN = 24
+#def TEST_NOTIFY_BROADCAST_LEN = 17
+#def TEST_RESET_RUNTIME_LEN = 14
+#def FRAME_LEN = 22
+
+@main() -> i32!:
+L_ENTRY:
+    // Allocate state memory
+    state = alloc ST_TOTAL
+
+    // Test 1: state_init
+    init_status = call @state_init(&state)
+    is_ok = eq init_status, 0
+    !init_status
+    br is_ok -> L_T1_PASS, L_T1_FAIL
+
+L_T1_PASS:
+    !is_ok
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_INIT, TEST_INIT_LEN)
+    jmp L_T2
+
+L_T1_FAIL:
+    !is_ok
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_INIT, TEST_INIT_LEN)
+    jmp L_T2
+
+// Test 2: thread_create
+L_T2:
+    tid = call @state_thread_create(&state, &MODEL, 5, &DIR, 9)
+    is_tid1 = eq tid, 1
+    !tid
+    br is_tid1 -> L_T2_PASS, L_T2_FAIL
+
+L_T2_PASS:
+    !is_tid1
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_THR_CREATE, TEST_THR_CREATE_LEN)
+    jmp L_T3
+
+L_T2_FAIL:
+    !is_tid1
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_THR_CREATE, TEST_THR_CREATE_LEN)
+    jmp L_T3
+
+// Test 3: thread_find
+L_T3:
+    found = call @state_thread_find(&state, 1)
+    is_found = ne found, 0
+    br is_found -> L_T3_PASS, L_T3_FAIL
+
+L_T3_PASS:
+    !is_found
+    !found
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_THR_FIND, TEST_THR_FIND_LEN)
+    jmp L_T4
+
+L_T3_FAIL:
+    !is_found
+    !found
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_THR_FIND, TEST_THR_FIND_LEN)
+    jmp L_T4
+
+// Test 4: thread_archive
+L_T4:
+    arch_status = call @state_thread_archive(&state, 1)
+    is_arch_ok = eq arch_status, 0
+    !arch_status
+    unarch_status = call @state_thread_unarchive(&state, 1)
+    is_unarch_ok = eq unarch_status, 0
+    !unarch_status
+    unarch_slot = call @state_thread_find(&state, 1)
+    active = load unarch_slot+THR_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    !unarch_slot
+    archive_roundtrip_ok = and is_arch_ok, is_unarch_ok
+    archive_roundtrip_ok = and archive_roundtrip_ok, is_active
+    !is_arch_ok
+    !is_unarch_ok
+    !is_active
+    br archive_roundtrip_ok -> L_T4_PASS, L_T4_FAIL
+
+L_T4_PASS:
+    !archive_roundtrip_ok
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_THR_ARCH, TEST_THR_ARCH_LEN)
+    jmp L_T5
+
+L_T4_FAIL:
+    !archive_roundtrip_ok
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_THR_ARCH, TEST_THR_ARCH_LEN)
+    jmp L_T5
+
+// Test 5: turn_create (needs a thread, create a new one)
+L_T5:
+    tid2 = call @state_thread_create(&state, &MODEL2, 13, &DIR, 9)
+    !tid2
+    turn_id = call @state_turn_create(&state, 2)
+    turn_id2 = call @state_turn_create(&state, 2)
+    rollback_status = call @state_turn_rollback(&state, 2, 1)
+    is_turn1_ok = ugt turn_id, 0
+    is_turn2_ok = ugt turn_id2, 0
+    rollback_ok = eq rollback_status, 0
+    !rollback_status
+    first_slot = call @state_turn_find(&state, 2, turn_id)
+    second_slot = call @state_turn_find(&state, 2, turn_id2)
+    first_still_active = ne first_slot, 0
+    second_removed = eq second_slot, 0
+    !first_slot
+    !second_slot
+    !turn_id
+    !turn_id2
+    is_turn_ok = and is_turn1_ok, is_turn2_ok
+    is_turn_ok = and is_turn_ok, rollback_ok
+    is_turn_ok = and is_turn_ok, first_still_active
+    is_turn_ok = and is_turn_ok, second_removed
+    !is_turn1_ok
+    !is_turn2_ok
+    !rollback_ok
+    !first_still_active
+    !second_removed
+    br is_turn_ok -> L_T5_PASS, L_T5_FAIL
+
+L_T5_PASS:
+    !is_turn_ok
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_TURN_CREATE, TEST_TURN_CREATE_LEN)
+    jmp L_T6
+
+L_T5_FAIL:
+    !is_turn_ok
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_TURN_CREATE, TEST_TURN_CREATE_LEN)
+    jmp L_T6
+
+// Test 6: goal_set
+L_T6:
+    gs_status = call @state_goal_set(&state, 2, 50000, &OBJ, 14)
+    is_gs_ok = eq gs_status, 0
+    !gs_status
+    br is_gs_ok -> L_T6_PASS, L_T6_FAIL
+
+L_T6_PASS:
+    !is_gs_ok
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_GOAL_SET, TEST_GOAL_SET_LEN)
+    jmp L_T7
+
+L_T6_FAIL:
+    !is_gs_ok
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_GOAL_SET, TEST_GOAL_SET_LEN)
+    jmp L_T7
+
+// Test 7: thread metadata and elicitation state
+L_T7:
+    name_status = call @state_thread_set_name(&state, 2, &NAME, 7)
+    preview_status = call @state_thread_set_preview(&state, 2, &PREVIEW, 7)
+    provider_status = call @state_thread_set_model_provider(&state, 2, &PROVIDER, 9)
+    ephemeral_status = call @state_thread_set_ephemeral(&state, 2, 0)
+    inc_count = call @state_thread_increment_elicitation(&state, 2)
+    dec_count = call @state_thread_decrement_elicitation(&state, 2)
+    meta_slot = call @state_thread_find(&state, 2)
+    name_set = load meta_slot+THR_NAME_SET as u8
+    name_len = load meta_slot+THR_NAME_LEN as u64
+    preview_len = load meta_slot+THR_PREVIEW_LEN as u64
+    provider_len = load meta_slot+THR_PROVIDER_LEN as u64
+    ephemeral = load meta_slot+THR_EPHEMERAL as u8
+    elicitation_count = load meta_slot+THR_ELICITATION as u64
+    !meta_slot
+    name_status_ok = eq name_status, 0
+    !name_status
+    preview_status_ok = eq preview_status, 0
+    !preview_status
+    provider_status_ok = eq provider_status, 0
+    !provider_status
+    ephemeral_status_ok = eq ephemeral_status, 0
+    !ephemeral_status
+    inc_ok = eq inc_count, 1
+    !inc_count
+    dec_ok = eq dec_count, 0
+    !dec_count
+    name_set_ok = eq name_set, 1
+    !name_set
+    name_len_ok = eq name_len, 7
+    !name_len
+    preview_len_ok = eq preview_len, 7
+    !preview_len
+    provider_len_ok = eq provider_len, 9
+    !provider_len
+    ephemeral_ok = eq ephemeral, 0
+    !ephemeral
+    elicitation_ok = eq elicitation_count, 0
+    !elicitation_count
+    meta_ok = and name_status_ok, preview_status_ok
+    meta_ok = and meta_ok, inc_ok
+    meta_ok = and meta_ok, dec_ok
+    meta_ok = and meta_ok, name_set_ok
+    meta_ok = and meta_ok, name_len_ok
+    meta_ok = and meta_ok, preview_len_ok
+    meta_ok = and meta_ok, provider_status_ok
+    meta_ok = and meta_ok, ephemeral_status_ok
+    meta_ok = and meta_ok, provider_len_ok
+    meta_ok = and meta_ok, ephemeral_ok
+    meta_ok = and meta_ok, elicitation_ok
+    !name_status_ok
+    !preview_status_ok
+    !provider_status_ok
+    !ephemeral_status_ok
+    !inc_ok
+    !dec_ok
+    !name_set_ok
+    !name_len_ok
+    !preview_len_ok
+    !provider_len_ok
+    !ephemeral_ok
+    !elicitation_ok
+    br meta_ok -> L_T7_PASS, L_T7_FAIL
+
+L_T7_PASS:
+    !meta_ok
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_THR_META, TEST_THR_META_LEN)
+    jmp L_T8
+
+L_T7_FAIL:
+    !meta_ok
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_THR_META, TEST_THR_META_LEN)
+    jmp L_T8
+
+// Test 8: notification cursors broadcast one frame to multiple readers
+L_T8:
+    cursor_a_slot = stack_alloc 8
+    cursor_b_slot = stack_alloc 8
+    notify_cursor = call @state_notify_cursor(&state)
+    store cursor_a_slot+0, notify_cursor as u64
+    store cursor_b_slot+0, notify_cursor as u64
+    !notify_cursor
+    push_status = call @state_notify_push(&state, &FRAME, FRAME_LEN)
+    !push_status
+    out_a = stack_alloc NOTIFY_CAP
+    out_b = stack_alloc NOTIFY_CAP
+    out_a_len_slot = stack_alloc 8
+    out_b_len_slot = stack_alloc 8
+    read_a = call @state_notify_read(&state, &cursor_a_slot, &out_a, NOTIFY_CAP, &out_a_len_slot)
+    read_b = call @state_notify_read(&state, &cursor_b_slot, &out_b, NOTIFY_CAP, &out_b_len_slot)
+    len_a = load out_a_len_slot+0 as u64
+    len_b = load out_b_len_slot+0 as u64
+    read_a_ok = eq read_a, 1
+    read_b_ok = eq read_b, 1
+    len_a_ok = eq len_a, FRAME_LEN
+    len_b_ok = eq len_b, FRAME_LEN
+    frame_a_ok = call @state_copy_bytes(&out_a, &out_a, 0)
+    !frame_a_ok
+    notify_ok = and read_a_ok, read_b_ok
+    notify_ok = and notify_ok, len_a_ok
+    notify_ok = and notify_ok, len_b_ok
+    !read_a
+    !read_b
+    !len_a
+    !len_b
+    !read_a_ok
+    !read_b_ok
+    !len_a_ok
+    !len_b_ok
+    br notify_ok -> L_T8_PASS, L_T8_FAIL
+
+L_T8_PASS:
+    !notify_ok
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_NOTIFY_BROADCAST, TEST_NOTIFY_BROADCAST_LEN)
+    jmp L_T9
+
+L_T8_FAIL:
+    !notify_ok
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_NOTIFY_BROADCAST, TEST_NOTIFY_BROADCAST_LEN)
+    jmp L_T9
+
+// Test 9: reset clears runtime state buckets
+L_T9:
+    tid_reset = call @state_thread_create(&state, &MODEL, 5, &DIR, 9)
+    turn_reset = call @state_turn_create(&state, tid_reset)
+    goal_reset_status = call @state_goal_set(&state, tid_reset, 123, &OBJ, 14)
+    proc_status = call @state_process_put(&state, &PROC, 10)
+    watch_status = call @state_watch_put(&state, &WATCH, 11)
+    reset_status = call @state_reset_runtime(&state)
+    reset_thread = call @state_thread_find(&state, tid_reset)
+    reset_turn = call @state_turn_find(&state, tid_reset, turn_reset)
+    budget_slot = stack_alloc 8
+    used_slot = stack_alloc 8
+    reset_goal = call @state_goal_get(&state, tid_reset, &budget_slot, &used_slot)
+    ids = stack_alloc 64
+    count_slot = stack_alloc 8
+    list_status = call @state_thread_list_active(&state, &ids, &count_slot)
+    reset_count = load count_slot+0 as u64
+    proc_deleted = call @state_process_delete(&state, &PROC, 10)
+    watch_deleted = call @state_watch_delete(&state, &WATCH, 11)
+    reset_ok_status = eq reset_status, 0
+    reset_thread_ok = eq reset_thread, 0
+    reset_turn_ok = eq reset_turn, 0
+    reset_goal_ok = ne reset_goal, 0
+    reset_count_ok = eq reset_count, 0
+    reset_proc_ok = eq proc_deleted, 0
+    reset_watch_ok = eq watch_deleted, 0
+    reset_ok = and reset_ok_status, reset_thread_ok
+    reset_ok = and reset_ok, reset_turn_ok
+    reset_ok = and reset_ok, reset_goal_ok
+    reset_ok = and reset_ok, reset_count_ok
+    reset_ok = and reset_ok, reset_proc_ok
+    reset_ok = and reset_ok, reset_watch_ok
+    !tid_reset
+    !turn_reset
+    !goal_reset_status
+    !proc_status
+    !watch_status
+    !reset_status
+    !reset_thread
+    !reset_turn
+    !reset_goal
+    !list_status
+    !reset_count
+    !proc_deleted
+    !watch_deleted
+    !reset_ok_status
+    !reset_thread_ok
+    !reset_turn_ok
+    !reset_goal_ok
+    !reset_count_ok
+    !reset_proc_ok
+    !reset_watch_ok
+    br reset_ok -> L_T9_PASS, L_T9_FAIL
+
+L_T9_PASS:
+    !reset_ok
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_RESET_RUNTIME, TEST_RESET_RUNTIME_LEN)
+    jmp L_TESTS_DONE
+
+L_T9_FAIL:
+    !reset_ok
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_RESET_RUNTIME, TEST_RESET_RUNTIME_LEN)
+    jmp L_TESTS_DONE
+
+L_TESTS_DONE:
+    !state
+    return 0

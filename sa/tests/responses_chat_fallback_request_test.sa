@@ -1,0 +1,292 @@
+// SA native @test coverage for Responses -> Chat fallback request construction.
+@import "sa_std/deno.sai"
+@import "sa_std/fs.sai"
+@import "../src/strings.sa"
+
+@const RESP_ARRAY_BODY = utf8:"{\"model\":\"models/mimo-v2.5-pro\",\"stream\":false,\"instructions\":\"follow instructions\",\"store\":false,\"prompt_cache_key\":\"drop-me\",\"include\":[\"reasoning.encrypted_content\"],\"reasoning\":{\"effort\":\"medium\"},\"tools\":[{\"type\":\"namespace\",\"name\":\"mcp__code_index__\",\"tools\":[{\"type\":\"function\",\"name\":\"describe_index\",\"parameters\":{\"type\":\"object\"}}]}],\"input\":[{\"type\":\"message\",\"role\":\"developer\",\"content\":[{\"type\":\"input_text\",\"text\":\"dev note\"}]},{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"},{\"type\":\"text\",\"text\":\" world\"}]}]}"
+@const DEFAULT_MODEL = utf8:"fallback-model"
+@const NEEDLE_MODEL = utf8:"\"model\":\"models/mimo-v2.5-pro\""
+@const NEEDLE_SYSTEM_ROLE = utf8:"\"role\":\"system\""
+@const NEEDLE_INSTRUCTIONS = utf8:"follow instructions"
+@const NEEDLE_DEV_NOTE = utf8:"dev note"
+@const NEEDLE_USER = utf8:"\"role\":\"user\",\"content\":\"hello world\""
+@const NEEDLE_TOOL = utf8:"\"name\":\"mcp__code_index__describe_index\""
+@const NEEDLE_STREAM_FALSE = utf8:"\"stream\":false"
+@const NEEDLE_PROMPT_CACHE = utf8:"prompt_cache_key"
+@const NEEDLE_INCLUDE = utf8:"\"include\""
+@const NEEDLE_REASONING = utf8:"\"reasoning\""
+@const CHAT_SSE_MULTI_VISIBLE = utf8:"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+@const EMPTY_REQ = utf8:"{}"
+@const NEEDLE_REASON_DONE = utf8:"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"think_chat_fb\""
+@const NEEDLE_MSG_ADDED = utf8:"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"id\":\"msg_chat_fb\""
+@const NEEDLE_ITEM_ID = utf8:"\"item_id\":\"msg_chat_fb\""
+@const NEEDLE_CONTENT_INDEX = utf8:"\"content_index\":0"
+@const NEEDLE_DELTA_HELLO = utf8:"\"delta\":\"Hello\""
+@const NEEDLE_DELTA_WORLD = utf8:"\"delta\":\" world\""
+@const RESP_STRING_BODY = utf8:"{\"model\":\"top-model\",\"instructions\":\"top sys\",\"input\":\"top input\",\"content\":\"leak content\",\"text\":\"leak text\",\"store\":false}"
+@const NEEDLE_TOP_MODEL = utf8:"\"model\":\"top-model\""
+@const NEEDLE_TOP_SYSTEM = utf8:"\"role\":\"system\",\"content\":\"top sys\""
+@const NEEDLE_TOP_USER = utf8:"\"role\":\"user\",\"content\":\"top input\""
+@const NEEDLE_LEAK_CONTENT = utf8:"leak content"
+@const NEEDLE_LEAK_TEXT = utf8:"leak text"
+@const NEEDLE_STORE_KEY = utf8:"\"store\""
+@const NEEDLE_INPUT_KEY = utf8:"\"input\""
+
+#def RESP_ARRAY_BODY_LEN = 558
+#def DEFAULT_MODEL_LEN = 14
+#def NEEDLE_MODEL_LEN = 30
+#def NEEDLE_SYSTEM_ROLE_LEN = 15
+#def NEEDLE_INSTRUCTIONS_LEN = 19
+#def NEEDLE_DEV_NOTE_LEN = 8
+#def NEEDLE_USER_LEN = 37
+#def NEEDLE_TOOL_LEN = 40
+#def NEEDLE_STREAM_FALSE_LEN = 14
+#def NEEDLE_PROMPT_CACHE_LEN = 16
+#def NEEDLE_INCLUDE_LEN = 9
+#def NEEDLE_REASONING_LEN = 11
+#def CHAT_SSE_MULTI_VISIBLE_LEN = 298
+#def EMPTY_REQ_LEN = 2
+#def NEEDLE_REASON_DONE_LEN = 120
+#def NEEDLE_MSG_ADDED_LEN = 120
+#def NEEDLE_ITEM_ID_LEN = 23
+#def NEEDLE_CONTENT_INDEX_LEN = 17
+#def NEEDLE_DELTA_HELLO_LEN = 15
+#def NEEDLE_DELTA_WORLD_LEN = 16
+#def RESP_STRING_BODY_LEN = 124
+#def NEEDLE_TOP_MODEL_LEN = 19
+#def NEEDLE_TOP_SYSTEM_LEN = 35
+#def NEEDLE_TOP_USER_LEN = 35
+#def NEEDLE_LEAK_CONTENT_LEN = 12
+#def NEEDLE_LEAK_TEXT_LEN = 9
+#def NEEDLE_STORE_KEY_LEN = 7
+#def NEEDLE_INPUT_KEY_LEN = 7
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+
+@test "responses input array chat fallback request parity"():
+L_ENTRY:
+    handle = call @sa_deno_responses_chat_fallback_request(&RESP_ARRAY_BODY, RESP_ARRAY_BODY_LEN, &DEFAULT_MODEL, DEFAULT_MODEL_LEN, 0)
+    has_handle = ne handle, 0
+    call @assert_contract(has_handle, 390)
+    data = call @sa_fs_read_buffer_data(handle)
+    len = call @sa_fs_read_buffer_len(handle)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 391)
+
+    model_idx = call @sa_bytes_find(&data, len, &NEEDLE_MODEL, NEEDLE_MODEL_LEN)
+    has_model = sge model_idx, 0
+    call @assert_contract(has_model, 392)
+
+    system_idx = call @sa_bytes_find(&data, len, &NEEDLE_SYSTEM_ROLE, NEEDLE_SYSTEM_ROLE_LEN)
+    has_system = sge system_idx, 0
+    call @assert_contract(has_system, 393)
+
+    instructions_idx = call @sa_bytes_find(&data, len, &NEEDLE_INSTRUCTIONS, NEEDLE_INSTRUCTIONS_LEN)
+    has_instructions = sge instructions_idx, 0
+    call @assert_contract(has_instructions, 401)
+
+    dev_idx = call @sa_bytes_find(&data, len, &NEEDLE_DEV_NOTE, NEEDLE_DEV_NOTE_LEN)
+    has_dev = sge dev_idx, 0
+    call @assert_contract(has_dev, 402)
+
+    user_idx = call @sa_bytes_find(&data, len, &NEEDLE_USER, NEEDLE_USER_LEN)
+    has_user = sge user_idx, 0
+    call @assert_contract(has_user, 394)
+
+    tool_idx = call @sa_bytes_find(&data, len, &NEEDLE_TOOL, NEEDLE_TOOL_LEN)
+    has_tool = sge tool_idx, 0
+    call @assert_contract(has_tool, 395)
+
+    stream_idx = call @sa_bytes_find(&data, len, &NEEDLE_STREAM_FALSE, NEEDLE_STREAM_FALSE_LEN)
+    has_stream = sge stream_idx, 0
+    call @assert_contract(has_stream, 396)
+
+    prompt_idx = call @sa_bytes_find(&data, len, &NEEDLE_PROMPT_CACHE, NEEDLE_PROMPT_CACHE_LEN)
+    no_prompt = slt prompt_idx, 0
+    call @assert_contract(no_prompt, 397)
+
+    include_idx = call @sa_bytes_find(&data, len, &NEEDLE_INCLUDE, NEEDLE_INCLUDE_LEN)
+    no_include = slt include_idx, 0
+    call @assert_contract(no_include, 398)
+
+    reasoning_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASONING, NEEDLE_REASONING_LEN)
+    no_reasoning = slt reasoning_idx, 0
+    call @assert_contract(no_reasoning, 399)
+
+    free_status = call @sa_fs_read_buffer_free(^handle)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 400)
+
+    !free_status
+    !free_ok
+    !reasoning_idx
+    !no_reasoning
+    !include_idx
+    !no_include
+    !prompt_idx
+    !no_prompt
+    !stream_idx
+    !has_stream
+    !tool_idx
+    !has_tool
+    !user_idx
+    !has_user
+    !dev_idx
+    !has_dev
+    !instructions_idx
+    !has_instructions
+    !system_idx
+    !has_system
+    !model_idx
+    !has_model
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "responses top-level string input chat fallback request parity"():
+L_ENTRY:
+    handle = call @sa_deno_responses_chat_fallback_request(&RESP_STRING_BODY, RESP_STRING_BODY_LEN, &DEFAULT_MODEL, DEFAULT_MODEL_LEN, 0)
+    has_handle = ne handle, 0
+    call @assert_contract(has_handle, 420)
+    data = call @sa_fs_read_buffer_data(handle)
+    len = call @sa_fs_read_buffer_len(handle)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 421)
+
+    model_idx = call @sa_bytes_find(&data, len, &NEEDLE_TOP_MODEL, NEEDLE_TOP_MODEL_LEN)
+    has_model = sge model_idx, 0
+    call @assert_contract(has_model, 422)
+
+    system_idx = call @sa_bytes_find(&data, len, &NEEDLE_TOP_SYSTEM, NEEDLE_TOP_SYSTEM_LEN)
+    has_system = sge system_idx, 0
+    call @assert_contract(has_system, 423)
+
+    user_idx = call @sa_bytes_find(&data, len, &NEEDLE_TOP_USER, NEEDLE_TOP_USER_LEN)
+    has_user = sge user_idx, 0
+    call @assert_contract(has_user, 424)
+
+    content_idx = call @sa_bytes_find(&data, len, &NEEDLE_LEAK_CONTENT, NEEDLE_LEAK_CONTENT_LEN)
+    no_content = slt content_idx, 0
+    call @assert_contract(no_content, 425)
+
+    text_idx = call @sa_bytes_find(&data, len, &NEEDLE_LEAK_TEXT, NEEDLE_LEAK_TEXT_LEN)
+    no_text = slt text_idx, 0
+    call @assert_contract(no_text, 426)
+
+    store_idx = call @sa_bytes_find(&data, len, &NEEDLE_STORE_KEY, NEEDLE_STORE_KEY_LEN)
+    no_store = slt store_idx, 0
+    call @assert_contract(no_store, 427)
+
+    input_idx = call @sa_bytes_find(&data, len, &NEEDLE_INPUT_KEY, NEEDLE_INPUT_KEY_LEN)
+    no_input = slt input_idx, 0
+    call @assert_contract(no_input, 428)
+
+    free_status = call @sa_fs_read_buffer_free(^handle)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 429)
+
+    !free_status
+    !free_ok
+    !input_idx
+    !no_input
+    !store_idx
+    !no_store
+    !text_idx
+    !no_text
+    !content_idx
+    !no_content
+    !user_idx
+    !has_user
+    !system_idx
+    !has_system
+    !model_idx
+    !has_model
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat fallback SSE keeps message active across multiple deltas"():
+L_ENTRY:
+    handle = call @sa_deno_chat_sse_to_responses(&CHAT_SSE_MULTI_VISIBLE, CHAT_SSE_MULTI_VISIBLE_LEN, &EMPTY_REQ, EMPTY_REQ_LEN)
+    has_handle = ne handle, 0
+    call @assert_contract(has_handle, 410)
+    data = call @sa_fs_read_buffer_data(handle)
+    len = call @sa_fs_read_buffer_len(handle)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 411)
+
+    reason_done_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASON_DONE, NEEDLE_REASON_DONE_LEN)
+    has_reason_done = sge reason_done_idx, 0
+    call @assert_contract(has_reason_done, 412)
+
+    msg_added_idx = call @sa_bytes_find(&data, len, &NEEDLE_MSG_ADDED, NEEDLE_MSG_ADDED_LEN)
+    has_msg_added = sge msg_added_idx, 0
+    call @assert_contract(has_msg_added, 413)
+
+    hello_idx = call @sa_bytes_find(&data, len, &NEEDLE_DELTA_HELLO, NEEDLE_DELTA_HELLO_LEN)
+    has_hello = sge hello_idx, 0
+    call @assert_contract(has_hello, 414)
+
+    world_idx = call @sa_bytes_find(&data, len, &NEEDLE_DELTA_WORLD, NEEDLE_DELTA_WORLD_LEN)
+    has_world = sge world_idx, 0
+    call @assert_contract(has_world, 415)
+
+    item_id_idx = call @sa_bytes_find(&data, len, &NEEDLE_ITEM_ID, NEEDLE_ITEM_ID_LEN)
+    has_item_id = sge item_id_idx, 0
+    call @assert_contract(has_item_id, 416)
+
+    content_idx = call @sa_bytes_find(&data, len, &NEEDLE_CONTENT_INDEX, NEEDLE_CONTENT_INDEX_LEN)
+    has_content_idx = sge content_idx, 0
+    call @assert_contract(has_content_idx, 417)
+
+    msg_off = bitcast msg_added_idx as u64
+    after_msg_ptr = ptr_add data, msg_off
+    after_msg_len = sub len, msg_off
+    reason_after_msg_idx = call @sa_bytes_find(&after_msg_ptr, after_msg_len, &NEEDLE_REASON_DONE, NEEDLE_REASON_DONE_LEN)
+    no_reason_done_after_msg = slt reason_after_msg_idx, 0
+    call @assert_contract(no_reason_done_after_msg, 418)
+
+    free_status = call @sa_fs_read_buffer_free(^handle)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 419)
+
+    !free_status
+    !free_ok
+    !reason_after_msg_idx
+    !no_reason_done_after_msg
+    !after_msg_len
+    !after_msg_ptr
+    !msg_off
+    !content_idx
+    !has_content_idx
+    !item_id_idx
+    !has_item_id
+    !world_idx
+    !has_world
+    !hello_idx
+    !has_hello
+    !msg_added_idx
+    !has_msg_added
+    !reason_done_idx
+    !has_reason_done
+    !len
+    !has_len
+    !data
+    !has_handle
+    return

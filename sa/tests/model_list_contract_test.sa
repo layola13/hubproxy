@@ -1,0 +1,660 @@
+// SA native @test coverage for RPC model/list upstream proxy semantics.
+@import "../sa_http_client.sai"
+@import "../src/config.sa"
+@import "../src/strings.sa"
+@import "sa_std/fmt.sai"
+@import "sa_std/encoding/json.sai"
+@import "sa_std/encoding/json.sal"
+
+@const ENV_PATH = utf8:"/home/vscode/projects/hubproxy/.env"
+@const URL_PREFIX = utf8:"http://127.0.0.1:"
+@const URL_RPC_SUFFIX = utf8:"/rpc"
+@const HDR_AUTH = utf8:"authorization"
+@const HDR_CONTENT_TYPE = utf8:"content-type"
+@const MIME_JSON = utf8:"application/json"
+@const AUTH_PREFIX = utf8:"Bearer "
+@const RPC_PLUGIN_INSTALLED_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"plugin/installed\",\"params\":{}}"
+@const RPC_PLUGIN_SKILL_READ_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"plugin/skill/read\",\"params\":{\"pluginName\":\"codex-test-plugin\",\"skillName\":\"demo\"}}"
+@const RPC_PLUGIN_INSTALL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"plugin/install\",\"params\":{\"pluginName\":\"codex-test-plugin\"}}"
+@const RPC_MODEL_LIST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"model/list\",\"params\":{}}"
+@const RPC_CONFIG_REQ_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"configRequirements/read\",\"params\":{}}"
+@const RPC_APP_LIST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"app/list\",\"params\":{}}"
+@const RPC_WS_THREAD_START_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 201, \"method\": \"thread/start\", \"params\": {\"threadId\": \"ws-thread-native\", \"model\": \"mimo-ws\", \"modelProvider\": \"ws-provider\", \"cwd\": \"/tmp/ws-cwd\", \"ephemeral\": false, \"approvalPolicy\": \"on-request\", \"approvalsReviewer\": \"auto\", \"sandbox\": \"workspace-write\"}}"
+@const RPC_WS_THREAD_READ_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 202, \"method\": \"thread/read\", \"params\": {\"threadId\": \"ws-thread-native\", \"includeTurns\": true}}"
+@const RPC_WS_GOAL_SET_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 203, \"method\": \"thread/goal/set\", \"params\": {\"threadId\": \"ws-thread-native\", \"objective\": \"ws objective\", \"tokenBudget\": 456}}"
+@const RPC_ESC_ENV_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":204,\"method\":\"environment/add\",\"params\":{\"name\":\"env \\\"quoted\\\"\",\"path\":\"/tmp/a\\\\b\"}}"
+@const RPC_ESC_REVIEW_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":205,\"method\":\"review/start\",\"params\":{\"threadId\":\"review \\\"quoted\\\"\"}}"
+@const KEY_OBJECT = utf8:"object"
+@const KEY_DATA = utf8:"data"
+@const VAL_LIST = utf8:"list"
+@const VAL_MODEL = utf8:"model"
+@const NEEDLE_JSONRPC = utf8:"\"jsonrpc\""
+@const NEEDLE_DATA_EMPTY = utf8:"\"data\":[]"
+@const NEEDLE_CONTENTS_EMPTY = utf8:"\"contents\":[]"
+@const NEEDLE_APPS_AUTH = utf8:"\"appsNeedingAuth\":[]"
+@const NEEDLE_AUTH_POLICY = utf8:"\"authPolicy\":\"NOT_AVAILABLE\""
+@const NEEDLE_REQUIREMENTS = utf8:"\"requirements\":"
+@const NEEDLE_ALLOWED_APPROVAL = utf8:"\"allowedApprovalPolicies\":null"
+@const NEEDLE_NEXT_CURSOR = utf8:"\"nextCursor\":null"
+@const NEEDLE_ID_201 = utf8:"\"id\":201"
+@const NEEDLE_ID_202 = utf8:"\"id\":202"
+@const NEEDLE_ID_203 = utf8:"\"id\":203"
+@const NEEDLE_WS_THREAD = utf8:"\"id\":\"ws-thread-native\""
+@const NEEDLE_WS_SESSION = utf8:"\"sessionId\":\"ws-thread-native\""
+@const NEEDLE_WS_MODEL = utf8:"\"model\":\"mimo-ws\""
+@const NEEDLE_WS_PROVIDER = utf8:"\"modelProvider\":\"ws-provider\""
+@const NEEDLE_WS_CWD = utf8:"\"cwd\":\"/tmp/ws-cwd\""
+@const NEEDLE_WS_EPHEMERAL_FALSE = utf8:"\"ephemeral\":false"
+@const NEEDLE_WS_APPROVAL = utf8:"\"approvalPolicy\":\"on-request\""
+@const NEEDLE_WS_REVIEWER = utf8:"\"approvalsReviewer\":\"auto\""
+@const NEEDLE_WS_SANDBOX = utf8:"\"sandbox\":\"workspace-write\""
+@const NEEDLE_WS_GOAL_THREAD = utf8:"\"threadId\":\"ws-thread-native\""
+@const NEEDLE_WS_OBJECTIVE = utf8:"\"objective\":\"ws objective\""
+@const NEEDLE_WS_BUDGET = utf8:"\"tokenBudget\":456"
+@const NEEDLE_ESC_ENV_NAME = utf8:"\"name\":\"env \\\"quoted\\\"\""
+@const NEEDLE_ESC_ENV_PATH = utf8:"\"path\":\"/tmp/a\\\\b\""
+@const NEEDLE_ESC_REVIEW_A = utf8:"\"reviewThreadId\":\"review \\\"quoted\\\"\""
+@const NEEDLE_ESC_REVIEW_B = utf8:"\"threadId\":\"review \\\"quoted\\\"\""
+
+#def ENV_PATH_LEN = 35
+#def URL_PREFIX_LEN = 17
+#def URL_RPC_SUFFIX_LEN = 4
+#def URL_BUF_SIZE = 64
+#def AUTH_PREFIX_LEN = 7
+#def AUTH_BUF_SIZE = 512
+#def RESP_BUF_SIZE = 32768
+#def HDR_AUTH_LEN = 13
+#def HDR_CONTENT_TYPE_LEN = 12
+#def MIME_JSON_LEN = 16
+#def RPC_PLUGIN_INSTALLED_BODY_LEN = 64
+#def RPC_PLUGIN_SKILL_READ_BODY_LEN = 116
+#def RPC_PLUGIN_INSTALL_BODY_LEN = 94
+#def RPC_MODEL_LIST_BODY_LEN = 58
+#def RPC_CONFIG_REQ_BODY_LEN = 71
+#def RPC_APP_LIST_BODY_LEN = 56
+#def RPC_WS_THREAD_START_BODY_LEN = 284
+#def RPC_WS_THREAD_READ_BODY_LEN = 120
+#def RPC_WS_GOAL_SET_BODY_LEN = 151
+#def RPC_ESC_ENV_BODY_LEN = 107
+#def RPC_ESC_REVIEW_BODY_LEN = 92
+#def KEY_OBJECT_LEN = 6
+#def KEY_DATA_LEN = 4
+#def VAL_LIST_LEN = 4
+#def VAL_MODEL_LEN = 5
+#def NEEDLE_JSONRPC_LEN = 9
+#def NEEDLE_DATA_EMPTY_LEN = 9
+#def NEEDLE_CONTENTS_EMPTY_LEN = 13
+#def NEEDLE_APPS_AUTH_LEN = 20
+#def NEEDLE_AUTH_POLICY_LEN = 28
+#def NEEDLE_REQUIREMENTS_LEN = 15
+#def NEEDLE_ALLOWED_APPROVAL_LEN = 30
+#def NEEDLE_NEXT_CURSOR_LEN = 17
+#def NEEDLE_ID_201_LEN = 8
+#def NEEDLE_ID_202_LEN = 8
+#def NEEDLE_ID_203_LEN = 8
+#def NEEDLE_WS_THREAD_LEN = 23
+#def NEEDLE_WS_SESSION_LEN = 30
+#def NEEDLE_WS_MODEL_LEN = 17
+#def NEEDLE_WS_PROVIDER_LEN = 29
+#def NEEDLE_WS_CWD_LEN = 19
+#def NEEDLE_WS_EPHEMERAL_FALSE_LEN = 17
+#def NEEDLE_WS_APPROVAL_LEN = 29
+#def NEEDLE_WS_REVIEWER_LEN = 26
+#def NEEDLE_WS_SANDBOX_LEN = 27
+#def NEEDLE_WS_GOAL_THREAD_LEN = 29
+#def NEEDLE_WS_OBJECTIVE_LEN = 26
+#def NEEDLE_WS_BUDGET_LEN = 17
+#def NEEDLE_ESC_ENV_NAME_LEN = 23
+#def NEEDLE_ESC_ENV_PATH_LEN = 18
+#def NEEDLE_ESC_REVIEW_A_LEN = 36
+#def NEEDLE_ESC_REVIEW_B_LEN = 30
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+
+@build_rpc_context(&out_cfg: ptr, &out_url_buf: ptr, &out_url_len: ptr, &out_auth_buf: ptr, &out_auth_len: ptr) -> u32:
+L_ENTRY:
+    cfg = alloc CFG_SIZE
+    load_status = call @cfg_load(&ENV_PATH, ENV_PATH_LEN, &cfg)
+    load_ok = eq load_status, 0
+    call @assert_contract(load_ok, 341)
+    !load_status
+
+    url_buf = alloc URL_BUF_SIZE
+    url_prefix_dst = ptr_add url_buf, 0
+    url_prefix_copy = call @sa_bytes_copy(&url_prefix_dst, &URL_PREFIX, URL_PREFIX_LEN)
+    !url_prefix_copy
+    !url_prefix_dst
+    cfg_port = call @cfg_get_port(&cfg)
+    port64 = zext cfg_port as u64
+    port_len_slot = stack_alloc 8
+    port_dst = ptr_add url_buf, URL_PREFIX_LEN
+    port_status = call @sa_fmt_u64_into(port64, 10, port_dst, 8, &port_len_slot)
+    port_ok = eq port_status, 0
+    call @assert_contract(port_ok, 342)
+    !port_status
+    !port64
+    !cfg_port
+    !port_dst
+    port_len = load port_len_slot+0 as u64
+    suffix_off = add URL_PREFIX_LEN, port_len
+    suffix_dst = ptr_add url_buf, suffix_off
+    suffix_copy = call @sa_bytes_copy(&suffix_dst, &URL_RPC_SUFFIX, URL_RPC_SUFFIX_LEN)
+    !suffix_copy
+    !suffix_dst
+    url_len = add suffix_off, URL_RPC_SUFFIX_LEN
+    !suffix_off
+    !port_len
+
+    auth_buf = alloc AUTH_BUF_SIZE
+    auth_prefix_dst = ptr_add auth_buf, 0
+    auth_prefix_copy = call @sa_bytes_copy(&auth_prefix_dst, &AUTH_PREFIX, AUTH_PREFIX_LEN)
+    !auth_prefix_copy
+    !auth_prefix_dst
+    auth_token_ptr = load cfg+CFG_AUTH_PTR as ptr
+    auth_token_len = load cfg+CFG_AUTH_LEN as u64
+    auth_has_token = ugt auth_token_len, 0
+    call @assert_contract(auth_has_token, 343)
+    auth_token_dst = ptr_add auth_buf, AUTH_PREFIX_LEN
+    auth_token_copy = call @sa_bytes_copy(&auth_token_dst, &auth_token_ptr, auth_token_len)
+    !auth_token_copy
+    !auth_token_dst
+    auth_len = add AUTH_PREFIX_LEN, auth_token_len
+
+    store out_cfg+0, cfg as ptr
+    store out_url_buf+0, url_buf as ptr
+    store out_url_len+0, url_len as u64
+    store out_auth_buf+0, auth_buf as ptr
+    store out_auth_len+0, auth_len as u64
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !url_len
+    !auth_buf
+    !url_buf
+    !cfg
+    !out_cfg
+    !out_url_buf
+    !out_url_len
+    !out_auth_buf
+    !out_auth_len
+    return 0
+
+
+@rpc_post_contains(&url_buf: ptr, url_len: u64, &auth_buf: ptr, auth_len: u64, &body: ptr, body_len: u64, &needle: ptr, needle_len: u64) -> u8:
+L_ENTRY:
+    client_slot = stack_alloc 8
+    req_slot = stack_alloc 8
+    resp_slot = stack_alloc 8
+    reader_slot = stack_alloc 8
+    read_len_slot = stack_alloc 8
+    resp_buf = stack_alloc RESP_BUF_SIZE
+    client_status = call @sa_http_client_new(0, &client_slot)
+    client = load client_slot+0 as ptr
+    req_status = call @sa_http_client_req_new(client, 2, &url_buf, url_len, &req_slot)
+    req = load req_slot+0 as ptr
+    auth_hdr_status = call @sa_http_client_req_add_header(req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    ct_status = call @sa_http_client_req_add_header(req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    body_status = call @sa_http_client_req_set_body(req, &body, body_len)
+    send_status = call @sa_http_client_req_send(req, &resp_slot)
+    resp = load resp_slot+0 as ptr
+    code = call @sa_http_client_resp_status(resp)
+    reader_status = call @sa_http_client_resp_body_reader(resp, &reader_slot)
+    reader = load reader_slot+0 as ptr
+    read_status = call @sa_http_client_resp_read_chunk(reader, &resp_buf, RESP_BUF_SIZE, &read_len_slot)
+    read_len = load read_len_slot+0 as u64
+    needle_idx = call @sa_bytes_find(&resp_buf, read_len, &needle, needle_len)
+
+    client_ok = eq client_status, 0
+    req_ok = eq req_status, 0
+    auth_ok = eq auth_hdr_status, 0
+    ct_ok = eq ct_status, 0
+    body_ok = eq body_status, 0
+    send_ok = eq send_status, 0
+    code_ok = eq code, 200
+    reader_ok = eq reader_status, 0
+    read_ok = eq read_status, 0
+    found = sge needle_idx, 0
+    ok = and client_ok, req_ok
+    ok = and ok, auth_ok
+    ok = and ok, ct_ok
+    ok = and ok, body_ok
+    ok = and ok, send_ok
+    ok = and ok, code_ok
+    ok = and ok, reader_ok
+    ok = and ok, read_ok
+    ok = and ok, found
+
+    call @sa_http_client_body_reader_free(^reader)
+    call @sa_http_client_resp_free(^resp)
+    call @sa_http_client_req_free(^req)
+    call @sa_http_client_free(^client)
+
+    !client_status
+    !req_status
+    !auth_hdr_status
+    !ct_status
+    !body_status
+    !send_status
+    !code
+    !reader_status
+    !read_status
+    !read_len
+    !needle_idx
+    !client_ok
+    !req_ok
+    !auth_ok
+    !ct_ok
+    !body_ok
+    !send_ok
+    !code_ok
+    !reader_ok
+    !read_ok
+    !found
+    !url_buf
+    !url_len
+    !auth_buf
+    !auth_len
+    !body
+    !body_len
+    !needle
+    !needle_len
+    br ok -> L_RPC_POST_PASS, L_RPC_POST_FAIL
+
+L_RPC_POST_PASS:
+    !ok
+    return 1
+
+L_RPC_POST_FAIL:
+    !ok
+    return 0
+
+
+@test "rpc model/list proxies upstream raw models list"():
+L_ENTRY:
+    cfg_slot = stack_alloc 8
+    url_buf_slot = stack_alloc 8
+    url_len_slot = stack_alloc 8
+    auth_buf_slot = stack_alloc 8
+    auth_len_slot = stack_alloc 8
+    context_status = call @build_rpc_context(&cfg_slot, &url_buf_slot, &url_len_slot, &auth_buf_slot, &auth_len_slot)
+    context_ok = eq context_status, 0
+    call @assert_contract(context_ok, 350)
+    !context_status
+    cfg = load cfg_slot+0 as ptr
+    url_buf = load url_buf_slot+0 as ptr
+    url_len = load url_len_slot+0 as u64
+    auth_buf = load auth_buf_slot+0 as ptr
+    auth_len = load auth_len_slot+0 as u64
+
+    client_slot = stack_alloc 8
+    req_slot = stack_alloc 8
+    resp_slot = stack_alloc 8
+    reader_slot = stack_alloc 8
+    read_len_slot = stack_alloc 8
+    resp_buf = stack_alloc RESP_BUF_SIZE
+    client_status = call @sa_http_client_new(0, &client_slot)
+    client_ok = eq client_status, 0
+    call @assert_contract(client_ok, 354)
+    !client_status
+    client = load client_slot+0 as ptr
+    req_status = call @sa_http_client_req_new(client, 2, &url_buf, url_len, &req_slot)
+    req_ok = eq req_status, 0
+    call @assert_contract(req_ok, 355)
+    !req_status
+    req = load req_slot+0 as ptr
+    auth_hdr_status = call @sa_http_client_req_add_header(req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    auth_hdr_ok = eq auth_hdr_status, 0
+    call @assert_contract(auth_hdr_ok, 356)
+    !auth_hdr_status
+    ct_status = call @sa_http_client_req_add_header(req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    ct_ok = eq ct_status, 0
+    call @assert_contract(ct_ok, 357)
+    !ct_status
+    body_status = call @sa_http_client_req_set_body(req, &RPC_MODEL_LIST_BODY, RPC_MODEL_LIST_BODY_LEN)
+    body_ok = eq body_status, 0
+    call @assert_contract(body_ok, 358)
+    !body_status
+    send_status = call @sa_http_client_req_send(req, &resp_slot)
+    send_ok = eq send_status, 0
+    call @assert_contract(send_ok, 359)
+    !send_status
+    resp = load resp_slot+0 as ptr
+    code = call @sa_http_client_resp_status(resp)
+    code_ok = eq code, 200
+    call @assert_contract(code_ok, 360)
+    !code
+    reader_status = call @sa_http_client_resp_body_reader(resp, &reader_slot)
+    reader_ok = eq reader_status, 0
+    call @assert_contract(reader_ok, 361)
+    !reader_status
+    reader = load reader_slot+0 as ptr
+    read_status = call @sa_http_client_resp_read_chunk(reader, &resp_buf, RESP_BUF_SIZE, &read_len_slot)
+    read_ok = eq read_status, 0
+    call @assert_contract(read_ok, 362)
+    !read_status
+    read_len = load read_len_slot+0 as u64
+    has_body = ugt read_len, 0
+    call @assert_contract(has_body, 363)
+
+    call @sa_http_client_body_reader_free(^reader)
+    call @sa_http_client_resp_free(^resp)
+    call @sa_http_client_req_free(^req)
+    call @sa_http_client_free(^client)
+
+    jsonrpc_idx = call @sa_bytes_find(&resp_buf, read_len, &NEEDLE_JSONRPC, NEEDLE_JSONRPC_LEN)
+    no_jsonrpc = slt jsonrpc_idx, 0
+    call @assert_contract(no_jsonrpc, 364)
+    !jsonrpc_idx
+
+    root = call @sa_json_parse(&resp_buf, read_len)
+    root_ok = ne root, 0
+    call @assert_contract(root_ok, 365)
+    root_kind = call @sa_json_kind(root)
+    root_is_object = eq root_kind, SA_JSON_KIND_OBJECT
+    call @assert_contract(root_is_object, 366)
+    !root_kind
+
+    object_ptr_slot = stack_alloc 8
+    object_len_slot = stack_alloc 8
+    object_status = call @sa_json_object_get_string(root, &KEY_OBJECT, KEY_OBJECT_LEN, &object_ptr_slot, &object_len_slot)
+    object_ok = eq object_status, 0
+    call @assert_contract(object_ok, 367)
+    !object_status
+    object_ptr = load object_ptr_slot+0 as ptr
+    object_len = load object_len_slot+0 as u64
+    object_eq = call @sa_bytes_eq(&object_ptr, object_len, &VAL_LIST, VAL_LIST_LEN)
+    object_eq_ok = eq object_eq, 1
+    call @assert_contract(object_eq_ok, 368)
+    !object_eq
+    !object_ptr
+    !object_len
+
+    data_slot = stack_alloc 8
+    data_status = call @sa_json_object_get(root, &KEY_DATA, KEY_DATA_LEN, &data_slot)
+    data_ok = eq data_status, 0
+    call @assert_contract(data_ok, 369)
+    !data_status
+    data_node = load data_slot+0 as ptr
+    data_kind = call @sa_json_kind(data_node)
+    data_is_array = eq data_kind, SA_JSON_KIND_ARRAY
+    call @assert_contract(data_is_array, 370)
+    !data_kind
+    data_count_slot = stack_alloc 8
+    data_count_status = call @sa_json_value_count(data_node, &data_count_slot)
+    data_count_ok = eq data_count_status, 0
+    call @assert_contract(data_count_ok, 371)
+    !data_count_status
+    data_count = load data_count_slot+0 as u64
+    data_nonempty = ugt data_count, 0
+    call @assert_contract(data_nonempty, 372)
+    !data_count
+
+    first_slot = stack_alloc 8
+    first_status = call @sa_json_array_get(data_node, 0, &first_slot)
+    first_ok = eq first_status, 0
+    call @assert_contract(first_ok, 373)
+    !first_status
+    first_node = load first_slot+0 as ptr
+    first_kind = call @sa_json_kind(first_node)
+    first_is_object = eq first_kind, SA_JSON_KIND_OBJECT
+    call @assert_contract(first_is_object, 374)
+    !first_kind
+    first_object_ptr_slot = stack_alloc 8
+    first_object_len_slot = stack_alloc 8
+    first_object_status = call @sa_json_object_get_string(first_node, &KEY_OBJECT, KEY_OBJECT_LEN, &first_object_ptr_slot, &first_object_len_slot)
+    first_object_ok = eq first_object_status, 0
+    call @assert_contract(first_object_ok, 375)
+    !first_object_status
+    first_object_ptr = load first_object_ptr_slot+0 as ptr
+    first_object_len = load first_object_len_slot+0 as u64
+    first_model_eq = call @sa_bytes_eq(&first_object_ptr, first_object_len, &VAL_MODEL, VAL_MODEL_LEN)
+    first_model_ok = eq first_model_eq, 1
+    call @assert_contract(first_model_ok, 376)
+    !first_model_eq
+    !first_object_ptr
+    !first_object_len
+
+    first_free = call @sa_json_free(^first_node)
+    !first_free
+    data_free = call @sa_json_free(^data_node)
+    !data_free
+    root_free = call @sa_json_free(^root)
+    !root_free
+
+    !read_len
+    !auth_len
+    !url_len
+    !auth_buf
+    !url_buf
+    !cfg
+    return
+
+
+@test "rpc thin methods shape parity"():
+L_ENTRY:
+    cfg_slot = stack_alloc 8
+    url_buf_slot = stack_alloc 8
+    url_len_slot = stack_alloc 8
+    auth_buf_slot = stack_alloc 8
+    auth_len_slot = stack_alloc 8
+    context_status = call @build_rpc_context(&cfg_slot, &url_buf_slot, &url_len_slot, &auth_buf_slot, &auth_len_slot)
+    context_ok = eq context_status, 0
+    call @assert_contract(context_ok, 377)
+    !context_status
+    cfg = load cfg_slot+0 as ptr
+    url_buf = load url_buf_slot+0 as ptr
+    url_len = load url_len_slot+0 as u64
+    auth_buf = load auth_buf_slot+0 as ptr
+    auth_len = load auth_len_slot+0 as u64
+
+    installed_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_PLUGIN_INSTALLED_BODY, RPC_PLUGIN_INSTALLED_BODY_LEN, &NEEDLE_DATA_EMPTY, NEEDLE_DATA_EMPTY_LEN)
+    installed_pass = eq installed_ok, 1
+    call @assert_contract(installed_pass, 378)
+    !installed_ok
+
+    skill_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_PLUGIN_SKILL_READ_BODY, RPC_PLUGIN_SKILL_READ_BODY_LEN, &NEEDLE_CONTENTS_EMPTY, NEEDLE_CONTENTS_EMPTY_LEN)
+    skill_pass = eq skill_ok, 1
+    call @assert_contract(skill_pass, 379)
+    !skill_ok
+
+    install_auth_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_PLUGIN_INSTALL_BODY, RPC_PLUGIN_INSTALL_BODY_LEN, &NEEDLE_APPS_AUTH, NEEDLE_APPS_AUTH_LEN)
+    install_auth_pass = eq install_auth_ok, 1
+    call @assert_contract(install_auth_pass, 380)
+    !install_auth_ok
+
+    install_policy_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_PLUGIN_INSTALL_BODY, RPC_PLUGIN_INSTALL_BODY_LEN, &NEEDLE_AUTH_POLICY, NEEDLE_AUTH_POLICY_LEN)
+    install_policy_pass = eq install_policy_ok, 1
+    call @assert_contract(install_policy_pass, 381)
+    !install_policy_ok
+
+    config_req_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_CONFIG_REQ_BODY, RPC_CONFIG_REQ_BODY_LEN, &NEEDLE_REQUIREMENTS, NEEDLE_REQUIREMENTS_LEN)
+    config_req_pass = eq config_req_ok, 1
+    call @assert_contract(config_req_pass, 382)
+    !config_req_ok
+
+    config_allowed_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_CONFIG_REQ_BODY, RPC_CONFIG_REQ_BODY_LEN, &NEEDLE_ALLOWED_APPROVAL, NEEDLE_ALLOWED_APPROVAL_LEN)
+    config_allowed_pass = eq config_allowed_ok, 1
+    call @assert_contract(config_allowed_pass, 383)
+    !config_allowed_ok
+
+    app_data_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_APP_LIST_BODY, RPC_APP_LIST_BODY_LEN, &NEEDLE_DATA_EMPTY, NEEDLE_DATA_EMPTY_LEN)
+    app_data_pass = eq app_data_ok, 1
+    call @assert_contract(app_data_pass, 384)
+    !app_data_ok
+
+    app_cursor_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_APP_LIST_BODY, RPC_APP_LIST_BODY_LEN, &NEEDLE_NEXT_CURSOR, NEEDLE_NEXT_CURSOR_LEN)
+    app_cursor_pass = eq app_cursor_ok, 1
+    call @assert_contract(app_cursor_pass, 385)
+    !app_cursor_ok
+
+    !app_cursor_pass
+    !app_data_pass
+    !config_allowed_pass
+    !config_req_pass
+    !install_policy_pass
+    !install_auth_pass
+    !skill_pass
+    !installed_pass
+    !auth_len
+    !auth_buf
+    !url_len
+    !url_buf
+    !cfg
+    return
+
+
+@test "rpc accepts standard JSON whitespace and preserves params"():
+L_ENTRY:
+    cfg_slot = stack_alloc 8
+    url_buf_slot = stack_alloc 8
+    url_len_slot = stack_alloc 8
+    auth_buf_slot = stack_alloc 8
+    auth_len_slot = stack_alloc 8
+    context_status = call @build_rpc_context(&cfg_slot, &url_buf_slot, &url_len_slot, &auth_buf_slot, &auth_len_slot)
+    context_ok = eq context_status, 0
+    call @assert_contract(context_ok, 386)
+    !context_status
+    cfg = load cfg_slot+0 as ptr
+    url_buf = load url_buf_slot+0 as ptr
+    url_len = load url_len_slot+0 as u64
+    auth_buf = load auth_buf_slot+0 as ptr
+    auth_len = load auth_len_slot+0 as u64
+
+    start_id_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_ID_201, NEEDLE_ID_201_LEN)
+    start_id_pass = eq start_id_ok, 1
+    call @assert_contract(start_id_pass, 387)
+    !start_id_ok
+
+    start_thread_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_THREAD, NEEDLE_WS_THREAD_LEN)
+    start_thread_pass = eq start_thread_ok, 1
+    call @assert_contract(start_thread_pass, 388)
+    !start_thread_ok
+
+    start_session_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_SESSION, NEEDLE_WS_SESSION_LEN)
+    start_session_pass = eq start_session_ok, 1
+    call @assert_contract(start_session_pass, 389)
+    !start_session_ok
+
+    start_model_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_MODEL, NEEDLE_WS_MODEL_LEN)
+    start_model_pass = eq start_model_ok, 1
+    call @assert_contract(start_model_pass, 390)
+    !start_model_ok
+
+    start_provider_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_PROVIDER, NEEDLE_WS_PROVIDER_LEN)
+    start_provider_pass = eq start_provider_ok, 1
+    call @assert_contract(start_provider_pass, 391)
+    !start_provider_ok
+
+    start_cwd_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_CWD, NEEDLE_WS_CWD_LEN)
+    start_cwd_pass = eq start_cwd_ok, 1
+    call @assert_contract(start_cwd_pass, 392)
+    !start_cwd_ok
+
+    start_eph_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_EPHEMERAL_FALSE, NEEDLE_WS_EPHEMERAL_FALSE_LEN)
+    start_eph_pass = eq start_eph_ok, 1
+    call @assert_contract(start_eph_pass, 393)
+    !start_eph_ok
+
+    start_approval_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_APPROVAL, NEEDLE_WS_APPROVAL_LEN)
+    start_approval_pass = eq start_approval_ok, 1
+    call @assert_contract(start_approval_pass, 400)
+    !start_approval_ok
+
+    start_reviewer_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_REVIEWER, NEEDLE_WS_REVIEWER_LEN)
+    start_reviewer_pass = eq start_reviewer_ok, 1
+    call @assert_contract(start_reviewer_pass, 401)
+    !start_reviewer_ok
+
+    start_sandbox_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_START_BODY, RPC_WS_THREAD_START_BODY_LEN, &NEEDLE_WS_SANDBOX, NEEDLE_WS_SANDBOX_LEN)
+    start_sandbox_pass = eq start_sandbox_ok, 1
+    call @assert_contract(start_sandbox_pass, 402)
+    !start_sandbox_ok
+
+    read_id_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_READ_BODY, RPC_WS_THREAD_READ_BODY_LEN, &NEEDLE_ID_202, NEEDLE_ID_202_LEN)
+    read_id_pass = eq read_id_ok, 1
+    call @assert_contract(read_id_pass, 394)
+    !read_id_ok
+
+    read_thread_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_READ_BODY, RPC_WS_THREAD_READ_BODY_LEN, &NEEDLE_WS_THREAD, NEEDLE_WS_THREAD_LEN)
+    read_thread_pass = eq read_thread_ok, 1
+    call @assert_contract(read_thread_pass, 395)
+    !read_thread_ok
+
+    goal_id_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_GOAL_SET_BODY, RPC_WS_GOAL_SET_BODY_LEN, &NEEDLE_ID_203, NEEDLE_ID_203_LEN)
+    goal_id_pass = eq goal_id_ok, 1
+    call @assert_contract(goal_id_pass, 396)
+    !goal_id_ok
+
+    goal_thread_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_GOAL_SET_BODY, RPC_WS_GOAL_SET_BODY_LEN, &NEEDLE_WS_GOAL_THREAD, NEEDLE_WS_GOAL_THREAD_LEN)
+    goal_thread_pass = eq goal_thread_ok, 1
+    call @assert_contract(goal_thread_pass, 397)
+    !goal_thread_ok
+
+    goal_obj_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_GOAL_SET_BODY, RPC_WS_GOAL_SET_BODY_LEN, &NEEDLE_WS_OBJECTIVE, NEEDLE_WS_OBJECTIVE_LEN)
+    goal_obj_pass = eq goal_obj_ok, 1
+    call @assert_contract(goal_obj_pass, 398)
+    !goal_obj_ok
+
+    goal_budget_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_GOAL_SET_BODY, RPC_WS_GOAL_SET_BODY_LEN, &NEEDLE_WS_BUDGET, NEEDLE_WS_BUDGET_LEN)
+    goal_budget_pass = eq goal_budget_ok, 1
+    call @assert_contract(goal_budget_pass, 399)
+    !goal_budget_ok
+
+    env_name_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_ENV_BODY, RPC_ESC_ENV_BODY_LEN, &NEEDLE_ESC_ENV_NAME, NEEDLE_ESC_ENV_NAME_LEN)
+    env_name_pass = eq env_name_ok, 1
+    call @assert_contract(env_name_pass, 403)
+    !env_name_ok
+
+    env_path_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_ENV_BODY, RPC_ESC_ENV_BODY_LEN, &NEEDLE_ESC_ENV_PATH, NEEDLE_ESC_ENV_PATH_LEN)
+    env_path_pass = eq env_path_ok, 1
+    call @assert_contract(env_path_pass, 404)
+    !env_path_ok
+
+    review_a_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_REVIEW_BODY, RPC_ESC_REVIEW_BODY_LEN, &NEEDLE_ESC_REVIEW_A, NEEDLE_ESC_REVIEW_A_LEN)
+    review_a_pass = eq review_a_ok, 1
+    call @assert_contract(review_a_pass, 405)
+    !review_a_ok
+
+    review_b_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_REVIEW_BODY, RPC_ESC_REVIEW_BODY_LEN, &NEEDLE_ESC_REVIEW_B, NEEDLE_ESC_REVIEW_B_LEN)
+    review_b_pass = eq review_b_ok, 1
+    call @assert_contract(review_b_pass, 406)
+    !review_b_ok
+
+    !review_b_pass
+    !review_a_pass
+    !env_path_pass
+    !env_name_pass
+    !goal_budget_pass
+    !goal_obj_pass
+    !goal_thread_pass
+    !goal_id_pass
+    !read_thread_pass
+    !read_id_pass
+    !start_sandbox_pass
+    !start_reviewer_pass
+    !start_approval_pass
+    !start_eph_pass
+    !start_cwd_pass
+    !start_provider_pass
+    !start_model_pass
+    !start_session_pass
+    !start_thread_pass
+    !start_id_pass
+    !auth_len
+    !auth_buf
+    !url_len
+    !url_buf
+    !cfg
+    return

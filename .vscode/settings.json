@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.sa": "cpp",
+        "*.sal": "cpp",
+        "*.sai": "cpp",
+       
+    }
+}

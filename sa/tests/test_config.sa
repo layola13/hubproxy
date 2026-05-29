@@ -1,0 +1,117 @@
+// test_config.sa — configuration parser smoke tests
+@import "../src/config.sa"
+@import "../src/strings.sa"
+
+@const LINE_PORT = utf8:"SA_PORT=28080"
+@const LINE_MODEL_QUOTED = utf8:" DEFAULT_MODEL = 'gpt-test' "
+@const LINE_HOST_QUOTED = utf8:" HOST = \"127.0.0.1\" "
+@const LINE_CODEX_AUTH = utf8:" CODEX_SECRET = skip-me "
+@const EXPECT_MODEL = utf8:"gpt-test"
+@const EXPECT_HOST = utf8:"127.0.0.1"
+@const ENV_PATH = utf8:"../.env"
+
+@main() -> i32!:
+L_ENTRY:
+    cfg = alloc CFG_SIZE
+    zero_status = call @cfg_zero(&cfg)
+    !zero_status
+    store cfg+CFG_PORT, 8787 as u16
+
+    parse_status = call @cfg_parse_line(&cfg, &LINE_PORT, 13)
+    !parse_status
+    parsed_port = call @cfg_get_port(&cfg)
+    parsed_ok = eq parsed_port, 28080
+    !parsed_port
+    br parsed_ok -> L_TEST_MODEL_TRIM, L_FAIL_PARSE
+
+L_TEST_MODEL_TRIM:
+    !parsed_ok
+    model_status = call @cfg_parse_line(&cfg, &LINE_MODEL_QUOTED, 28)
+    !model_status
+    model_ptr = load cfg+CFG_MODEL_PTR as ptr
+    model_len = load cfg+CFG_MODEL_LEN as u64
+    model_eq_raw = call @sa_bytes_eq(&model_ptr, model_len, &EXPECT_MODEL, 8)
+    model_ok = eq model_eq_raw, 1
+    !model_eq_raw
+    br model_ok -> L_TEST_HOST_TRIM, L_FAIL_MODEL
+
+L_TEST_HOST_TRIM:
+    !model_ok
+    !model_ptr
+    !model_len
+    host_status = call @cfg_parse_line(&cfg, &LINE_HOST_QUOTED, 20)
+    !host_status
+    host_ptr = load cfg+CFG_HOST_PTR as ptr
+    host_len = load cfg+CFG_HOST_LEN as u64
+    host_eq_raw = call @sa_bytes_eq(&host_ptr, host_len, &EXPECT_HOST, 9)
+    host_ok = eq host_eq_raw, 1
+    !host_eq_raw
+    br host_ok -> L_TEST_CODEX_SKIP, L_FAIL_HOST
+
+L_TEST_CODEX_SKIP:
+    !host_ok
+    !host_ptr
+    !host_len
+    codex_status = call @cfg_parse_line(&cfg, &LINE_CODEX_AUTH, 24)
+    !codex_status
+    auth_len = load cfg+CFG_AUTH_LEN as u64
+    auth_empty = eq auth_len, 0
+    !auth_len
+    br auth_empty -> L_TEST_LOAD, L_FAIL_CODEX
+
+L_TEST_LOAD:
+    !auth_empty
+    cfg2 = alloc CFG_SIZE
+    load_status = call @cfg_load(&ENV_PATH, 7, &cfg2)
+    load_ok = eq load_status, 0
+    !load_status
+    br load_ok -> L_CHECK_LOAD_PORT, L_FAIL_LOAD
+
+L_CHECK_LOAD_PORT:
+    !load_ok
+    loaded_port = call @cfg_get_port(&cfg2)
+    loaded_ok = eq loaded_port, 28080
+    !loaded_port
+    br loaded_ok -> L_PASS, L_FAIL_LOAD_PORT
+
+L_PASS:
+    !loaded_ok
+    !cfg
+    !cfg2
+    return 0
+
+L_FAIL_PARSE:
+    !parsed_ok
+    !cfg
+    panic(201)
+
+L_FAIL_MODEL:
+    !model_ok
+    !model_ptr
+    !model_len
+    !cfg
+    panic(204)
+
+L_FAIL_HOST:
+    !host_ok
+    !host_ptr
+    !host_len
+    !cfg
+    panic(205)
+
+L_FAIL_CODEX:
+    !auth_empty
+    !cfg
+    panic(206)
+
+L_FAIL_LOAD:
+    !load_ok
+    !cfg
+    !cfg2
+    panic(202)
+
+L_FAIL_LOAD_PORT:
+    !loaded_ok
+    !cfg
+    !cfg2
+    panic(203)

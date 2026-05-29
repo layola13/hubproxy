@@ -1,0 +1,2417 @@
+// state.sa - In-memory state management for HubProxy
+@import "state.sai"
+@import "sa_std/io/print.sai"
+@import "strings.sa"
+
+@const LOG_STATE_INIT = utf8:"[state] initialized\n"
+@const DEFAULT_PROVIDER_OPENAI = utf8:"openai"
+#def LOG_STATE_INIT_LEN = 20
+#def DEFAULT_PROVIDER_OPENAI_LEN = 6
+
+@ffi_wrapper state_clamp_len(len: u64, cap: u64) -> u64:
+L_ENTRY:
+    too_long = ugt len, cap
+    br too_long -> L_CLAMP_CAP, L_CLAMP_LEN
+
+L_CLAMP_CAP:
+    !too_long
+    !len
+    return cap
+
+L_CLAMP_LEN:
+    !too_long
+    !cap
+    return len
+
+@ffi_wrapper state_init(&state: ptr) -> u32:
+L_ENTRY:
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_INIT_COND
+
+L_INIT_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, ST_TOTAL
+    br done -> L_INIT_DONE, L_INIT_BODY
+
+L_INIT_BODY:
+    dst = ptr_add state, i
+    store dst+0, 0 as u8
+    !dst
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_INIT_COND
+
+L_INIT_DONE:
+    !i
+    !done
+    call @sa_print_bytes(&LOG_STATE_INIT, LOG_STATE_INIT_LEN)
+    !state
+    return 0
+
+@ffi_wrapper state_reset_runtime(&state: ptr) -> u32:
+L_ENTRY:
+    old_tail = atomic_load state+ST_NOTIFY_TAIL as u64 acquire
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_RESET_COND
+
+L_RESET_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, ST_TOTAL
+    br done -> L_RESET_DONE, L_RESET_BODY
+
+L_RESET_BODY:
+    dst = ptr_add state, i
+    store dst+0, 0 as u8
+    !dst
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_RESET_COND
+
+L_RESET_DONE:
+    atomic_store state+ST_NOTIFY_HEAD, old_tail as u64 release
+    atomic_store state+ST_NOTIFY_TAIL, old_tail as u64 release
+    !i
+    !done
+    !old_tail
+    !state
+    return 0
+
+@ffi_wrapper state_next_id(&state: ptr) -> u64:
+L_ENTRY:
+    cur = load state+ST_NEXT_ID as u64
+    id = add cur, 1
+    store state+ST_NEXT_ID, id as u64
+    !cur
+    !state
+    return id
+
+@ffi_wrapper state_thread_create(&state: ptr, &model_ptr: ptr, model_len: u64, &dir_ptr: ptr, dir_len: u64) -> u64:
+L_ENTRY:
+    id = call @state_thread_create_with_key(&state, &DEFAULT_PROVIDER_OPENAI, 0, &model_ptr, model_len, &dir_ptr, dir_len)
+    !state
+    !model_ptr
+    !model_len
+    !dir_ptr
+    !dir_len
+    return id
+
+@ffi_wrapper state_thread_create_with_key(&state: ptr, &key_ptr: ptr, key_len: u64, &model_ptr: ptr, model_len: u64, &dir_ptr: ptr, dir_len: u64) -> u64:
+L_ENTRY:
+    id = call @state_next_id(&state)
+    count = load state+ST_THR_COUNT as u64
+    at_max = uge count, MAX_THREADS
+    br at_max -> L_TCR_FULL, L_TCR_SLOT
+
+L_TCR_FULL:
+    !at_max
+    !count
+    !id
+    !state
+    !key_ptr
+    !key_len
+    !model_ptr
+    !model_len
+    !dir_ptr
+    !dir_len
+    return 0
+
+L_TCR_SLOT:
+    !at_max
+    slot_off = mul count, THR_SLOT_SIZE
+    slot_abs = add slot_off, ST_THREADS
+    slot = ptr_add state, slot_abs
+    !count
+    store slot+THR_ID, id as u64
+    store slot+THR_ACTIVE, 1 as u8
+    store slot+THR_STATUS, 0 as u8
+    store slot+THR_NAME_SET, 0 as u8
+    model_owned = alloc model_len
+    model_copied = call @sa_bytes_copy(&model_owned, &model_ptr, model_len)
+    store slot+THR_MODEL_PTR, model_owned as ptr
+    store slot+THR_MODEL_LEN, model_copied as u64
+    dir_owned = alloc dir_len
+    dir_copied = call @sa_bytes_copy(&dir_owned, &dir_ptr, dir_len)
+    store slot+THR_DIR_PTR, dir_owned as ptr
+    store slot+THR_DIR_LEN, dir_copied as u64
+    store slot+THR_CREATED, 1748300000 as u64
+    store slot+THR_ELICITATION, 0 as u64
+    store slot+THR_PREVIEW_LEN, 0 as u64
+    store slot+THR_NAME_LEN, 0 as u64
+    store slot+THR_FORKED_FROM_ID, 0 as u64
+    provider_owned = alloc DEFAULT_PROVIDER_OPENAI_LEN
+    provider_copied = call @sa_bytes_copy(&provider_owned, &DEFAULT_PROVIDER_OPENAI, DEFAULT_PROVIDER_OPENAI_LEN)
+    store slot+THR_PROVIDER_PTR, provider_owned as ptr
+    store slot+THR_PROVIDER_LEN, provider_copied as u64
+    store slot+THR_EPHEMERAL, 1 as u8
+    key_copy_len = call @state_clamp_len(key_len, THR_KEY_CAP)
+    key_dst = ptr_add slot, THR_KEY
+    key_copied = call @sa_bytes_copy(&key_dst, &key_ptr, key_copy_len)
+    store slot+THR_KEY_LEN, key_copied as u64
+    store slot+THR_GIT_PTR, 0 as ptr
+    store slot+THR_GIT_LEN, 0 as u64
+    store slot+THR_GIT_SET, 0 as u8
+    old_count = load state+ST_THR_COUNT as u64
+    new_count = add old_count, 1
+    store state+ST_THR_COUNT, new_count as u64
+    !new_count
+    !old_count
+    !model_owned
+    !model_copied
+    !dir_owned
+    !dir_copied
+    !provider_owned
+    !provider_copied
+    !key_copy_len
+    !key_dst
+    !key_copied
+    !slot
+    !slot_abs
+    !slot_off
+    !state
+    !key_ptr
+    !key_len
+    !model_ptr
+    !model_len
+    !dir_ptr
+    !dir_len
+    return id
+
+@ffi_wrapper state_thread_find_by_key(&state: ptr, &key_ptr: ptr, key_len: u64) -> ptr:
+L_ENTRY:
+    count = load state+ST_THR_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_TFK_COND
+
+L_TFK_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_TFK_NOT_FOUND, L_TFK_BODY
+
+L_TFK_BODY:
+    slot_off = mul i, THR_SLOT_SIZE
+    slot_abs = add slot_off, ST_THREADS
+    slot = ptr_add state, slot_abs
+    jmp L_TFK_CHECK_LEN
+
+L_TFK_CHECK_LEN:
+    slot_key_len = load slot+THR_KEY_LEN as u64
+    len_match = eq slot_key_len, key_len
+    br len_match -> L_TFK_COMPARE, L_TFK_NEXT_LEN
+
+L_TFK_COMPARE:
+    !len_match
+    slot_key = ptr_add slot, THR_KEY
+    same = call @sa_bytes_eq(&slot_key, slot_key_len, &key_ptr, key_len)
+    !slot_key_len
+    br same -> L_TFK_FOUND, L_TFK_NEXT_CMP
+
+L_TFK_FOUND:
+    raw_slot = *slot
+    view = assume_borrow raw_slot
+    !same
+    !slot_key
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !key_ptr
+    !key_len
+    !state
+    return view
+
+L_TFK_NEXT_CMP:
+    !same
+    !slot_key
+    jmp L_TFK_NEXT
+
+L_TFK_NEXT_LEN:
+    !len_match
+    !slot_key_len
+    jmp L_TFK_NEXT
+
+L_TFK_NEXT_INACTIVE:
+    jmp L_TFK_NEXT
+
+L_TFK_NEXT:
+    !slot
+    !slot_abs
+    !slot_off
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_TFK_COND
+
+L_TFK_NOT_FOUND:
+    !done
+    !i
+    !count
+    !key_ptr
+    !key_len
+    !state
+    return 0
+
+@ffi_wrapper state_thread_find(&state: ptr, thread_id: u64) -> ptr:
+L_ENTRY:
+    count = load state+ST_THR_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_TF_COND
+
+L_TF_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_TF_NOT_FOUND, L_TF_BODY
+
+L_TF_BODY:
+    slot_off = mul i, THR_SLOT_SIZE
+    slot_abs = add slot_off, ST_THREADS
+    slot = ptr_add state, slot_abs
+    sid = load slot+THR_ID as u64
+    found = eq sid, thread_id
+    !sid
+    br found -> L_TF_FOUND, L_TF_NEXT
+
+L_TF_FOUND:
+    raw_slot = *slot
+    view = assume_borrow raw_slot
+    !found
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !thread_id
+    !state
+    return view
+
+L_TF_NEXT:
+    !found
+    !slot
+    !slot_abs
+    !slot_off
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_TF_COND
+
+L_TF_NOT_FOUND:
+    !done
+    !i
+    !count
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_thread_list_active(&state: ptr, &out_ids: ptr, &out_count: ptr) -> u32:
+L_ENTRY:
+    count = load state+ST_THR_COUNT as u64
+    write_ptr = stack_alloc 8
+    store write_ptr+0, 0 as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_TL_COND
+
+L_TL_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_TL_DONE, L_TL_BODY
+
+L_TL_BODY:
+    slot_off = mul i, THR_SLOT_SIZE
+    slot_abs = add slot_off, ST_THREADS
+    slot = ptr_add state, slot_abs
+    active = load slot+THR_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    br is_active -> L_TL_WRITE, L_TL_ADVANCE
+
+L_TL_WRITE:
+    !is_active
+    widx = load write_ptr+0 as u64
+    out_off = mul widx, 8
+    dst = ptr_add out_ids, out_off
+    sid = load slot+THR_ID as u64
+    store dst+0, sid as u64
+    !sid
+    !dst
+    !out_off
+    next_widx = add widx, 1
+    store write_ptr+0, next_widx as u64
+    !next_widx
+    !widx
+    jmp L_TL_ADVANCE2
+
+L_TL_ADVANCE:
+    !is_active
+    jmp L_TL_ADVANCE2
+
+L_TL_ADVANCE2:
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_TL_COND
+
+L_TL_DONE:
+    !i
+    !done
+    final_count = load write_ptr+0 as u64
+    store out_count+0, final_count as u64
+    !final_count
+    !count
+    !state
+    !out_ids
+    !out_count
+    return 0
+
+@ffi_wrapper state_thread_archive(&state: ptr, thread_id: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    is_null = eq slot, 0
+    br is_null -> L_TA_NOT_FOUND, L_TA_ARCHIVE
+
+L_TA_NOT_FOUND:
+    !is_null
+    !slot
+    !thread_id
+    !state
+    return 1
+
+L_TA_ARCHIVE:
+    !is_null
+    store slot+THR_ACTIVE, 0 as u8
+    !slot
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_thread_unarchive(&state: ptr, thread_id: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    is_null = eq slot, 0
+    br is_null -> L_TU_NOT_FOUND, L_TU_UNARCHIVE
+
+L_TU_NOT_FOUND:
+    !is_null
+    !slot
+    !thread_id
+    !state
+    return 1
+
+L_TU_UNARCHIVE:
+    !is_null
+    store slot+THR_ACTIVE, 1 as u8
+    !slot
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_thread_set_name(&state: ptr, thread_id: u64, &name_ptr: ptr, name_len: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STN_NOT_FOUND, L_STN_SLOT
+
+L_STN_SLOT:
+    !missing
+    copy_len = call @state_clamp_len(name_len, THR_NAME_CAP)
+    name_dst = ptr_add slot, THR_NAME
+    copied = call @sa_bytes_copy(&name_dst, &name_ptr, copy_len)
+    store slot+THR_NAME_SET, 1 as u8
+    store slot+THR_NAME_LEN, copied as u64
+    !copied
+    !copy_len
+    !name_dst
+    !slot
+    !thread_id
+    !state
+    !name_ptr
+    !name_len
+    return 0
+
+L_STN_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    !name_ptr
+    !name_len
+    return 1
+
+@ffi_wrapper state_thread_clear_name(&state: ptr, thread_id: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STC_NOT_FOUND, L_STC_SLOT
+
+L_STC_SLOT:
+    !missing
+    store slot+THR_NAME_SET, 0 as u8
+    store slot+THR_NAME_LEN, 0 as u64
+    !slot
+    !thread_id
+    !state
+    return 0
+
+L_STC_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    return 1
+
+@ffi_wrapper state_thread_set_preview(&state: ptr, thread_id: u64, &preview_ptr: ptr, preview_len: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STP_NOT_FOUND, L_STP_SLOT
+
+L_STP_SLOT:
+    !missing
+    copy_len = call @state_clamp_len(preview_len, THR_PREVIEW_CAP)
+    preview_dst = ptr_add slot, THR_PREVIEW
+    copied = call @sa_bytes_copy(&preview_dst, &preview_ptr, copy_len)
+    store slot+THR_PREVIEW_LEN, copied as u64
+    !copied
+    !copy_len
+    !preview_dst
+    !slot
+    !thread_id
+    !state
+    !preview_ptr
+    !preview_len
+    return 0
+
+L_STP_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    !preview_ptr
+    !preview_len
+    return 1
+
+@ffi_wrapper state_thread_clear_preview(&state: ptr, thread_id: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STP2_NOT_FOUND, L_STP2_SLOT
+
+L_STP2_SLOT:
+    !missing
+    store slot+THR_PREVIEW_LEN, 0 as u64
+    !slot
+    !thread_id
+    !state
+    return 0
+
+L_STP2_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    return 1
+
+@ffi_wrapper state_thread_set_git_info(&state: ptr, thread_id: u64, &git_ptr: ptr, git_len: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STG_NOT_FOUND, L_STG_SLOT
+
+L_STG_SLOT:
+    !missing
+    old_ptr = load slot+THR_GIT_PTR as ptr
+    has_old = ne old_ptr, 0
+    br has_old -> L_STG_FREE_OLD, L_STG_COPY
+
+L_STG_FREE_OLD:
+    jmp L_STG_COPY
+
+L_STG_COPY:
+    !has_old
+    !old_ptr
+    git_owned = alloc git_len
+    git_copied = call @sa_bytes_copy(&git_owned, &git_ptr, git_len)
+    store slot+THR_GIT_PTR, git_owned as ptr
+    store slot+THR_GIT_LEN, git_copied as u64
+    store slot+THR_GIT_SET, 1 as u8
+    !git_owned
+    !git_copied
+    !slot
+    !thread_id
+    !state
+    !git_ptr
+    !git_len
+    return 0
+
+L_STG_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    !git_ptr
+    !git_len
+    return 1
+
+@ffi_wrapper state_thread_clear_git_info(&state: ptr, thread_id: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STG2_NOT_FOUND, L_STG2_SLOT
+
+L_STG2_SLOT:
+    !missing
+    old_ptr = load slot+THR_GIT_PTR as ptr
+    has_old = ne old_ptr, 0
+    br has_old -> L_STG2_FREE_OLD, L_STG2_CLEAR
+
+L_STG2_FREE_OLD:
+    jmp L_STG2_CLEAR
+
+L_STG2_CLEAR:
+    !has_old
+    !old_ptr
+    store slot+THR_GIT_PTR, 0 as ptr
+    store slot+THR_GIT_LEN, 0 as u64
+    store slot+THR_GIT_SET, 0 as u8
+    !slot
+    !thread_id
+    !state
+    return 0
+
+L_STG2_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    return 1
+
+@ffi_wrapper state_thread_copy_git_info(&state: ptr, source_thread_id: u64, target_thread_id: u64) -> u32:
+L_ENTRY:
+    source_slot = call @state_thread_find(&state, source_thread_id)
+    source_missing = eq source_slot, 0
+    br source_missing -> L_STGCP_NOT_FOUND, L_STGCP_SOURCE
+
+L_STGCP_SOURCE:
+    !source_missing
+    target_slot = call @state_thread_find(&state, target_thread_id)
+    target_missing = eq target_slot, 0
+    br target_missing -> L_STGCP_TARGET_NOT_FOUND, L_STGCP_COPY
+
+L_STGCP_COPY:
+    !target_missing
+    git_set = load source_slot+THR_GIT_SET as u8
+    has_git = eq git_set, 1
+    br has_git -> L_STGCP_WITH_GIT, L_STGCP_CLEAR
+
+L_STGCP_WITH_GIT:
+    !has_git
+    git_ptr = load source_slot+THR_GIT_PTR as ptr
+    git_len = load source_slot+THR_GIT_LEN as u64
+    set_status = call @state_thread_set_git_info(&state, target_thread_id, &git_ptr, git_len)
+    !set_status
+    !git_ptr
+    !git_len
+    !git_set
+    !target_slot
+    !source_slot
+    !source_thread_id
+    !target_thread_id
+    !state
+    return 0
+
+L_STGCP_CLEAR:
+    !has_git
+    clear_status = call @state_thread_clear_git_info(&state, target_thread_id)
+    !clear_status
+    !git_set
+    !target_slot
+    !source_slot
+    !source_thread_id
+    !target_thread_id
+    !state
+    return 0
+
+L_STGCP_TARGET_NOT_FOUND:
+    !target_missing
+    !target_slot
+    !source_slot
+    !source_thread_id
+    !target_thread_id
+    !state
+    return 1
+
+L_STGCP_NOT_FOUND:
+    !source_missing
+    !source_slot
+    !source_thread_id
+    !target_thread_id
+    !state
+    return 1
+
+@ffi_wrapper state_thread_set_model_provider(&state: ptr, thread_id: u64, &provider_ptr: ptr, provider_len: u64) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STPROV_NOT_FOUND, L_STPROV_SLOT
+
+L_STPROV_SLOT:
+    !missing
+    provider_owned = alloc provider_len
+    provider_copied = call @sa_bytes_copy(&provider_owned, &provider_ptr, provider_len)
+    store slot+THR_PROVIDER_PTR, provider_owned as ptr
+    store slot+THR_PROVIDER_LEN, provider_copied as u64
+    !provider_owned
+    !provider_copied
+    !slot
+    !thread_id
+    !state
+    !provider_ptr
+    !provider_len
+    return 0
+
+L_STPROV_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    !provider_ptr
+    !provider_len
+    return 1
+
+@ffi_wrapper state_thread_set_ephemeral(&state: ptr, thread_id: u64, ephemeral: u8) -> u32:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_STEPH_NOT_FOUND, L_STEPH_SLOT
+
+L_STEPH_SLOT:
+    !missing
+    store slot+THR_EPHEMERAL, ephemeral as u8
+    !slot
+    !thread_id
+    !state
+    !ephemeral
+    return 0
+
+L_STEPH_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !state
+    !ephemeral
+    return 1
+
+@ffi_wrapper state_thread_increment_elicitation(&state: ptr, thread_id: u64) -> u64:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_TE_MISSING, L_TE_SLOT
+
+L_TE_SLOT:
+    !missing
+    cur = load slot+THR_ELICITATION as u64
+    next = add cur, 1
+    store slot+THR_ELICITATION, next as u64
+    !cur
+    !slot
+    !thread_id
+    !state
+    return next
+
+L_TE_MISSING:
+    !missing
+    !slot
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_thread_decrement_elicitation(&state: ptr, thread_id: u64) -> u64:
+L_ENTRY:
+    slot = call @state_thread_find(&state, thread_id)
+    missing = eq slot, 0
+    br missing -> L_TD_MISSING, L_TD_SLOT
+
+L_TD_SLOT:
+    !missing
+    cur = load slot+THR_ELICITATION as u64
+    is_zero = eq cur, 0
+    br is_zero -> L_TD_ZERO, L_TD_DEC
+
+L_TD_DEC:
+    !is_zero
+    next = sub cur, 1
+    store slot+THR_ELICITATION, next as u64
+    !cur
+    !slot
+    !thread_id
+    !state
+    return next
+
+L_TD_ZERO:
+    !is_zero
+    !cur
+    !slot
+    !thread_id
+    !state
+    return 0
+
+L_TD_MISSING:
+    !missing
+    !slot
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_turn_create(&state: ptr, thread_id: u64) -> u64:
+L_ENTRY:
+    thread_slot = call @state_thread_find(&state, thread_id)
+    missing_thread = eq thread_slot, 0
+    br missing_thread -> L_TC_NO_THREAD, L_TC_HAS_THREAD
+
+L_TC_HAS_THREAD:
+    !missing_thread
+    !thread_slot
+    count = load state+ST_TURN_COUNT as u64
+    at_max = uge count, MAX_TURNS
+    br at_max -> L_TC_FULL, L_TC_SLOT
+
+L_TC_FULL:
+    !at_max
+    !count
+    !thread_id
+    !state
+    return 0
+
+L_TC_SLOT:
+    !at_max
+    id = call @state_next_id(&state)
+    slot_off = mul count, TURN_SLOT_SIZE
+    slot_abs = add slot_off, ST_TURNS
+    slot = ptr_add state, slot_abs
+    !count
+    store slot+TURN_ID, id as u64
+    store slot+TURN_THR_ID, thread_id as u64
+    store slot+TURN_ACTIVE, 1 as u8
+    store slot+TURN_STATUS, 1 as u8
+    store slot+TURN_MODE, 0 as u8
+    store slot+TURN_CREATED, 1748300000 as u64
+    store slot+TURN_ITEMS_LEN, 0 as u64
+    old_count = load state+ST_TURN_COUNT as u64
+    new_count = add old_count, 1
+    store state+ST_TURN_COUNT, new_count as u64
+    !new_count
+    !old_count
+    !slot
+    !slot_abs
+    !slot_off
+    !thread_id
+    !state
+    return id
+
+L_TC_NO_THREAD:
+    !missing_thread
+    !thread_slot
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_turn_find(&state: ptr, thread_id: u64, turn_id: u64) -> ptr:
+L_ENTRY:
+    count = load state+ST_TURN_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_TURNF_COND
+
+L_TURNF_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_TURNF_NOT_FOUND, L_TURNF_BODY
+
+L_TURNF_BODY:
+    slot_off = mul i, TURN_SLOT_SIZE
+    slot_abs = add slot_off, ST_TURNS
+    slot = ptr_add state, slot_abs
+    sid = load slot+TURN_ID as u64
+    id_match = eq sid, turn_id
+    !sid
+    owner = load slot+TURN_THR_ID as u64
+    owner_match = eq owner, thread_id
+    !owner
+    active = load slot+TURN_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    want = and id_match, owner_match
+    want = and want, is_active
+    !id_match
+    !owner_match
+    !is_active
+    br want -> L_TURNF_FOUND, L_TURNF_NEXT
+
+L_TURNF_FOUND:
+    raw_slot = *slot
+    view = assume_borrow raw_slot
+    !want
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !turn_id
+    !thread_id
+    !state
+    return view
+
+L_TURNF_NEXT:
+    !want
+    !slot
+    !slot_abs
+    !slot_off
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_TURNF_COND
+
+L_TURNF_NOT_FOUND:
+    !done
+    !i
+    !count
+    !turn_id
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_turn_set_mode(&state: ptr, thread_id: u64, turn_id: u64, mode: u8) -> u32:
+L_ENTRY:
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    missing = eq slot, 0
+    br missing -> L_TMODE_NOT_FOUND, L_TMODE_SET
+
+L_TMODE_SET:
+    !missing
+    store slot+TURN_MODE, mode as u8
+    !slot
+    !mode
+    !thread_id
+    !turn_id
+    !state
+    return 0
+
+L_TMODE_NOT_FOUND:
+    !missing
+    !slot
+    !mode
+    !thread_id
+    !turn_id
+    !state
+    return 1
+
+@ffi_wrapper state_turn_set_items(&state: ptr, thread_id: u64, turn_id: u64, &items_ptr: ptr, items_len: u64) -> u32:
+L_ENTRY:
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    missing = eq slot, 0
+    br missing -> L_TSI_NOT_FOUND, L_TSI_SLOT
+
+L_TSI_SLOT:
+    !missing
+    copy_len = call @state_clamp_len(items_len, TURN_ITEMS_CAP)
+    items_dst = ptr_add slot, TURN_ITEMS
+    copied = call @sa_bytes_copy(&items_dst, &items_ptr, copy_len)
+    store slot+TURN_ITEMS_LEN, copied as u64
+    !copied
+    !copy_len
+    !items_dst
+    !slot
+    !turn_id
+    !thread_id
+    !state
+    !items_ptr
+    !items_len
+    return 0
+
+L_TSI_NOT_FOUND:
+    !missing
+    !slot
+    !turn_id
+    !thread_id
+    !state
+    !items_ptr
+    !items_len
+    return 1
+
+@ffi_wrapper state_turn_append_items(&state: ptr, thread_id: u64, turn_id: u64, &items_ptr: ptr, items_len: u64) -> u32:
+L_ENTRY:
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    missing = eq slot, 0
+    br missing -> L_TAI_NOT_FOUND, L_TAI_SLOT
+
+L_TAI_SLOT:
+    !missing
+    existing_len = load slot+TURN_ITEMS_LEN as u64
+    new_has_payload = ugt items_len, 2
+    br new_has_payload -> L_TAI_HAS_NEW, L_TAI_NO_NEW
+
+L_TAI_NO_NEW:
+    !new_has_payload
+    !existing_len
+    !state
+    !thread_id
+    !turn_id
+    !items_ptr
+    !items_len
+    !slot
+    return 0
+
+L_TAI_HAS_NEW:
+    !new_has_payload
+    existing_has_payload = ugt existing_len, 2
+    br existing_has_payload -> L_TAI_APPEND, L_TAI_SET
+
+L_TAI_APPEND:
+    !existing_has_payload
+    jmp L_TAI_COMPUTE
+
+L_TAI_SET:
+    !existing_has_payload
+    !existing_len
+    set_status = call @state_turn_set_items(&state, thread_id, turn_id, &items_ptr, items_len)
+    !state
+    !thread_id
+    !turn_id
+    !items_ptr
+    !items_len
+    !slot
+    return set_status
+
+L_TAI_COMPUTE:
+    prefix_len = sub existing_len, 1
+    item_payload_len = sub items_len, 2
+    base_extra = add prefix_len, 1
+    total_needed = add base_extra, item_payload_len
+    with_close = add total_needed, 1
+    overflow = ugt with_close, TURN_ITEMS_CAP
+    br overflow -> L_TAI_TRUNCATE, L_TAI_COPY
+
+L_TAI_TRUNCATE:
+    !overflow
+    !prefix_len
+    !item_payload_len
+    !base_extra
+    !total_needed
+    !with_close
+    !existing_len
+    !slot
+    !state
+    !thread_id
+    !turn_id
+    !items_ptr
+    !items_len
+    return 1
+
+L_TAI_COPY:
+    !overflow
+    items_dst = ptr_add slot, TURN_ITEMS
+    comma_dst = ptr_add items_dst, prefix_len
+    store comma_dst+0, 44 as u8
+    src_payload = ptr_add items_ptr, 1
+    payload_dst = ptr_add items_dst, base_extra
+    copied = call @sa_bytes_copy(&payload_dst, &src_payload, item_payload_len)
+    close_pos = add base_extra, copied
+    close_dst = ptr_add items_dst, close_pos
+    store close_dst+0, 93 as u8
+    final_len = add close_pos, 1
+    store slot+TURN_ITEMS_LEN, final_len as u64
+    !final_len
+    !close_dst
+    !close_pos
+    !copied
+    !payload_dst
+    !src_payload
+    !comma_dst
+    !items_dst
+    !prefix_len
+    !item_payload_len
+    !base_extra
+    !total_needed
+    !with_close
+    !existing_len
+    !slot
+    !state
+    !thread_id
+    !turn_id
+    !items_ptr
+    !items_len
+    return 0
+
+L_TAI_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !turn_id
+    !state
+    !items_ptr
+    !items_len
+    return 1
+
+@ffi_wrapper state_turn_interrupt(&state: ptr, thread_id: u64, turn_id: u64) -> u32:
+L_ENTRY:
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    missing = eq slot, 0
+    br missing -> L_TINT_NOT_FOUND, L_TINT_SLOT
+
+L_TINT_SLOT:
+    !missing
+    store slot+TURN_STATUS, 2 as u8
+    !slot
+    !thread_id
+    !turn_id
+    !state
+    return 0
+
+L_TINT_NOT_FOUND:
+    !missing
+    !slot
+    !thread_id
+    !turn_id
+    !state
+    return 1
+
+@ffi_wrapper state_turn_list(&state: ptr, thread_id: u64, &out_ids: ptr, &out_count: ptr) -> u32:
+L_ENTRY:
+    count = load state+ST_TURN_COUNT as u64
+    write_ptr = stack_alloc 8
+    store write_ptr+0, 0 as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_TURNL_COND
+
+L_TURNL_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_TURNL_DONE, L_TURNL_BODY
+
+L_TURNL_BODY:
+    slot_off = mul i, TURN_SLOT_SIZE
+    slot_abs = add slot_off, ST_TURNS
+    slot = ptr_add state, slot_abs
+    owner = load slot+TURN_THR_ID as u64
+    matches = eq owner, thread_id
+    !owner
+    active = load slot+TURN_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    want = and matches, is_active
+    !matches
+    !is_active
+    br want -> L_TURNL_WRITE, L_TURNL_ADVANCE
+
+L_TURNL_WRITE:
+    !want
+    widx = load write_ptr+0 as u64
+    out_off = mul widx, 8
+    dst = ptr_add out_ids, out_off
+    tid = load slot+TURN_ID as u64
+    store dst+0, tid as u64
+    !tid
+    !dst
+    !out_off
+    next_widx = add widx, 1
+    store write_ptr+0, next_widx as u64
+    !next_widx
+    !widx
+    jmp L_TURNL_ADVANCE2
+
+L_TURNL_ADVANCE:
+    !want
+    jmp L_TURNL_ADVANCE2
+
+L_TURNL_ADVANCE2:
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_TURNL_COND
+
+L_TURNL_DONE:
+    !i
+    !done
+    final_count = load write_ptr+0 as u64
+    store out_count+0, final_count as u64
+    !final_count
+    !count
+    !thread_id
+    !state
+    !out_ids
+    !out_count
+    return 0
+
+@ffi_wrapper state_turn_rollback(&state: ptr, thread_id: u64, remove_count: u64) -> u32:
+L_ENTRY:
+    thread_slot = call @state_thread_find(&state, thread_id)
+    missing = eq thread_slot, 0
+    br missing -> L_TRB_NOT_FOUND, L_TRB_COUNT
+
+L_TRB_NOT_FOUND:
+    !missing
+    !thread_slot
+    !remove_count
+    !thread_id
+    !state
+    return 1
+
+L_TRB_COUNT:
+    !missing
+    !thread_slot
+    total = load state+ST_TURN_COUNT as u64
+    active_count_slot = stack_alloc 8
+    store active_count_slot+0, 0 as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_TRB_COUNT_COND
+
+L_TRB_COUNT_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, total
+    br done -> L_TRB_PREP_KEEP, L_TRB_COUNT_BODY
+
+L_TRB_COUNT_BODY:
+    slot_off = mul i, TURN_SLOT_SIZE
+    slot_abs = add slot_off, ST_TURNS
+    slot = ptr_add state, slot_abs
+    owner = load slot+TURN_THR_ID as u64
+    owner_match = eq owner, thread_id
+    !owner
+    active = load slot+TURN_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    want = and owner_match, is_active
+    !owner_match
+    !is_active
+    br want -> L_TRB_COUNT_INC, L_TRB_COUNT_NEXT
+
+L_TRB_COUNT_INC:
+    !want
+    cur_active = load active_count_slot+0 as u64
+    next_active = add cur_active, 1
+    store active_count_slot+0, next_active as u64
+    !next_active
+    !cur_active
+    jmp L_TRB_COUNT_NEXT2
+
+L_TRB_COUNT_NEXT:
+    !want
+    jmp L_TRB_COUNT_NEXT2
+
+L_TRB_COUNT_NEXT2:
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_TRB_COUNT_COND
+
+L_TRB_PREP_KEEP:
+    !done
+    !i
+    active_count = load active_count_slot+0 as u64
+    remove_all = uge remove_count, active_count
+    br remove_all -> L_TRB_KEEP_ZERO, L_TRB_KEEP_SOME
+
+L_TRB_KEEP_ZERO:
+    !remove_all
+    keep_count = add 0, 0
+    jmp L_TRB_MARK_PREP
+
+L_TRB_KEEP_SOME:
+    !remove_all
+    keep_count = sub active_count, remove_count
+    jmp L_TRB_MARK_PREP
+
+L_TRB_MARK_PREP:
+    seen_slot = stack_alloc 8
+    store seen_slot+0, 0 as u64
+    store i_ptr+0, 0 as u64
+    jmp L_TRB_MARK_COND
+
+L_TRB_MARK_COND:
+    i2 = load i_ptr+0 as u64
+    done2 = uge i2, total
+    br done2 -> L_TRB_DONE, L_TRB_MARK_BODY
+
+L_TRB_MARK_BODY:
+    slot_off2 = mul i2, TURN_SLOT_SIZE
+    slot_abs2 = add slot_off2, ST_TURNS
+    slot2 = ptr_add state, slot_abs2
+    owner2 = load slot2+TURN_THR_ID as u64
+    owner_match2 = eq owner2, thread_id
+    !owner2
+    active2 = load slot2+TURN_ACTIVE as u8
+    is_active2 = eq active2, 1
+    !active2
+    want2 = and owner_match2, is_active2
+    !owner_match2
+    !is_active2
+    br want2 -> L_TRB_MARK_ACTIVE, L_TRB_MARK_NEXT
+
+L_TRB_MARK_ACTIVE:
+    !want2
+    seen = load seen_slot+0 as u64
+    should_remove = uge seen, keep_count
+    br should_remove -> L_TRB_MARK_REMOVE, L_TRB_MARK_KEEP
+
+L_TRB_MARK_REMOVE:
+    !should_remove
+    store slot2+TURN_ACTIVE, 0 as u8
+    jmp L_TRB_MARK_ADVANCE_SEEN
+
+L_TRB_MARK_KEEP:
+    !should_remove
+    jmp L_TRB_MARK_ADVANCE_SEEN
+
+L_TRB_MARK_ADVANCE_SEEN:
+    next_seen = add seen, 1
+    store seen_slot+0, next_seen as u64
+    !next_seen
+    !seen
+    jmp L_TRB_MARK_NEXT2
+
+L_TRB_MARK_NEXT:
+    !want2
+    jmp L_TRB_MARK_NEXT2
+
+L_TRB_MARK_NEXT2:
+    !slot2
+    !slot_abs2
+    !slot_off2
+    next_i2 = add i2, 1
+    store i_ptr+0, next_i2 as u64
+    !next_i2
+    !i2
+    !done2
+    jmp L_TRB_MARK_COND
+
+L_TRB_DONE:
+    !done2
+    !i2
+    !keep_count
+    !active_count
+    !total
+    !remove_count
+    !thread_id
+    !state
+    return 0
+
+@ffi_wrapper state_goal_set(&state: ptr, thread_id: u64, budget: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
+L_ENTRY:
+    count = load state+ST_GOAL_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_GS_FIND_COND
+
+L_GS_FIND_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_GS_APPEND_CHECK, L_GS_FIND_BODY
+
+L_GS_FIND_BODY:
+    slot_off = mul i, GOAL_SLOT_SIZE
+    slot_abs = add slot_off, ST_GOALS
+    slot = ptr_add state, slot_abs
+    gid = load slot+GOAL_THR_ID as u64
+    found = eq gid, thread_id
+    !gid
+    br found -> L_GS_UPDATE, L_GS_FIND_NEXT
+
+L_GS_UPDATE:
+    !found
+    copy_len = call @state_clamp_len(obj_len, GOAL_OBJ_CAP)
+    obj_dst = ptr_add slot, GOAL_OBJ
+    copied = call @sa_bytes_copy(&obj_dst, &obj_ptr, copy_len)
+    store slot+GOAL_ACTIVE, 1 as u8
+    store slot+GOAL_STATUS, 0 as u8
+    store slot+GOAL_BUDGET, budget as u64
+    store slot+GOAL_OBJ_LEN, copied as u64
+    !copied
+    !copy_len
+    !obj_dst
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !thread_id
+    !budget
+    !obj_ptr
+    !obj_len
+    !state
+    return 0
+
+L_GS_FIND_NEXT:
+    !found
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_GS_FIND_COND
+
+L_GS_APPEND_CHECK:
+    !done
+    !i
+    at_max = uge count, MAX_GOALS
+    br at_max -> L_GS_FULL, L_GS_SLOT
+
+L_GS_FULL:
+    !at_max
+    !count
+    !thread_id
+    !budget
+    !obj_ptr
+    !obj_len
+    !state
+    return 1
+
+L_GS_SLOT:
+    !at_max
+    slot_off = mul count, GOAL_SLOT_SIZE
+    slot_abs = add slot_off, ST_GOALS
+    slot = ptr_add state, slot_abs
+    store slot+GOAL_THR_ID, thread_id as u64
+    store slot+GOAL_ACTIVE, 1 as u8
+    store slot+GOAL_STATUS, 0 as u8
+    store slot+GOAL_BUDGET, budget as u64
+    store slot+GOAL_USED, 0 as u64
+    copy_len2 = call @state_clamp_len(obj_len, GOAL_OBJ_CAP)
+    obj_dst2 = ptr_add slot, GOAL_OBJ
+    copied2 = call @sa_bytes_copy(&obj_dst2, &obj_ptr, copy_len2)
+    store slot+GOAL_OBJ_LEN, copied2 as u64
+    old_count = load state+ST_GOAL_COUNT as u64
+    new_count = add old_count, 1
+    store state+ST_GOAL_COUNT, new_count as u64
+    !new_count
+    !old_count
+    !copied2
+    !copy_len2
+    !obj_dst2
+    !slot
+    !slot_abs
+    !slot_off
+    !count
+    !thread_id
+    !budget
+    !obj_ptr
+    !obj_len
+    !state
+    return 0
+
+@ffi_wrapper state_goal_get_full(&state: ptr, thread_id: u64, &out_budget: ptr, &out_used: ptr, &out_obj_ptr: ptr, &out_obj_len: ptr) -> i32:
+L_ENTRY:
+    count = load state+ST_GOAL_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_GGF_COND
+
+L_GGF_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_GGF_NOT_FOUND, L_GGF_BODY
+
+L_GGF_BODY:
+    slot_off = mul i, GOAL_SLOT_SIZE
+    slot_abs = add slot_off, ST_GOALS
+    slot = ptr_add state, slot_abs
+    gid = load slot+GOAL_THR_ID as u64
+    found = eq gid, thread_id
+    !gid
+    active = load slot+GOAL_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    want = and found, is_active
+    !found
+    !is_active
+    br want -> L_GGF_FOUND, L_GGF_NEXT
+
+L_GGF_FOUND:
+    !want
+    budget = load slot+GOAL_BUDGET as u64
+    used = load slot+GOAL_USED as u64
+    obj_len = load slot+GOAL_OBJ_LEN as u64
+    obj_ptr = ptr_add slot, GOAL_OBJ
+    store out_budget+0, budget as u64
+    store out_used+0, used as u64
+    store out_obj_ptr+0, obj_ptr as ptr
+    store out_obj_len+0, obj_len as u64
+    !budget
+    !used
+    !obj_len
+    !obj_ptr
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !thread_id
+    !state
+    !out_budget
+    !out_used
+    !out_obj_ptr
+    !out_obj_len
+    return 0
+
+L_GGF_NEXT:
+    !want
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_GGF_COND
+
+L_GGF_NOT_FOUND:
+    !done
+    !i
+    !count
+    !thread_id
+    !state
+    !out_budget
+    !out_used
+    !out_obj_ptr
+    !out_obj_len
+    return -1
+
+@ffi_wrapper state_goal_get(&state: ptr, thread_id: u64, &out_budget: ptr, &out_used: ptr) -> i32:
+L_ENTRY:
+    count = load state+ST_GOAL_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_GG_COND
+
+L_GG_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_GG_NOT_FOUND, L_GG_BODY
+
+L_GG_BODY:
+    slot_off = mul i, GOAL_SLOT_SIZE
+    slot_abs = add slot_off, ST_GOALS
+    slot = ptr_add state, slot_abs
+    gid = load slot+GOAL_THR_ID as u64
+    found = eq gid, thread_id
+    !gid
+    active = load slot+GOAL_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    want = and found, is_active
+    !found
+    !is_active
+    br want -> L_GG_FOUND, L_GG_NEXT
+
+L_GG_FOUND:
+    !want
+    budget = load slot+GOAL_BUDGET as u64
+    used = load slot+GOAL_USED as u64
+    store out_budget+0, budget as u64
+    store out_used+0, used as u64
+    !budget
+    !used
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !thread_id
+    !state
+    !out_budget
+    !out_used
+    return 0
+
+L_GG_NEXT:
+    !want
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_GG_COND
+
+L_GG_NOT_FOUND:
+    !done
+    !i
+    !count
+    !thread_id
+    !state
+    !out_budget
+    !out_used
+    return -1
+
+@ffi_wrapper state_goal_clear(&state: ptr, thread_id: u64) -> u32:
+L_ENTRY:
+    count = load state+ST_GOAL_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_GC_COND
+
+L_GC_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_GC_NOT_FOUND, L_GC_BODY
+
+L_GC_BODY:
+    slot_off = mul i, GOAL_SLOT_SIZE
+    slot_abs = add slot_off, ST_GOALS
+    slot = ptr_add state, slot_abs
+    gid = load slot+GOAL_THR_ID as u64
+    found = eq gid, thread_id
+    !gid
+    active = load slot+GOAL_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    want = and found, is_active
+    !found
+    !is_active
+    br want -> L_GC_FOUND, L_GC_NEXT
+
+L_GC_FOUND:
+    !want
+    store slot+GOAL_ACTIVE, 0 as u8
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !thread_id
+    !state
+    return 0
+
+L_GC_NEXT:
+    !want
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_GC_COND
+
+L_GC_NOT_FOUND:
+    !done
+    !i
+    !count
+    !thread_id
+    !state
+    return 1
+
+@ffi_wrapper state_goal_add_tokens(&state: ptr, thread_id: u64, tokens: u64) -> u32:
+L_ENTRY:
+    count = load state+ST_GOAL_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_GA_COND
+
+L_GA_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_GA_NOT_FOUND, L_GA_BODY
+
+L_GA_BODY:
+    slot_off = mul i, GOAL_SLOT_SIZE
+    slot_abs = add slot_off, ST_GOALS
+    slot = ptr_add state, slot_abs
+    gid = load slot+GOAL_THR_ID as u64
+    found = eq gid, thread_id
+    !gid
+    br found -> L_GA_ADD, L_GA_NEXT
+
+L_GA_ADD:
+    !found
+    cur_used = load slot+GOAL_USED as u64
+    new_used = add cur_used, tokens
+    store slot+GOAL_USED, new_used as u64
+    !new_used
+    !cur_used
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !thread_id
+    !tokens
+    !state
+    return 0
+
+L_GA_NEXT:
+    !found
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_GA_COND
+
+L_GA_NOT_FOUND:
+    !done
+    !i
+    !count
+    !thread_id
+    !tokens
+    !state
+    return 1
+
+@ffi_wrapper state_process_put(&state: ptr, &handle_ptr: ptr, handle_len: u64) -> u32:
+L_ENTRY:
+    count = load state+ST_PROC_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_PP_FIND_COND
+
+L_PP_FIND_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_PP_APPEND_CHECK, L_PP_FIND_BODY
+
+L_PP_FIND_BODY:
+    slot_off = mul i, PROC_SLOT_SIZE
+    slot_abs = add slot_off, ST_PROCESSES
+    slot = ptr_add state, slot_abs
+    active = load slot+PROC_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    br is_active -> L_PP_CMP, L_PP_FIND_NEXT_INACTIVE
+
+L_PP_CMP:
+    !is_active
+    slot_len = load slot+PROC_HANDLE_LEN as u64
+    slot_handle = ptr_add slot, PROC_HANDLE
+    same = call @sa_bytes_eq(&slot_handle, slot_len, &handle_ptr, handle_len)
+    !slot_len
+    br same -> L_PP_FOUND, L_PP_FIND_NEXT_CMP
+
+L_PP_FOUND:
+    !same
+    copy_len = call @state_clamp_len(handle_len, PROC_HANDLE_CAP)
+    copied = call @sa_bytes_copy(&slot_handle, &handle_ptr, copy_len)
+    store slot+PROC_HANDLE_LEN, copied as u64
+    !copied
+    !copy_len
+    !slot_handle
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !state
+    !handle_ptr
+    !handle_len
+    return 0
+
+L_PP_FIND_NEXT_CMP:
+    !same
+    !slot_handle
+    jmp L_PP_FIND_NEXT
+
+L_PP_FIND_NEXT_INACTIVE:
+    !is_active
+    copy_len_reuse = call @state_clamp_len(handle_len, PROC_HANDLE_CAP)
+    handle_dst_reuse = ptr_add slot, PROC_HANDLE
+    copied_reuse = call @sa_bytes_copy(&handle_dst_reuse, &handle_ptr, copy_len_reuse)
+    store slot+PROC_ACTIVE, 1 as u8
+    store slot+PROC_HANDLE_LEN, copied_reuse as u64
+    !copied_reuse
+    !handle_dst_reuse
+    !copy_len_reuse
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !state
+    !handle_ptr
+    !handle_len
+    return 0
+
+L_PP_FIND_NEXT:
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_PP_FIND_COND
+
+L_PP_APPEND_CHECK:
+    !done
+    !i
+    at_max = uge count, MAX_PROCESSES
+    br at_max -> L_PP_FULL, L_PP_APPEND
+
+L_PP_FULL:
+    !at_max
+    !count
+    !state
+    !handle_ptr
+    !handle_len
+    return 1
+
+L_PP_APPEND:
+    !at_max
+    slot_off2 = mul count, PROC_SLOT_SIZE
+    slot_abs2 = add slot_off2, ST_PROCESSES
+    slot2 = ptr_add state, slot_abs2
+    copy_len2 = call @state_clamp_len(handle_len, PROC_HANDLE_CAP)
+    handle_dst2 = ptr_add slot2, PROC_HANDLE
+    copied2 = call @sa_bytes_copy(&handle_dst2, &handle_ptr, copy_len2)
+    store slot2+PROC_ACTIVE, 1 as u8
+    store slot2+PROC_HANDLE_LEN, copied2 as u64
+    old_count = load state+ST_PROC_COUNT as u64
+    new_count = add old_count, 1
+    store state+ST_PROC_COUNT, new_count as u64
+    !new_count
+    !old_count
+    !copied2
+    !handle_dst2
+    !copy_len2
+    !slot2
+    !slot_abs2
+    !slot_off2
+    !count
+    !state
+    !handle_ptr
+    !handle_len
+    return 0
+
+@ffi_wrapper state_process_delete(&state: ptr, &handle_ptr: ptr, handle_len: u64) -> u32:
+L_ENTRY:
+    count = load state+ST_PROC_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_PD_COND
+
+L_PD_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_PD_NOT_FOUND, L_PD_BODY
+
+L_PD_BODY:
+    slot_off = mul i, PROC_SLOT_SIZE
+    slot_abs = add slot_off, ST_PROCESSES
+    slot = ptr_add state, slot_abs
+    active = load slot+PROC_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    br is_active -> L_PD_CMP, L_PD_NEXT_INACTIVE
+
+L_PD_CMP:
+    !is_active
+    slot_len = load slot+PROC_HANDLE_LEN as u64
+    slot_handle = ptr_add slot, PROC_HANDLE
+    same = call @sa_bytes_eq(&slot_handle, slot_len, &handle_ptr, handle_len)
+    !slot_len
+    br same -> L_PD_FOUND, L_PD_NEXT_CMP
+
+L_PD_FOUND:
+    !same
+    store slot+PROC_ACTIVE, 0 as u8
+    store slot+PROC_HANDLE_LEN, 0 as u64
+    !slot_handle
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !state
+    !handle_ptr
+    !handle_len
+    return 1
+
+L_PD_NEXT_CMP:
+    !same
+    !slot_handle
+    jmp L_PD_NEXT
+
+L_PD_NEXT_INACTIVE:
+    !is_active
+    jmp L_PD_NEXT
+
+L_PD_NEXT:
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_PD_COND
+
+L_PD_NOT_FOUND:
+    !done
+    !i
+    !count
+    !state
+    !handle_ptr
+    !handle_len
+    return 0
+
+@ffi_wrapper state_watch_put(&state: ptr, &watch_ptr: ptr, watch_len: u64) -> u32:
+L_ENTRY:
+    count = load state+ST_WATCH_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_WP_FIND_COND
+
+L_WP_FIND_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_WP_APPEND_CHECK, L_WP_FIND_BODY
+
+L_WP_FIND_BODY:
+    slot_off = mul i, WATCH_SLOT_SIZE
+    slot_abs = add slot_off, ST_WATCHES
+    slot = ptr_add state, slot_abs
+    active = load slot+WATCH_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    br is_active -> L_WP_CMP, L_WP_FIND_NEXT_INACTIVE
+
+L_WP_CMP:
+    !is_active
+    slot_len = load slot+WATCH_ID_LEN as u64
+    slot_watch = ptr_add slot, WATCH_ID
+    same = call @sa_bytes_eq(&slot_watch, slot_len, &watch_ptr, watch_len)
+    !slot_len
+    br same -> L_WP_FOUND, L_WP_FIND_NEXT_CMP
+
+L_WP_FOUND:
+    !same
+    copy_len = call @state_clamp_len(watch_len, WATCH_ID_CAP)
+    copied = call @sa_bytes_copy(&slot_watch, &watch_ptr, copy_len)
+    store slot+WATCH_ID_LEN, copied as u64
+    !copied
+    !copy_len
+    !slot_watch
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !state
+    !watch_ptr
+    !watch_len
+    return 0
+
+L_WP_FIND_NEXT_CMP:
+    !same
+    !slot_watch
+    jmp L_WP_FIND_NEXT
+
+L_WP_FIND_NEXT_INACTIVE:
+    !is_active
+    copy_len_reuse = call @state_clamp_len(watch_len, WATCH_ID_CAP)
+    watch_dst_reuse = ptr_add slot, WATCH_ID
+    copied_reuse = call @sa_bytes_copy(&watch_dst_reuse, &watch_ptr, copy_len_reuse)
+    store slot+WATCH_ACTIVE, 1 as u8
+    store slot+WATCH_ID_LEN, copied_reuse as u64
+    !copied_reuse
+    !watch_dst_reuse
+    !copy_len_reuse
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !state
+    !watch_ptr
+    !watch_len
+    return 0
+
+L_WP_FIND_NEXT:
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_WP_FIND_COND
+
+L_WP_APPEND_CHECK:
+    !done
+    !i
+    at_max = uge count, MAX_WATCHES
+    br at_max -> L_WP_FULL, L_WP_APPEND
+
+L_WP_FULL:
+    !at_max
+    !count
+    !state
+    !watch_ptr
+    !watch_len
+    return 1
+
+L_WP_APPEND:
+    !at_max
+    slot_off2 = mul count, WATCH_SLOT_SIZE
+    slot_abs2 = add slot_off2, ST_WATCHES
+    slot2 = ptr_add state, slot_abs2
+    copy_len2 = call @state_clamp_len(watch_len, WATCH_ID_CAP)
+    watch_dst2 = ptr_add slot2, WATCH_ID
+    copied2 = call @sa_bytes_copy(&watch_dst2, &watch_ptr, copy_len2)
+    store slot2+WATCH_ACTIVE, 1 as u8
+    store slot2+WATCH_ID_LEN, copied2 as u64
+    old_count = load state+ST_WATCH_COUNT as u64
+    new_count = add old_count, 1
+    store state+ST_WATCH_COUNT, new_count as u64
+    !new_count
+    !old_count
+    !copied2
+    !watch_dst2
+    !copy_len2
+    !slot2
+    !slot_abs2
+    !slot_off2
+    !count
+    !state
+    !watch_ptr
+    !watch_len
+    return 0
+
+@ffi_wrapper state_watch_delete(&state: ptr, &watch_ptr: ptr, watch_len: u64) -> u32:
+L_ENTRY:
+    count = load state+ST_WATCH_COUNT as u64
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_WD_COND
+
+L_WD_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, count
+    br done -> L_WD_NOT_FOUND, L_WD_BODY
+
+L_WD_BODY:
+    slot_off = mul i, WATCH_SLOT_SIZE
+    slot_abs = add slot_off, ST_WATCHES
+    slot = ptr_add state, slot_abs
+    active = load slot+WATCH_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    br is_active -> L_WD_CMP, L_WD_NEXT_INACTIVE
+
+L_WD_CMP:
+    !is_active
+    slot_len = load slot+WATCH_ID_LEN as u64
+    slot_watch = ptr_add slot, WATCH_ID
+    same = call @sa_bytes_eq(&slot_watch, slot_len, &watch_ptr, watch_len)
+    !slot_len
+    br same -> L_WD_FOUND, L_WD_NEXT_CMP
+
+L_WD_FOUND:
+    !same
+    store slot+WATCH_ACTIVE, 0 as u8
+    store slot+WATCH_ID_LEN, 0 as u64
+    !slot_watch
+    !slot
+    !slot_abs
+    !slot_off
+    !i
+    !done
+    !count
+    !state
+    !watch_ptr
+    !watch_len
+    return 1
+
+L_WD_NEXT_CMP:
+    !same
+    !slot_watch
+    jmp L_WD_NEXT
+
+L_WD_NEXT_INACTIVE:
+    !is_active
+    jmp L_WD_NEXT
+
+L_WD_NEXT:
+    !slot
+    !slot_abs
+    !slot_off
+    next_i = add i, 1
+    store i_ptr+0, next_i as u64
+    !next_i
+    !i
+    !done
+    jmp L_WD_COND
+
+L_WD_NOT_FOUND:
+    !done
+    !i
+    !count
+    !state
+    !watch_ptr
+    !watch_len
+    return 0
+
+@ffi_wrapper state_copy_bytes(&dst: ptr, &src: ptr, len: u64) -> u32:
+L_NCOPY_ENTRY:
+    i_ptr = stack_alloc 8
+    store i_ptr+0, 0 as u64
+    jmp L_NCOPY_COND
+
+L_NCOPY_COND:
+    i = load i_ptr+0 as u64
+    done = uge i, len
+    br done -> L_NCOPY_DONE, L_NCOPY_BODY
+
+L_NCOPY_BODY:
+    src_ptr = ptr_add src, i
+    dst_ptr = ptr_add dst, i
+    byte = load src_ptr+0 as u8
+    store dst_ptr+0, byte as u8
+    !byte
+    !src_ptr
+    !dst_ptr
+    next = add i, 1
+    store i_ptr+0, next as u64
+    !next
+    !i
+    !done
+    jmp L_NCOPY_COND
+
+L_NCOPY_DONE:
+    !i
+    !done
+    !dst
+    !src
+    !len
+    return 0
+
+@ffi_wrapper state_notify_push(&state: ptr, &frame: ptr, frame_len: u64) -> u32:
+L_NP_ENTRY:
+    too_big = ugt frame_len, NOTIFY_CAP
+    br too_big -> L_NP_TOO_BIG, L_NP_LOAD
+
+L_NP_TOO_BIG:
+    !too_big
+    !state
+    !frame
+    !frame_len
+    return 1
+
+L_NP_LOAD:
+    !too_big
+    head = atomic_load state+ST_NOTIFY_HEAD as u64 acquire
+    tail = atomic_load state+ST_NOTIFY_TAIL as u64 acquire
+    used = sub tail, head
+    full = uge used, MAX_NOTIFIES
+    br full -> L_NP_DROP_OLDEST, L_NP_WRITE
+
+L_NP_DROP_OLDEST:
+    new_head = add head, 1
+    atomic_store state+ST_NOTIFY_HEAD, new_head as u64 release
+    !new_head
+    jmp L_NP_WRITE
+
+L_NP_WRITE:
+    slot_index = urem tail, MAX_NOTIFIES
+    slot_off = mul slot_index, NOTIFY_SLOT_SIZE
+    slot_abs = add slot_off, ST_NOTIFY_DATA
+    slot = ptr_add state, slot_abs
+    atomic_store slot+NOTIFY_READY, 0 as u64 release
+    store slot+NOTIFY_LEN, frame_len as u64
+    data = ptr_add slot, NOTIFY_DATA
+    copy_status = call @state_copy_bytes(&data, &frame, frame_len)
+    !copy_status
+    atomic_store slot+NOTIFY_READY, 1 as u64 release
+    next_tail = add tail, 1
+    atomic_store state+ST_NOTIFY_TAIL, next_tail as u64 release
+    !next_tail
+    !data
+    !slot
+    !slot_abs
+    !slot_off
+    !slot_index
+    !full
+    !used
+    !tail
+    !head
+    !state
+    !frame
+    !frame_len
+    return 0
+
+@ffi_wrapper state_notify_pop(&state: ptr, &out_frame: ptr, out_cap: u64, &out_len: ptr) -> u32:
+L_NPOP_ENTRY:
+    head = atomic_load state+ST_NOTIFY_HEAD as u64 acquire
+    tail = atomic_load state+ST_NOTIFY_TAIL as u64 acquire
+    empty = eq head, tail
+    br empty -> L_NPOP_EMPTY, L_NPOP_SLOT
+
+L_NPOP_EMPTY:
+    !empty
+    store out_len+0, 0 as u64
+    !tail
+    !head
+    !state
+    !out_frame
+    !out_cap
+    !out_len
+    return 0
+
+L_NPOP_SLOT:
+    !empty
+    slot_index = urem head, MAX_NOTIFIES
+    slot_off = mul slot_index, NOTIFY_SLOT_SIZE
+    slot_abs = add slot_off, ST_NOTIFY_DATA
+    slot = ptr_add state, slot_abs
+    ready = atomic_load slot+NOTIFY_READY as u64 acquire
+    is_ready = eq ready, 1
+    br is_ready -> L_NPOP_COPY_PREP, L_NPOP_NOT_READY
+
+L_NPOP_NOT_READY:
+    !is_ready
+    !ready
+    store out_len+0, 0 as u64
+    !slot
+    !slot_abs
+    !slot_off
+    !slot_index
+    !tail
+    !head
+    !state
+    !out_frame
+    !out_cap
+    !out_len
+    return 0
+
+L_NPOP_COPY_PREP:
+    !is_ready
+    !ready
+    len = load slot+NOTIFY_LEN as u64
+    too_big = ugt len, out_cap
+    br too_big -> L_NPOP_DROP_BAD, L_NPOP_COPY
+
+L_NPOP_DROP_BAD:
+    !too_big
+    store out_len+0, 0 as u64
+    atomic_store slot+NOTIFY_READY, 0 as u64 release
+    next_head_bad = add head, 1
+    atomic_store state+ST_NOTIFY_HEAD, next_head_bad as u64 release
+    !next_head_bad
+    !len
+    !slot
+    !slot_abs
+    !slot_off
+    !slot_index
+    !tail
+    !head
+    !state
+    !out_frame
+    !out_cap
+    !out_len
+    return 0
+
+L_NPOP_COPY:
+    !too_big
+    data = ptr_add slot, NOTIFY_DATA
+    copy_status = call @state_copy_bytes(&out_frame, &data, len)
+    !copy_status
+    store out_len+0, len as u64
+    atomic_store slot+NOTIFY_READY, 0 as u64 release
+    next_head = add head, 1
+    atomic_store state+ST_NOTIFY_HEAD, next_head as u64 release
+    !next_head
+    !data
+    !len
+    !slot
+    !slot_abs
+    !slot_off
+    !slot_index
+    !tail
+    !head
+    !state
+    !out_frame
+    !out_cap
+    !out_len
+    return 1
+
+@ffi_wrapper state_notify_cursor(&state: ptr) -> u64:
+L_NCUR_ENTRY:
+    tail = atomic_load state+ST_NOTIFY_TAIL as u64 acquire
+    !state
+    return tail
+
+@ffi_wrapper state_notify_read(&state: ptr, &cursor: ptr, &out_frame: ptr, out_cap: u64, &out_len: ptr) -> u32:
+L_NREAD_ENTRY:
+    cur_slot = stack_alloc 8
+    cur = load cursor+0 as u64
+    head = atomic_load state+ST_NOTIFY_HEAD as u64 acquire
+    tail = atomic_load state+ST_NOTIFY_TAIL as u64 acquire
+    before_head = ult cur, head
+    br before_head -> L_NREAD_CLAMP, L_NREAD_CHECK
+
+L_NREAD_CLAMP:
+    !before_head
+    store cursor+0, head as u64
+    store cur_slot+0, head as u64
+    !cur
+    jmp L_NREAD_CHECK2
+
+L_NREAD_CHECK:
+    !before_head
+    store cur_slot+0, cur as u64
+    !cur
+    jmp L_NREAD_CHECK2
+
+L_NREAD_CHECK2:
+    cur2 = load cur_slot+0 as u64
+    empty = uge cur2, tail
+    br empty -> L_NREAD_EMPTY, L_NREAD_SLOT
+
+L_NREAD_EMPTY:
+    !empty
+    store out_len+0, 0 as u64
+    !cur2
+    !tail
+    !head
+    !state
+    !cursor
+    !out_frame
+    !out_cap
+    !out_len
+    return 0
+
+L_NREAD_SLOT:
+    !empty
+    slot_index = urem cur2, MAX_NOTIFIES
+    slot_off = mul slot_index, NOTIFY_SLOT_SIZE
+    slot_abs = add slot_off, ST_NOTIFY_DATA
+    slot = ptr_add state, slot_abs
+    ready = atomic_load slot+NOTIFY_READY as u64 acquire
+    is_ready = eq ready, 1
+    br is_ready -> L_NREAD_COPY_PREP, L_NREAD_NOT_READY
+
+L_NREAD_NOT_READY:
+    !is_ready
+    !ready
+    store out_len+0, 0 as u64
+    !slot
+    !slot_abs
+    !slot_off
+    !slot_index
+    !cur2
+    !tail
+    !head
+    !state
+    !cursor
+    !out_frame
+    !out_cap
+    !out_len
+    return 0
+
+L_NREAD_COPY_PREP:
+    !is_ready
+    !ready
+    len = load slot+NOTIFY_LEN as u64
+    too_big = ugt len, out_cap
+    br too_big -> L_NREAD_SKIP_BAD, L_NREAD_COPY
+
+L_NREAD_SKIP_BAD:
+    !too_big
+    next_bad = add cur2, 1
+    store cursor+0, next_bad as u64
+    store out_len+0, 0 as u64
+    !next_bad
+    !len
+    !slot
+    !slot_abs
+    !slot_off
+    !slot_index
+    !cur2
+    !tail
+    !head
+    !state
+    !cursor
+    !out_frame
+    !out_cap
+    !out_len
+    return 0
+
+L_NREAD_COPY:
+    !too_big
+    data = ptr_add slot, NOTIFY_DATA
+    copy_status = call @state_copy_bytes(&out_frame, &data, len)
+    !copy_status
+    store out_len+0, len as u64
+    next_cur = add cur2, 1
+    store cursor+0, next_cur as u64
+    !next_cur
+    !data
+    !len
+    !slot
+    !slot_abs
+    !slot_off
+    !slot_index
+    !cur2
+    !tail
+    !head
+    !state
+    !cursor
+    !out_frame
+    !out_cap
+    !out_len
+    return 1

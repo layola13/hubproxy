@@ -1,0 +1,463 @@
+// sa/tests/unit_tests.sa — High-coverage unit tests for HubProxy using SA Native @test framework
+@import "sa_std/io/print.sai"
+@import "../src/strings.sa"
+@import "../src/state.sa"
+@import "../src/config.sa"
+
+@const STR_HELLO = utf8:"hello"
+@const STR_WORLD = utf8:"world"
+@const STR_HELLO_WORLD = utf8:"hello world"
+@const STR_XYZ = utf8:"xyz"
+@const STR_PORT_LINE = utf8:"PORT=28080"
+@const STR_PORT_NUM = utf8:"28080"
+@const STR_STATE_MODEL = utf8:"mimo-v2.5-pro"
+@const STR_STATE_DIR = utf8:"/tmp/data"
+@const STR_THREAD_KEY = utf8:"thr_git_native"
+@const STR_GIT_INFO = utf8:"{\"branch\":\"main\",\"dirty\":true,\"ahead\":2}"
+@const STR_GIT_INFO_2 = utf8:"{\"branch\":\"dev\"}"
+@const STR_PREVIEW = utf8:"git preview"
+@const STR_NAME = utf8:"source-name"
+
+// ============================================================
+// String Utility Tests
+// ============================================================
+
+@test "strings_eq equal and unequal sequences"():
+L_ENTRY:
+    eq1 = call @sa_bytes_eq(&STR_HELLO, 5, &STR_HELLO, 5)
+    is_eq1 = eq eq1, 1
+    !eq1
+    br is_eq1 -> L_NEQ_CHECK, L_FAIL_EQ
+
+L_NEQ_CHECK:
+    !is_eq1
+    eq2 = call @sa_bytes_eq(&STR_HELLO, 5, &STR_WORLD, 5)
+    is_neq = eq eq2, 0
+    !eq2
+    br is_neq -> L_PASS, L_FAIL_NEQ
+
+L_PASS:
+    !is_neq
+    return
+
+L_FAIL_EQ:
+    !is_eq1
+    panic(103)
+
+L_FAIL_NEQ:
+    !is_neq
+    panic(103)
+
+
+@test "strings_find locate substrings"():
+L_ENTRY:
+    idx = call @sa_bytes_find(&STR_HELLO_WORLD, 11, &STR_WORLD, 5)
+    is_6 = eq idx, 6
+    !idx
+    br is_6 -> L_NEXT_FIND, L_FAIL_FIND
+
+L_NEXT_FIND:
+    !is_6
+    idx2 = call @sa_bytes_find(&STR_HELLO_WORLD, 11, &STR_XYZ, 3)
+    is_neg = slt idx2, 0
+    !idx2
+    br is_neg -> L_PASS, L_FAIL_NOT_FOUND
+
+L_PASS:
+    !is_neg
+    return
+
+L_FAIL_FIND:
+    !is_6
+    panic(103)
+
+L_FAIL_NOT_FOUND:
+    !is_neg
+    panic(103)
+
+
+@test "strings_find_byte locate target character"():
+L_ENTRY:
+    eq_idx = call @sa_bytes_find_byte(&STR_PORT_LINE, 10, 61)
+    is_4 = eq eq_idx, 4
+    !eq_idx
+    br is_4 -> L_PASS, L_FAIL
+
+L_PASS:
+    !is_4
+    return
+
+L_FAIL:
+    !is_4
+    panic(103)
+
+
+@test "strings_to_u64 parse numeric characters"():
+L_ENTRY:
+    val = call @sa_bytes_to_u64(&STR_PORT_NUM, 5)
+    is_28080 = eq val, 28080
+    !val
+    br is_28080 -> L_PASS, L_FAIL
+
+L_PASS:
+    !is_28080
+    return
+
+L_FAIL:
+    !is_28080
+    panic(103)
+
+
+// ============================================================
+// State Tracker Tests
+// ============================================================
+
+@test "state_tracker init and lifecycle"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    is_ok = eq init_status, 0
+    !init_status
+    br is_ok -> L_THREAD_TEST, L_FAIL_INIT
+
+L_THREAD_TEST:
+    !is_ok
+    tid = call @state_thread_create(&state, &STR_STATE_MODEL, 13, &STR_STATE_DIR, 9)
+    is_tid1 = eq tid, 1
+    !tid
+    br is_tid1 -> L_FIND_TEST, L_FAIL_THREAD
+
+L_FIND_TEST:
+    !is_tid1
+    found = call @state_thread_find(&state, 1)
+    is_found = ne found, 0
+    br is_found -> L_ARCHIVE_TEST, L_FAIL_FIND
+
+L_ARCHIVE_TEST:
+    !is_found
+    !found
+    arch_status = call @state_thread_archive(&state, 1)
+    is_arch_ok = eq arch_status, 0
+    !arch_status
+    br is_arch_ok -> L_CLEANUP, L_FAIL_ARCHIVE
+
+L_CLEANUP:
+    !is_arch_ok
+    !state
+    return
+
+L_FAIL_INIT:
+    !is_ok
+    !state
+    panic(103)
+
+L_FAIL_THREAD:
+    !is_tid1
+    !state
+    panic(103)
+
+L_FAIL_FIND:
+    !is_found
+    !found
+    !state
+    panic(103)
+
+L_FAIL_ARCHIVE:
+    !is_arch_ok
+    !state
+    panic(103)
+
+
+@test "state_tracker string ids gitInfo and fork metadata copy"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    !init_status
+    br init_ok -> L_CREATE_SOURCE, L_FAIL_INIT
+
+L_CREATE_SOURCE:
+    !init_ok
+    source_tid = call @state_thread_create_with_key(&state, &STR_THREAD_KEY, 14, &STR_STATE_MODEL, 13, &STR_STATE_DIR, 9)
+    source_ok = eq source_tid, 1
+    br source_ok -> L_FIND_KEY, L_FAIL_SOURCE
+
+L_FIND_KEY:
+    !source_ok
+    source_slot = call @state_thread_find_by_key(&state, &STR_THREAD_KEY, 14)
+    found_by_key = ne source_slot, 0
+    br found_by_key -> L_SET_META, L_FAIL_FIND_KEY
+
+L_SET_META:
+    !found_by_key
+    key_len = load source_slot+THR_KEY_LEN as u64
+    key_len_ok = eq key_len, 14
+    !key_len
+    !source_slot
+    br key_len_ok -> L_WRITE_SOURCE_META, L_FAIL_KEY_LEN
+
+L_WRITE_SOURCE_META:
+    !key_len_ok
+    git_status = call @state_thread_set_git_info(&state, source_tid, &STR_GIT_INFO, 40)
+    preview_status = call @state_thread_set_preview(&state, source_tid, &STR_PREVIEW, 11)
+    name_status = call @state_thread_set_name(&state, source_tid, &STR_NAME, 11)
+    git_status_ok = eq git_status, 0
+    preview_status_ok = eq preview_status, 0
+    name_status_ok = eq name_status, 0
+    !git_status
+    !preview_status
+    !name_status
+    meta_status_ok = and git_status_ok, preview_status_ok
+    meta_status_ok = and meta_status_ok, name_status_ok
+    !git_status_ok
+    !preview_status_ok
+    !name_status_ok
+    br meta_status_ok -> L_VERIFY_SOURCE_META, L_FAIL_META_STATUS
+
+L_VERIFY_SOURCE_META:
+    !meta_status_ok
+    meta_slot = call @state_thread_find(&state, source_tid)
+    git_set = load meta_slot+THR_GIT_SET as u8
+    git_len = load meta_slot+THR_GIT_LEN as u64
+    git_ptr = load meta_slot+THR_GIT_PTR as ptr
+    preview_len = load meta_slot+THR_PREVIEW_LEN as u64
+    name_len = load meta_slot+THR_NAME_LEN as u64
+    name_set = load meta_slot+THR_NAME_SET as u8
+    git_set_ok = eq git_set, 1
+    git_len_ok = eq git_len, 40
+    git_eq = call @sa_bytes_eq(&git_ptr, git_len, &STR_GIT_INFO, 40)
+    git_body_ok = eq git_eq, 1
+    preview_len_ok = eq preview_len, 11
+    name_len_ok = eq name_len, 11
+    name_set_ok = eq name_set, 1
+    !git_set
+    !git_len
+    !git_ptr
+    !preview_len
+    !name_len
+    !name_set
+    !git_eq
+    !meta_slot
+    source_meta_ok = and git_set_ok, git_len_ok
+    source_meta_ok = and source_meta_ok, git_body_ok
+    source_meta_ok = and source_meta_ok, preview_len_ok
+    source_meta_ok = and source_meta_ok, name_len_ok
+    source_meta_ok = and source_meta_ok, name_set_ok
+    !git_set_ok
+    !git_len_ok
+    !git_body_ok
+    !preview_len_ok
+    !name_len_ok
+    !name_set_ok
+    br source_meta_ok -> L_CREATE_FORK, L_FAIL_SOURCE_META
+
+L_CREATE_FORK:
+    !source_meta_ok
+    fork_tid = call @state_thread_create(&state, &STR_STATE_MODEL, 13, &STR_STATE_DIR, 9)
+    fork_created = eq fork_tid, 2
+    br fork_created -> L_COPY_TO_FORK, L_FAIL_FORK_CREATE
+
+L_COPY_TO_FORK:
+    !fork_created
+    copy_status = call @state_thread_copy_git_info(&state, source_tid, fork_tid)
+    fork_preview_status = call @state_thread_set_preview(&state, fork_tid, &STR_PREVIEW, 11)
+    fork_name_status = call @state_thread_set_name(&state, fork_tid, &STR_NAME, 11)
+    copy_ok = eq copy_status, 0
+    fork_preview_ok = eq fork_preview_status, 0
+    fork_name_ok = eq fork_name_status, 0
+    !copy_status
+    !fork_preview_status
+    !fork_name_status
+    fork_meta_status_ok = and copy_ok, fork_preview_ok
+    fork_meta_status_ok = and fork_meta_status_ok, fork_name_ok
+    !copy_ok
+    !fork_preview_ok
+    !fork_name_ok
+    br fork_meta_status_ok -> L_MARK_FORK_PARENT, L_FAIL_FORK_META_STATUS
+
+L_MARK_FORK_PARENT:
+    !fork_meta_status_ok
+    fork_slot = call @state_thread_find(&state, fork_tid)
+    store fork_slot+THR_FORKED_FROM_ID, source_tid as u64
+    fork_git_set = load fork_slot+THR_GIT_SET as u8
+    fork_git_len = load fork_slot+THR_GIT_LEN as u64
+    fork_git_ptr = load fork_slot+THR_GIT_PTR as ptr
+    fork_preview_len = load fork_slot+THR_PREVIEW_LEN as u64
+    fork_name_len = load fork_slot+THR_NAME_LEN as u64
+    fork_parent = load fork_slot+THR_FORKED_FROM_ID as u64
+    fork_git_set_ok = eq fork_git_set, 1
+    fork_git_len_ok = eq fork_git_len, 40
+    fork_git_eq = call @sa_bytes_eq(&fork_git_ptr, fork_git_len, &STR_GIT_INFO, 40)
+    fork_git_body_ok = eq fork_git_eq, 1
+    fork_preview_len_ok = eq fork_preview_len, 11
+    fork_name_len_ok = eq fork_name_len, 11
+    fork_parent_ok = eq fork_parent, source_tid
+    !fork_git_set
+    !fork_git_len
+    !fork_git_ptr
+    !fork_preview_len
+    !fork_name_len
+    !fork_parent
+    !fork_git_eq
+    !fork_slot
+    fork_meta_ok = and fork_git_set_ok, fork_git_len_ok
+    fork_meta_ok = and fork_meta_ok, fork_git_body_ok
+    fork_meta_ok = and fork_meta_ok, fork_preview_len_ok
+    fork_meta_ok = and fork_meta_ok, fork_name_len_ok
+    fork_meta_ok = and fork_meta_ok, fork_parent_ok
+    !fork_git_set_ok
+    !fork_git_len_ok
+    !fork_git_body_ok
+    !fork_preview_len_ok
+    !fork_name_len_ok
+    !fork_parent_ok
+    br fork_meta_ok -> L_UPDATE_AND_CLEAR_GIT, L_FAIL_FORK_META
+
+L_UPDATE_AND_CLEAR_GIT:
+    !fork_meta_ok
+    update_status = call @state_thread_set_git_info(&state, source_tid, &STR_GIT_INFO_2, 16)
+    update_ok = eq update_status, 0
+    !update_status
+    br update_ok -> L_VERIFY_UPDATE, L_FAIL_UPDATE
+
+L_VERIFY_UPDATE:
+    !update_ok
+    updated_slot = call @state_thread_find(&state, source_tid)
+    updated_git_len = load updated_slot+THR_GIT_LEN as u64
+    updated_git_ptr = load updated_slot+THR_GIT_PTR as ptr
+    updated_git_set = load updated_slot+THR_GIT_SET as u8
+    updated_len_ok = eq updated_git_len, 16
+    updated_eq = call @sa_bytes_eq(&updated_git_ptr, updated_git_len, &STR_GIT_INFO_2, 16)
+    updated_body_ok = eq updated_eq, 1
+    updated_set_ok = eq updated_git_set, 1
+    !updated_git_len
+    !updated_git_ptr
+    !updated_git_set
+    !updated_eq
+    !updated_slot
+    updated_ok_all = and updated_len_ok, updated_body_ok
+    updated_ok_all = and updated_ok_all, updated_set_ok
+    !updated_len_ok
+    !updated_body_ok
+    !updated_set_ok
+    br updated_ok_all -> L_CLEAR_SOURCE_GIT, L_FAIL_UPDATED
+
+L_CLEAR_SOURCE_GIT:
+    !updated_ok_all
+    clear_status = call @state_thread_clear_git_info(&state, source_tid)
+    clear_ok = eq clear_status, 0
+    !clear_status
+    br clear_ok -> L_VERIFY_CLEAR, L_FAIL_CLEAR_STATUS
+
+L_VERIFY_CLEAR:
+    !clear_ok
+    clear_slot = call @state_thread_find(&state, source_tid)
+    cleared_set = load clear_slot+THR_GIT_SET as u8
+    cleared_len = load clear_slot+THR_GIT_LEN as u64
+    cleared_ptr = load clear_slot+THR_GIT_PTR as ptr
+    cleared_set_ok = eq cleared_set, 0
+    cleared_len_ok = eq cleared_len, 0
+    cleared_ptr_ok = eq cleared_ptr, 0
+    !cleared_set
+    !cleared_len
+    !cleared_ptr
+    !clear_slot
+    cleared_ok = and cleared_set_ok, cleared_len_ok
+    cleared_ok = and cleared_ok, cleared_ptr_ok
+    !cleared_set_ok
+    !cleared_len_ok
+    !cleared_ptr_ok
+    br cleared_ok -> L_CLEANUP, L_FAIL_CLEARED
+
+L_CLEANUP:
+    !cleared_ok
+    !fork_tid
+    !source_tid
+    !state
+    return
+
+L_FAIL_INIT:
+    !init_ok
+    !state
+    panic(103)
+
+L_FAIL_SOURCE:
+    !source_ok
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_FIND_KEY:
+    !found_by_key
+    !source_slot
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_KEY_LEN:
+    !key_len_ok
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_META_STATUS:
+    !meta_status_ok
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_SOURCE_META:
+    !source_meta_ok
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_FORK_CREATE:
+    !fork_created
+    !fork_tid
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_FORK_META_STATUS:
+    !fork_meta_status_ok
+    !fork_tid
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_FORK_META:
+    !fork_meta_ok
+    !fork_tid
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_UPDATE:
+    !update_ok
+    !fork_tid
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_UPDATED:
+    !updated_ok_all
+    !fork_tid
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_CLEAR_STATUS:
+    !clear_ok
+    !fork_tid
+    !source_tid
+    !state
+    panic(103)
+
+L_FAIL_CLEARED:
+    !cleared_ok
+    !fork_tid
+    !source_tid
+    !state
+    panic(103)
+

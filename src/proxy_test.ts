@@ -212,6 +212,33 @@ Deno.test('proxyOpenAI preserves model name when forwarding request body', async
   }
 });
 
+Deno.test('proxyOpenAI rejects empty responses request body locally', async () => {
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    return new Response('unexpected', { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '',
+      }),
+      config,
+    );
+    assertEquals(resp.status, 400);
+    assertEquals(called, false);
+    const body = await resp.json() as { error?: { message?: string } };
+    assertEquals(body.error?.message, 'Request body must be a non-empty JSON document.');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI fills missing function output names from prior calls', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;
@@ -945,6 +972,64 @@ Deno.test('proxyOpenAI preserves plan and goal tool calls in chat fallback', asy
     assertEquals(text.includes('"name":"get_goal"'), false);
     assertEquals(text.includes('"name":"exec_command"'), false);
     assertEquals(text.includes('Tool update_plan is unavailable in chat fallback'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI merges split chat tool-call chunks before normalizing', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"我先检查当前工作区。"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_pwd","type":"function","function":{"name":"exec_command","arguments":""}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"type":"function","function":{"name":null,"arguments":"{\\"cmd\\":"}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"type":"function","function":{"name":null,"arguments":"\\"pwd\\"}"}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    )) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [{ type: 'function', name: 'exec_command', parameters: {} }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'code' },
+    );
+    const text = await resp.text();
+    const events = parseSseEvents(text);
+    const toolCallEvent = events.find((event) =>
+      (event.data.item as Record<string, unknown> | undefined)?.type === 'function_call'
+    );
+    const item = toolCallEvent?.data.item as Record<string, unknown> | undefined;
+    assertEquals(item?.call_id, 'call_pwd');
+    assertEquals(item?.name, 'exec_command');
+    assertEquals(item?.arguments, '{"cmd":"pwd"}');
+    assertEquals(text.includes('Tool unknown is unavailable'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2105,4 +2190,3 @@ Deno.test('normalizeResponsesEvent un-flattens namespaced tools and denormalizes
   const args5 = JSON.parse((res5.item as Record<string, unknown>).arguments as string);
   assertEquals(args5.server, 'custom-tool');
 });
-

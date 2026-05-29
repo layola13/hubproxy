@@ -264,14 +264,22 @@ function logSummary(entry: Record<string, unknown>, file: string): Record<string
   };
 }
 
+function logDirFromEnv(): string | null {
+  const value = Deno.env.get('HUBPROXY_LOG_DIR');
+  if (!value) return null;
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
 function writeRequestLog(entry: Record<string, unknown>): void {
-  const logDir = Deno.env.get('HUBPROXY_LOG_DIR') ?? 'logs';
+  const logDir = logDirFromEnv();
+  const text = JSON.stringify(entry, null, 2) + '\n';
+  console.log(text.trimEnd());
+  if (!logDir) return;
   try {
     Deno.mkdirSync(logDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${logDir}/request-${stamp}-${crypto.randomUUID()}.json`;
-    const text = JSON.stringify(entry, null, 2) + '\n';
-    console.log(text.trimEnd());
     Deno.writeTextFileSync(file, text);
   } catch {
     // Logging must never break request handling.

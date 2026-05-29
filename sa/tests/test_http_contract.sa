@@ -1,0 +1,2543 @@
+// test_http_contract.sa — SA HTTP contract checks against a running hubproxy.
+// Requires hubproxy listening on SA_PORT=28080 from .env.
+@import "../sa_http_client.sai"
+@import "../src/config.sa"
+@import "../src/strings.sa"
+
+@const ENV_PATH = utf8:"../.env"
+@const URL_HEALTH = utf8:"http://127.0.0.1:28080/healthz"
+@const URL_RPC = utf8:"http://127.0.0.1:28080/rpc"
+@const URL_MODELS = utf8:"http://127.0.0.1:28080/v1/models"
+#def URL_MODELS_LEN = 32
+@const URL_CHAT = utf8:"http://127.0.0.1:28080/v1/chat/completions"
+@const URL_RESP = utf8:"http://127.0.0.1:28080/v1/responses"
+@const HDR_AUTH = utf8:"authorization"
+@const HDR_CONTENT_TYPE = utf8:"content-type"
+@const MIME_JSON = utf8:"application/json"
+@const MIME_EVENT_STREAM = utf8:"text/event-stream"
+@const MIME_TEXT_PLAIN = utf8:"text/plain"
+@const EMPTY_JSON_BODY = utf8:"{}"
+@const RESP_FALLBACK_BODY = utf8:"{\"model\":\"mimo-v2.5-pro\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Reply with only OK.\"}]}],\"stream\":false}"
+@const UNAUTH_RESP = utf8:"{\"error\":\"unauthorized\"}"
+@const RPC_INIT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"initialize\",\"params\":{}}"
+@const NEEDLE_INIT_ID = utf8:"\"id\":9"
+@const NEEDLE_INIT_USER_AGENT = utf8:"\"userAgent\":\"hubproxy/sa-std\""
+@const NEEDLE_INIT_CODEX_HOME = utf8:"\"codexHome\":"
+@const NEEDLE_INIT_PLATFORM_FAMILY = utf8:"\"platformFamily\":\"unix\""
+@const NEEDLE_INIT_PLATFORM_OS = utf8:"\"platformOs\":\"linux\""
+@const RPC_THREAD_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"thread/start\",\"params\":{}}"
+@const RPC_THREAD_NAME_SET_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"thread/name/set\",\"params\":{\"threadId\":\"1\",\"name\":\"renamed\"}}"
+@const RPC_THREAD_METADATA_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":51,\"method\":\"thread/metadata/update\",\"params\":{\"threadId\":\"1\",\"preview\":\"preview\"}}"
+@const RPC_THREAD_INC_ELIC_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":52,\"method\":\"thread/increment_elicitation\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_THREAD_DEC_ELIC_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"thread/decrement_elicitation\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_GOAL_SET_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":115,\"method\":\"thread/goal/set\",\"params\":{\"threadId\":\"1\",\"objective\":\"ship sa goal\",\"tokenBudget\":321}}"
+@const RPC_GOAL_GET_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":116,\"method\":\"thread/goal/get\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_GOAL_CLEAR_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":117,\"method\":\"thread/goal/clear\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_TURN_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":45,\"method\":\"turn/start\",\"params\":{\"threadId\":\"1\",\"input\":[]}}"
+@const RPC_THREAD_READ_TURNS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":57,\"method\":\"thread/read\",\"params\":{\"threadId\":\"1\",\"includeTurns\":true}}"
+@const RPC_TURN_STEER_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":46,\"method\":\"turn/steer\",\"params\":{\"threadId\":\"1\",\"expectedTurnId\":\"2\",\"input\":[]}}"
+@const RPC_THREAD_ARCHIVE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"thread/archive\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_THREAD_UNARCHIVE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"thread/unarchive\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_THREAD_ROLLBACK_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":49,\"method\":\"thread/rollback\",\"params\":{\"threadId\":\"1\",\"numTurns\":\"1\"}}"
+@const RPC_THREAD_FORK_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":54,\"method\":\"thread/fork\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_FS_MKDIR_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"fs/createDirectory\",\"params\":{\"path\":\".testdata/http_contract/nested\",\"recursive\":true}}"
+@const RPC_FS_WRITE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"fs/writeFile\",\"params\":{\"path\":\".testdata/http_contract/nested/file.txt\",\"dataBase64\":\"aGVsbG8=\"}}"
+@const RPC_FS_READ_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"fs/readFile\",\"params\":{\"path\":\".testdata/http_contract/nested/file.txt\"}}"
+@const RPC_FS_READ_EXTRA_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"fs/readFileExtra\",\"params\":{\"path\":\".testdata/http_contract/nested/file.txt\"}}"
+@const RPC_FS_READDIR_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"fs/readDirectory\",\"params\":{\"path\":\".testdata/http_contract/nested\"}}"
+@const RPC_FS_METADATA_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"fs/getMetadata\",\"params\":{\"path\":\".testdata/http_contract/nested/file.txt\"}}"
+@const RPC_FS_COPY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":37,\"method\":\"fs/copy\",\"params\":{\"sourcePath\":\".testdata/http_contract/nested/file.txt\",\"destinationPath\":\".testdata/http_contract/nested/copy.txt\"}}"
+@const RPC_FS_READ_COPY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"fs/readFile\",\"params\":{\"path\":\".testdata/http_contract/nested/copy.txt\"}}"
+@const RPC_FS_WATCH_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":55,\"method\":\"fs/watch\",\"params\":{\"path\":\".testdata/http_contract/nested/file.txt\",\"watchId\":\"watch-1\"}}"
+@const RPC_FS_UNWATCH_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":56,\"method\":\"fs/unwatch\",\"params\":{\"watchId\":\"watch-1\"}}"
+@const RPC_FS_REMOVE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"fs/remove\",\"params\":{\"path\":\".testdata/http_contract\",\"recursive\":true,\"force\":true}}"
+@const RPC_THREAD_LOADED_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":40,\"method\":\"thread/loaded/list\",\"params\":{}}"
+@const RPC_TURN_ITEMS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":41,\"method\":\"thread/turns/items/list\",\"params\":{\"threadId\":\"1\",\"turnId\":\"2\"}}"
+@const RPC_MEMORY_RESET_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"memory/reset\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_HOOKS_LIST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"hooks/list\",\"params\":{}}"
+@const RPC_COMMAND_EXEC_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":58,\"method\":\"command/exec\",\"params\":{\"command\":[\"echo\",\"hi\"],\"processId\":\"cmd-contract\"}}"
+@const RPC_CONFIG_READ_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":59,\"method\":\"config/read\",\"params\":{}}"
+@const RPC_SKILLS_LIST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":60,\"method\":\"skills/list\",\"params\":{}}"
+@const RPC_PLUGIN_LIST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":61,\"method\":\"plugin/list\",\"params\":{}}"
+@const RPC_MODEL_CAP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"modelProvider/capabilities/read\",\"params\":{}}"
+@const RPC_COLLAB_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"collaborationMode/list\",\"params\":{}}"
+@const RPC_WINDOWS_READY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"windowsSandbox/readiness\",\"params\":{}}"
+@const RPC_PLUGIN_SHARE_LIST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"plugin/share/list\",\"params\":{}}"
+@const RPC_ACCOUNT_LOGOUT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"account/logout\",\"params\":{}}"
+@const RPC_ACCOUNT_RATE_LIMITS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":67,\"method\":\"account/rateLimits/read\",\"params\":{}}"
+@const RPC_ATTEST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":68,\"method\":\"attestation/generate\",\"params\":{}}"
+@const RPC_ITEM_CMD_APPROVAL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":69,\"method\":\"item/commandExecution/requestApproval\",\"params\":{}}"
+@const RPC_MCP_ELICIT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"mcpServer/elicitation/request\",\"params\":{\"threadId\":\"1\",\"turnId\":\"2\",\"serverName\":\"srv\"}}"
+@const RPC_PERMISSIONS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"item/permissions/requestApproval\",\"params\":{}}"
+@const RPC_CONFIG_WRITE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":72,\"method\":\"config/value/write\",\"params\":{}}"
+@const RPC_PLUGIN_READ_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":73,\"method\":\"plugin/read\",\"params\":{\"pluginName\":\"codex-test-plugin\"}}"
+@const RPC_PLUGIN_SHARE_SAVE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":74,\"method\":\"plugin/share/save\",\"params\":{\"pluginName\":\"codex-test-plugin\"}}"
+@const RPC_PLUGIN_SHARE_CHECKOUT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":75,\"method\":\"plugin/share/checkout\",\"params\":{\"marketplaceName\":\"market\",\"pluginName\":\"plug\"}}"
+@const RPC_PLUGIN_SHARE_DELETE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":76,\"method\":\"plugin/share/delete\",\"params\":{\"remotePluginId\":\"remote_1\"}}"
+@const RPC_PLUGIN_UNINSTALL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"plugin/uninstall\",\"params\":{\"pluginName\":\"plug\"}}"
+@const RPC_MARKETPLACE_ADD_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":78,\"method\":\"marketplace/add\",\"params\":{\"source\":\"src-market\"}}"
+@const RPC_ACCOUNT_LOGIN_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":79,\"method\":\"account/login/start\",\"params\":{\"type\":\"apiKey\"}}"
+@const RPC_ENVIRONMENT_ADD_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":80,\"method\":\"environment/add\",\"params\":{\"name\":\"dev\",\"path\":\"/tmp/dev\"}}"
+@const RPC_REVIEW_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":81,\"method\":\"review/start\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_OAUTH_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":82,\"method\":\"mcpServer/oauth/login\",\"params\":{}}"
+@const RPC_MOCK_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":83,\"method\":\"mock/experimentalMethod\",\"params\":{\"value\":\"echo-me\"}}"
+@const RPC_PLUGIN_SHARE_UPDATE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":84,\"method\":\"plugin/share/updateTargets\",\"params\":{}}"
+@const RPC_MARKETPLACE_REMOVE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":85,\"method\":\"marketplace/remove\",\"params\":{\"marketplaceName\":\"market\"}}"
+@const RPC_MARKETPLACE_UPGRADE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":86,\"method\":\"marketplace/upgrade\",\"params\":{\"marketplaceName\":\"market\"}}"
+@const RPC_THREAD_INJECT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":87,\"method\":\"thread/inject_items\",\"params\":{\"threadId\":\"1\",\"items\":[{}]}}"
+@const RPC_THREAD_COMPACT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":88,\"method\":\"thread/compact/start\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_THREAD_SHELL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":89,\"method\":\"thread/shellCommand\",\"params\":{\"threadId\":\"1\",\"command\":\"echo hi\"}}"
+@const RPC_THREAD_GUARDIAN_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":90,\"method\":\"thread/approveGuardianDeniedAction\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_THREAD_BG_CLEAN_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"thread/backgroundTerminals/clean\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_THREAD_MEMORY_MODE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"thread/memoryMode/set\",\"params\":{\"threadId\":\"1\",\"memoryMode\":\"default\"}}"
+@const RPC_SEND_CREDITS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"account/sendAddCreditsNudgeEmail\",\"params\":{\"email\":\"alice@example.com\"}}"
+@const RPC_USER_INPUT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"item/tool/requestUserInput\",\"params\":{\"threadId\":\"1\",\"turnId\":\"2\",\"itemId\":\"ask-1\"}}"
+@const RPC_TOOL_RUN_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":95,\"method\":\"item/tool/call\",\"params\":{\"message\":\"tool-msg\"}}"
+@const RPC_EXTERNAL_DETECT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":96,\"method\":\"externalAgentConfig/detect\",\"params\":{}}"
+@const RPC_EXTERNAL_IMPORT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":97,\"method\":\"externalAgentConfig/import\",\"params\":{}}"
+@const RPC_REALTIME_VOICES_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":98,\"method\":\"thread/realtime/listVoices\",\"params\":{}}"
+@const RPC_MCP_STATUS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"mcpServerStatus/list\",\"params\":{}}"
+@const RPC_MCP_RESOURCE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":100,\"method\":\"mcpServer/resource/read\",\"params\":{\"uri\":\"file://x\"}}"
+@const RPC_REMOTE_ENABLE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":101,\"method\":\"remoteControl/enable\",\"params\":{\"serverName\":\"remote-srv\",\"installationId\":\"inst-1\",\"environmentId\":\"env-1\"}}"
+@const RPC_WINDOWS_SETUP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":102,\"method\":\"windowsSandbox/setupStart\",\"params\":{\"mode\":\"unelevated\"}}"
+@const RPC_FUZZY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":103,\"method\":\"fuzzyFileSearch\",\"params\":{\"query\":\"main.sa\"}}"
+@const RPC_FUZZY_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":104,\"method\":\"fuzzyFileSearch/sessionStart\",\"params\":{\"sessionId\":\"sess-1\"}}"
+@const RPC_FUZZY_STOP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":105,\"method\":\"fuzzyFileSearch/sessionStop\",\"params\":{\"sessionId\":\"sess-1\"}}"
+@const RPC_SERVER_RESOLVED_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":106,\"method\":\"serverRequest/resolved\",\"params\":{\"threadId\":\"1\",\"requestId\":\"req-1\"}}"
+@const RPC_WORLD_WARN_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":107,\"method\":\"windows/worldWritableWarning\",\"params\":{}}"
+@const RPC_COMMAND_WRITE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":108,\"method\":\"command/exec/write\",\"params\":{\"processId\":\"p\"}}"
+@const RPC_PROCESS_SPAWN_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":109,\"method\":\"process/spawn\",\"params\":{\"command\":[\"echo\",\"proc-hi\"],\"processHandle\":\"proc-1\"}}"
+@const RPC_REALTIME_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":110,\"method\":\"thread/realtime/start\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_REALTIME_AUDIO_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":111,\"method\":\"thread/realtime/appendAudio\",\"params\":{\"threadId\":\"1\",\"audio\":\"abc\"}}"
+@const RPC_REALTIME_TEXT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":112,\"method\":\"thread/realtime/appendText\",\"params\":{\"threadId\":\"1\",\"text\":\"hi\"}}"
+@const RPC_REALTIME_STOP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":113,\"method\":\"thread/realtime/stop\",\"params\":{\"threadId\":\"1\"}}"
+@const RPC_MCP_TOOL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":114,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"1\",\"turnId\":\"2\",\"itemId\":\"item-1\",\"tool\":\"demo\",\"server\":\"srv\",\"message\":\"mcp-msg\"}}"
+@const AUTH_PREFIX = utf8:"Bearer "
+@const NEEDLE_OK = utf8:"\"ok\":true"
+@const NEEDLE_THREAD = utf8:"\"thread\":"
+@const NEEDLE_NAME_RENAMED = utf8:"\"name\":\"renamed\""
+@const NEEDLE_PREVIEW = utf8:"\"preview\":\"preview\""
+@const NEEDLE_FORKED_FROM = utf8:"\"forkedFromId\":\"1\""
+@const NEEDLE_PAUSED_TRUE = utf8:"\"paused\":true"
+@const NEEDLE_PAUSED_FALSE = utf8:"\"paused\":false"
+@const NEEDLE_GOAL_OBJECTIVE = utf8:"\"objective\":\"ship sa goal\""
+@const NEEDLE_GOAL_BUDGET = utf8:"\"tokenBudget\":321"
+@const NEEDLE_CLEARED_TRUE = utf8:"\"cleared\":true"
+@const NEEDLE_GOAL_NULL = utf8:"\"goal\":null"
+@const NEEDLE_TURN = utf8:"\"turn\":"
+@const NEEDLE_TURN_ID_2 = utf8:"\"turnId\":\"2\""
+@const NEEDLE_TURNS_INCLUDE = utf8:"\"turns\":[{\"id\":\"2\""
+@const NEEDLE_ARCHIVED = utf8:"\"archived\":true"
+@const NEEDLE_DATA = utf8:"\"dataBase64\":\"aGVsbG8=\""
+@const NEEDLE_FILE = utf8:"\"name\":\"file.txt\""
+@const NEEDLE_IS_FILE = utf8:"\"isFile\":true"
+@const NEEDLE_WATCH_PATH = utf8:"\"path\":\".testdata/http_contract/nested/file.txt\""
+@const NEEDLE_NEXT_CURSOR = utf8:"\"nextCursor\":null"
+@const NEEDLE_BACK_CURSOR = utf8:"\"backwardsCursor\":null"
+@const NEEDLE_RESET = utf8:"\"reset\":true"
+@const NEEDLE_HOOKS = utf8:"\"hooks\":[]"
+@const NEEDLE_EXIT_ZERO = utf8:"\"exitCode\":0"
+@const NEEDLE_STDOUT_HI = utf8:"\"stdout\":\"hi\\n\""
+@const NEEDLE_ID_58 = utf8:"\"id\":58"
+@const NEEDLE_ID_35 = utf8:"\"id\":35"
+@const NEEDLE_METHOD_NOT_FOUND = utf8:"\"method not found\""
+@const NEEDLE_LOCAL_UNAUTH = utf8:"\"error\":\"unauthorized\""
+#def NEEDLE_LOCAL_UNAUTH_LEN = 22
+@const NEEDLE_CONFIG_HOST = utf8:"\"host\":\"0.0.0.0\""
+@const NEEDLE_CONFIG_PORT = utf8:"\"port\":28080"
+@const NEEDLE_SKILLS_EMPTY = utf8:"\"data\":[]"
+@const NEEDLE_PLUGIN_MARKETPLACES = utf8:"\"marketplaces\":[]"
+@const NEEDLE_MODEL_CAP = utf8:"\"namespaceTools\":true"
+@const NEEDLE_COLLAB_PLAN = utf8:"\"mode\":\"plan\""
+@const NEEDLE_WINDOWS_READY = utf8:"\"status\":\"ready\""
+@const NEEDLE_LOGGED_OUT = utf8:"\"loggedOut\":true"
+@const NEEDLE_RATE_LIMITS = utf8:"\"rateLimitsByLimitId\":null"
+@const NEEDLE_ATTEST = utf8:"\"token\":\"attest_"
+@const NEEDLE_DECISION_ACCEPT = utf8:"\"decision\":\"accept\""
+@const NEEDLE_MCP_ACCEPT = utf8:"\"action\":\"accept\""
+@const NEEDLE_PERMISSIONS_SCOPE = utf8:"\"scope\":\"turn\""
+@const NEEDLE_CONFIG_WRITE_STATUS = utf8:"\"status\":\"ok\""
+@const NEEDLE_CONFIG_WRITE_PATH = utf8:"\"filePath\":\"/"
+@const NEEDLE_PLUGIN_NAME = utf8:"\"name\":\"codex-test-plugin\""
+@const NEEDLE_MARKETPLACE_LOCAL = utf8:"\"marketplaceName\":\"local\""
+@const NEEDLE_DISCOVERABILITY = utf8:"\"discoverability\":\"UNLISTED\""
+@const NEEDLE_MARKETPLACE_ECHO = utf8:"\"marketplaceName\":\"market\""
+@const NEEDLE_PLUGIN_ECHO = utf8:"\"pluginName\":\"plug\""
+@const NEEDLE_REMOTE_ECHO = utf8:"\"remotePluginId\":\"remote_1\""
+@const NEEDLE_UNINSTALLED = utf8:"\"uninstalled\":true"
+@const NEEDLE_ALREADY_ADDED = utf8:"\"alreadyAdded\":false"
+@const NEEDLE_LOGIN_STARTED = utf8:"\"started\":true"
+@const NEEDLE_ENV_ADDED = utf8:"\"added\":true"
+@const NEEDLE_ENV_PATH = utf8:"\"path\":\"/tmp/dev\""
+@const NEEDLE_REVIEW_THREAD = utf8:"\"reviewThreadId\":\"1\""
+@const NEEDLE_OAUTH = utf8:"\"authorizationUrl\":\"http://0.0.0.0:28080/oauth\""
+@const NEEDLE_MOCK_ECHO = utf8:"\"echoed\":\"echo-me\""
+@const NEEDLE_PRINCIPALS_EMPTY = utf8:"\"principals\":[]"
+@const NEEDLE_MARKETPLACE_UPGRADE = utf8:"\"upgradedRoots\":[]"
+@const NEEDLE_INJECTED_COUNT = utf8:"\"injectedCount\":1"
+@const NEEDLE_COMPACTED = utf8:"\"compacted\":true"
+@const NEEDLE_QUEUED = utf8:"\"queued\":true"
+@const NEEDLE_APPROVED = utf8:"\"approved\":true"
+@const NEEDLE_CLEANED = utf8:"\"cleaned\":true"
+@const NEEDLE_MEMORY_MODE = utf8:"\"memoryMode\":\"default\""
+@const NEEDLE_EMAIL = utf8:"\"email\":\"alice@example.com\""
+@const NEEDLE_ANSWERS = utf8:"\"answers\":[\"continue\"]"
+@const NEEDLE_TOOL_SUCCESS = utf8:"\"success\":true"
+@const NEEDLE_TOOL_MSG = utf8:"\"text\":\"tool-msg\""
+@const NEEDLE_AGENTS_MD = utf8:"\"itemType\":\"AGENTS_MD\""
+@const NEEDLE_CWD_ABS = utf8:"\"cwd\":\"/"
+@const NEEDLE_IMPORTED = utf8:"\"imported\":true"
+@const NEEDLE_ALLOY = utf8:"\"id\":\"alloy\""
+@const NEEDLE_AUTH_UNSUPPORTED = utf8:"\"authStatus\":\"unsupported\""
+@const NEEDLE_URI = utf8:"\"uri\":\"file://x\""
+@const NEEDLE_CONNECTED = utf8:"\"status\":\"connected\""
+@const NEEDLE_REMOTE_SERVER = utf8:"\"serverName\":\"remote-srv\""
+@const NEEDLE_REMOTE_INSTALL = utf8:"\"installationId\":\"inst-1\""
+@const NEEDLE_REMOTE_ENV = utf8:"\"environmentId\":\"env-1\""
+@const NEEDLE_STARTED_TRUE = utf8:"\"started\":true"
+@const NEEDLE_QUERY_MAIN = utf8:"\"query\":\"main.sa\""
+@const NEEDLE_FUZZY_PATH = utf8:"\"path\":\"main.sa\""
+@const NEEDLE_SESSION = utf8:"\"sessionId\":\"sess-1\""
+@const NEEDLE_STOPPED = utf8:"\"status\":\"stopped\""
+@const NEEDLE_REQUEST_ID = utf8:"\"requestId\":\"req-1\""
+@const NEEDLE_WARNED = utf8:"\"warned\":true"
+@const NEEDLE_OK_FALSE = utf8:"\"ok\":false"
+@const NEEDLE_OK_TRUE = utf8:"\"ok\":true"
+@const NEEDLE_PROCESS_HANDLE = utf8:"\"processHandle\":\"proc-1\""
+@const NEEDLE_STATUS_COMPLETED = utf8:"\"status\":\"completed\""
+@const NEEDLE_KIND_AUDIO = utf8:"\"kind\":\"audio\""
+@const NEEDLE_KIND_TEXT = utf8:"\"kind\":\"text\""
+@const NEEDLE_STOPPED_TRUE = utf8:"\"stopped\":true"
+@const NEEDLE_STRUCTURED_OK = utf8:"\"structuredContent\":{\"ok\":true"
+@const NEEDLE_MCP_MSG = utf8:"\"text\":\"mcp-msg\""
+@const NEEDLE_MCP_TOOL = utf8:"\"tool\":\"demo\""
+@const NEEDLE_MCP_THREAD = utf8:"\"threadId\":\"1\""
+@const NEEDLE_RESPONSE_OBJECT = utf8:"\"object\":\"response\""
+@const NEEDLE_HTML = utf8:"<html>"
+
+#def URL_HEALTH_LEN = 30
+#def URL_RPC_LEN = 26
+#def URL_CHAT_LEN = 42
+#def URL_RESP_LEN = 35
+#def HDR_AUTH_LEN = 13
+#def HDR_CONTENT_TYPE_LEN = 12
+#def MIME_JSON_LEN = 16
+#def MIME_EVENT_STREAM_LEN = 17
+#def MIME_TEXT_PLAIN_LEN = 10
+#def EMPTY_JSON_BODY_LEN = 2
+#def RESP_FALLBACK_BODY_LEN = 146
+#def UNAUTH_RESP_LEN = 24
+#def RPC_INIT_BODY_LEN = 58
+#def NEEDLE_INIT_ID_LEN = 6
+#def NEEDLE_INIT_USER_AGENT_LEN = 29
+#def NEEDLE_INIT_CODEX_HOME_LEN = 12
+#def NEEDLE_INIT_PLATFORM_FAMILY_LEN = 23
+#def NEEDLE_INIT_PLATFORM_OS_LEN = 20
+#def RPC_THREAD_START_BODY_LEN = 61
+#def RPC_THREAD_NAME_SET_BODY_LEN = 95
+#def RPC_THREAD_METADATA_BODY_LEN = 105
+#def RPC_THREAD_INC_ELIC_BODY_LEN = 91
+#def RPC_THREAD_DEC_ELIC_BODY_LEN = 91
+#def RPC_GOAL_SET_BODY_LEN = 124
+#def RPC_GOAL_GET_BODY_LEN = 79
+#def RPC_GOAL_CLEAR_BODY_LEN = 81
+#def RPC_TURN_START_BODY_LEN = 84
+#def RPC_THREAD_READ_TURNS_BODY_LEN = 94
+#def RPC_TURN_STEER_BODY_LEN = 105
+#def RPC_THREAD_ARCHIVE_BODY_LEN = 77
+#def RPC_THREAD_UNARCHIVE_BODY_LEN = 79
+#def RPC_THREAD_ROLLBACK_BODY_LEN = 93
+#def RPC_THREAD_FORK_BODY_LEN = 74
+#def RPC_FS_MKDIR_BODY_LEN = 123
+#def RPC_FS_WRITE_BODY_LEN = 133
+#def RPC_FS_READ_BODY_LEN = 108
+#def RPC_FS_READ_EXTRA_BODY_LEN = 113
+#def RPC_FS_READDIR_BODY_LEN = 104
+#def RPC_FS_METADATA_BODY_LEN = 111
+#def RPC_FS_COPY_BODY_LEN = 170
+#def RPC_FS_READ_COPY_BODY_LEN = 108
+#def RPC_FS_WATCH_BODY_LEN = 125
+#def RPC_FS_UNWATCH_BODY_LEN = 78
+#def RPC_FS_REMOVE_BODY_LEN = 120
+#def RPC_THREAD_LOADED_BODY_LEN = 67
+#def RPC_TURN_ITEMS_BODY_LEN = 99
+#def RPC_MEMORY_RESET_BODY_LEN = 75
+#def RPC_HOOKS_LIST_BODY_LEN = 59
+#def RPC_COMMAND_EXEC_BODY_LEN = 111
+#def RPC_CONFIG_READ_BODY_LEN = 60
+#def RPC_SKILLS_LIST_BODY_LEN = 60
+#def RPC_PLUGIN_LIST_BODY_LEN = 60
+#def RPC_MODEL_CAP_BODY_LEN = 80
+#def RPC_COLLAB_BODY_LEN = 71
+#def RPC_WINDOWS_READY_BODY_LEN = 73
+#def RPC_PLUGIN_SHARE_LIST_BODY_LEN = 66
+#def RPC_ACCOUNT_LOGOUT_BODY_LEN = 63
+#def RPC_ACCOUNT_RATE_LIMITS_BODY_LEN = 72
+#def RPC_ATTEST_BODY_LEN = 69
+#def RPC_ITEM_CMD_APPROVAL_BODY_LEN = 86
+#def RPC_MCP_ELICIT_BODY_LEN = 124
+#def RPC_PERMISSIONS_BODY_LEN = 81
+#def RPC_CONFIG_WRITE_BODY_LEN = 67
+#def RPC_PLUGIN_READ_BODY_LEN = 92
+#def RPC_PLUGIN_SHARE_SAVE_BODY_LEN = 98
+#def RPC_PLUGIN_SHARE_CHECKOUT_BODY_LEN = 116
+#def RPC_PLUGIN_SHARE_DELETE_BODY_LEN = 95
+#def RPC_PLUGIN_UNINSTALL_BODY_LEN = 84
+#def RPC_MARKETPLACE_ADD_BODY_LEN = 85
+#def RPC_ACCOUNT_LOGIN_START_BODY_LEN = 83
+#def RPC_ENVIRONMENT_ADD_BODY_LEN = 94
+#def RPC_REVIEW_START_BODY_LEN = 75
+#def RPC_OAUTH_BODY_LEN = 70
+#def RPC_MOCK_BODY_LEN = 89
+#def RPC_PLUGIN_SHARE_UPDATE_BODY_LEN = 75
+#def RPC_MARKETPLACE_REMOVE_BODY_LEN = 93
+#def RPC_MARKETPLACE_UPGRADE_BODY_LEN = 94
+#def RPC_THREAD_INJECT_BODY_LEN = 95
+#def RPC_THREAD_COMPACT_BODY_LEN = 83
+#def RPC_THREAD_SHELL_BODY_LEN = 102
+#def RPC_THREAD_GUARDIAN_BODY_LEN = 97
+#def RPC_THREAD_BG_CLEAN_BODY_LEN = 95
+#def RPC_THREAD_MEMORY_MODE_BODY_LEN = 107
+#def RPC_SEND_CREDITS_BODY_LEN = 108
+#def RPC_USER_INPUT_BODY_LEN = 119
+#def RPC_TOOL_RUN_BODY_LEN = 83
+#def RPC_EXTERNAL_DETECT_BODY_LEN = 75
+#def RPC_EXTERNAL_IMPORT_BODY_LEN = 75
+#def RPC_REALTIME_VOICES_BODY_LEN = 75
+#def RPC_MCP_STATUS_BODY_LEN = 69
+#def RPC_MCP_RESOURCE_BODY_LEN = 89
+#def RPC_REMOTE_ENABLE_BODY_LEN = 145
+#def RPC_WINDOWS_SETUP_BODY_LEN = 94
+#def RPC_FUZZY_BODY_LEN = 82
+#def RPC_FUZZY_START_BODY_LEN = 98
+#def RPC_FUZZY_STOP_BODY_LEN = 97
+#def RPC_SERVER_RESOLVED_BODY_LEN = 106
+#def RPC_WORLD_WARN_BODY_LEN = 78
+#def RPC_COMMAND_WRITE_BODY_LEN = 83
+#def RPC_PROCESS_SPAWN_BODY_LEN = 116
+#def RPC_REALTIME_START_BODY_LEN = 85
+#def RPC_REALTIME_AUDIO_BODY_LEN = 105
+#def RPC_REALTIME_TEXT_BODY_LEN = 102
+#def RPC_REALTIME_STOP_BODY_LEN = 84
+#def RPC_MCP_TOOL_BODY_LEN = 163
+#def AUTH_PREFIX_LEN = 7
+#def AUTH_BUF_SIZE = 512
+#def RESP_BUF_SIZE = 8192
+#def NEEDLE_OK_LEN = 9
+#def NEEDLE_THREAD_LEN = 9
+#def NEEDLE_NAME_RENAMED_LEN = 16
+#def NEEDLE_PREVIEW_LEN = 19
+#def NEEDLE_FORKED_FROM_LEN = 18
+#def NEEDLE_PAUSED_TRUE_LEN = 13
+#def NEEDLE_PAUSED_FALSE_LEN = 14
+#def NEEDLE_GOAL_OBJECTIVE_LEN = 26
+#def NEEDLE_GOAL_BUDGET_LEN = 17
+#def NEEDLE_CLEARED_TRUE_LEN = 14
+#def NEEDLE_GOAL_NULL_LEN = 11
+#def NEEDLE_TURN_LEN = 7
+#def NEEDLE_TURN_ID_2_LEN = 12
+#def NEEDLE_TURNS_INCLUDE_LEN = 18
+#def NEEDLE_ARCHIVED_LEN = 15
+#def NEEDLE_DATA_LEN = 23
+#def NEEDLE_FILE_LEN = 17
+#def NEEDLE_IS_FILE_LEN = 13
+#def NEEDLE_WATCH_PATH_LEN = 48
+#def NEEDLE_NEXT_CURSOR_LEN = 17
+#def NEEDLE_BACK_CURSOR_LEN = 22
+#def NEEDLE_RESET_LEN = 12
+#def NEEDLE_HOOKS_LEN = 10
+#def NEEDLE_EXIT_ZERO_LEN = 12
+#def NEEDLE_STDOUT_HI_LEN = 15
+#def NEEDLE_ID_58_LEN = 7
+#def NEEDLE_ID_35_LEN = 7
+#def NEEDLE_METHOD_NOT_FOUND_LEN = 18
+#def NEEDLE_CONFIG_HOST_LEN = 16
+#def NEEDLE_CONFIG_PORT_LEN = 12
+#def NEEDLE_SKILLS_EMPTY_LEN = 9
+#def NEEDLE_PLUGIN_MARKETPLACES_LEN = 17
+#def NEEDLE_MODEL_CAP_LEN = 21
+#def NEEDLE_COLLAB_PLAN_LEN = 13
+#def NEEDLE_WINDOWS_READY_LEN = 16
+#def NEEDLE_LOGGED_OUT_LEN = 16
+#def NEEDLE_RATE_LIMITS_LEN = 26
+#def NEEDLE_ATTEST_LEN = 16
+#def NEEDLE_DECISION_ACCEPT_LEN = 19
+#def NEEDLE_MCP_ACCEPT_LEN = 17
+#def NEEDLE_PERMISSIONS_SCOPE_LEN = 14
+#def NEEDLE_CONFIG_WRITE_STATUS_LEN = 13
+#def NEEDLE_CONFIG_WRITE_PATH_LEN = 13
+#def NEEDLE_PLUGIN_NAME_LEN = 26
+#def NEEDLE_MARKETPLACE_LOCAL_LEN = 25
+#def NEEDLE_DISCOVERABILITY_LEN = 28
+#def NEEDLE_MARKETPLACE_ECHO_LEN = 26
+#def NEEDLE_PLUGIN_ECHO_LEN = 19
+#def NEEDLE_REMOTE_ECHO_LEN = 27
+#def NEEDLE_UNINSTALLED_LEN = 18
+#def NEEDLE_ALREADY_ADDED_LEN = 20
+#def NEEDLE_LOGIN_STARTED_LEN = 14
+#def NEEDLE_ENV_ADDED_LEN = 12
+#def NEEDLE_ENV_PATH_LEN = 17
+#def NEEDLE_REVIEW_THREAD_LEN = 20
+#def NEEDLE_OAUTH_LEN = 47
+#def NEEDLE_MOCK_ECHO_LEN = 18
+#def NEEDLE_PRINCIPALS_EMPTY_LEN = 15
+#def NEEDLE_MARKETPLACE_UPGRADE_LEN = 18
+#def NEEDLE_INJECTED_COUNT_LEN = 17
+#def NEEDLE_COMPACTED_LEN = 16
+#def NEEDLE_QUEUED_LEN = 13
+#def NEEDLE_APPROVED_LEN = 15
+#def NEEDLE_CLEANED_LEN = 14
+#def NEEDLE_MEMORY_MODE_LEN = 22
+#def NEEDLE_EMAIL_LEN = 27
+#def NEEDLE_ANSWERS_LEN = 22
+#def NEEDLE_TOOL_SUCCESS_LEN = 14
+#def NEEDLE_TOOL_MSG_LEN = 17
+#def NEEDLE_AGENTS_MD_LEN = 22
+#def NEEDLE_CWD_ABS_LEN = 8
+#def NEEDLE_IMPORTED_LEN = 15
+#def NEEDLE_ALLOY_LEN = 12
+#def NEEDLE_AUTH_UNSUPPORTED_LEN = 26
+#def NEEDLE_URI_LEN = 16
+#def NEEDLE_CONNECTED_LEN = 20
+#def NEEDLE_REMOTE_SERVER_LEN = 25
+#def NEEDLE_REMOTE_INSTALL_LEN = 25
+#def NEEDLE_REMOTE_ENV_LEN = 23
+#def NEEDLE_STARTED_TRUE_LEN = 14
+#def NEEDLE_QUERY_MAIN_LEN = 17
+#def NEEDLE_FUZZY_PATH_LEN = 16
+#def NEEDLE_SESSION_LEN = 20
+#def NEEDLE_STOPPED_LEN = 18
+#def NEEDLE_REQUEST_ID_LEN = 19
+#def NEEDLE_WARNED_LEN = 13
+#def NEEDLE_OK_FALSE_LEN = 10
+#def NEEDLE_OK_TRUE_LEN = 9
+#def NEEDLE_PROCESS_HANDLE_LEN = 24
+#def NEEDLE_STATUS_COMPLETED_LEN = 20
+#def NEEDLE_KIND_AUDIO_LEN = 14
+#def NEEDLE_KIND_TEXT_LEN = 13
+#def NEEDLE_STOPPED_TRUE_LEN = 14
+#def NEEDLE_STRUCTURED_OK_LEN = 30
+#def NEEDLE_MCP_MSG_LEN = 16
+#def NEEDLE_MCP_TOOL_LEN = 13
+#def NEEDLE_MCP_THREAD_LEN = 14
+#def NEEDLE_RESPONSE_OBJECT_LEN = 19
+#def NEEDLE_HTML_LEN = 6
+
+@ffi_wrapper rpc_post_contains(&auth_buf: ptr, auth_len: u64, &body: ptr, body_len: u64, &needle: ptr, needle_len: u64) -> u8:
+L_ENTRY:
+    client_slot = stack_alloc 8
+    req_slot = stack_alloc 8
+    resp_slot = stack_alloc 8
+    reader_slot = stack_alloc 8
+    read_len_slot = stack_alloc 8
+    resp_buf = stack_alloc RESP_BUF_SIZE
+
+    client_status = call @sa_http_client_new(0, &client_slot)
+    client = load client_slot+0 as ptr
+    req_status = call @sa_http_client_req_new(client, 2, &URL_RPC, URL_RPC_LEN, &req_slot)
+    req = load req_slot+0 as ptr
+    auth_hdr_status = call @sa_http_client_req_add_header(req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    ct_status = call @sa_http_client_req_add_header(req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    body_status = call @sa_http_client_req_set_body(req, &body, body_len)
+    send_status = call @sa_http_client_req_send(req, &resp_slot)
+    resp = load resp_slot+0 as ptr
+    code = call @sa_http_client_resp_status(resp)
+    reader_status = call @sa_http_client_resp_body_reader(resp, &reader_slot)
+    reader = load reader_slot+0 as ptr
+    read_status = call @sa_http_client_resp_read_chunk(reader, &resp_buf, RESP_BUF_SIZE, &read_len_slot)
+    read_len = load read_len_slot+0 as u64
+    needle_idx = call @sa_bytes_find(&resp_buf, read_len, &needle, needle_len)
+
+    client_ok = eq client_status, 0
+    req_ok = eq req_status, 0
+    auth_ok = eq auth_hdr_status, 0
+    ct_ok = eq ct_status, 0
+    body_ok = eq body_status, 0
+    send_ok = eq send_status, 0
+    code_ok = eq code, 200
+    reader_ok = eq reader_status, 0
+    read_ok = eq read_status, 0
+    found = sge needle_idx, 0
+    ok = and client_ok, req_ok
+    ok = and ok, auth_ok
+    ok = and ok, ct_ok
+    ok = and ok, body_ok
+    ok = and ok, send_ok
+    ok = and ok, code_ok
+    ok = and ok, reader_ok
+    ok = and ok, read_ok
+    ok = and ok, found
+
+    call @sa_http_client_body_reader_free(^reader)
+    call @sa_http_client_resp_free(^resp)
+    call @sa_http_client_req_free(^req)
+    call @sa_http_client_free(^client)
+
+    !client_status
+    !req_status
+    !auth_hdr_status
+    !ct_status
+    !body_status
+    !send_status
+    !code
+    !reader_status
+    !read_status
+    !read_len
+    !needle_idx
+    !client_ok
+    !req_ok
+    !auth_ok
+    !ct_ok
+    !body_ok
+    !send_ok
+    !code_ok
+    !reader_ok
+    !read_ok
+    !found
+    !auth_buf
+    !auth_len
+    !body
+    !body_len
+    !needle
+    !needle_len
+    br ok -> L_RPC_POST_PASS, L_RPC_POST_FAIL
+
+L_RPC_POST_PASS:
+    !ok
+    return 1
+
+L_RPC_POST_FAIL:
+    !ok
+    return 0
+
+@main() -> i32!:
+L_ENTRY:
+    cfg = alloc CFG_SIZE
+    load_status = call @cfg_load(&ENV_PATH, 7, &cfg)
+    load_ok = eq load_status, 0
+    !load_status
+    br load_ok -> L_CHECK_PORT, L_FAIL_CFG
+
+L_CHECK_PORT:
+    !load_ok
+    port = call @cfg_get_port(&cfg)
+    port_ok = eq port, 28080
+    !port
+    br port_ok -> L_HEALTH_REQ, L_FAIL_PORT
+
+L_HEALTH_REQ:
+    !port_ok
+    client_slot = stack_alloc 8
+    req_slot = stack_alloc 8
+    resp_slot = stack_alloc 8
+    status = call @sa_http_client_new(0, &client_slot)
+    client = load client_slot+0 as ptr
+    req_status = call @sa_http_client_req_new(client, 1, &URL_HEALTH, URL_HEALTH_LEN, &req_slot)
+    req = load req_slot+0 as ptr
+    send_status = call @sa_http_client_req_send(req, &resp_slot)
+    health_send_ok = eq send_status, 0
+    br health_send_ok -> L_HEALTH_RESP, L_HEALTH_SEND_FAIL
+
+L_HEALTH_RESP:
+    !health_send_ok
+    resp = load resp_slot+0 as ptr
+    health_code = call @sa_http_client_resp_status(resp)
+    health_ok = eq health_code, 200
+    call @sa_http_client_resp_free(^resp)
+    call @sa_http_client_req_free(^req)
+    call @sa_http_client_free(^client)
+    !status
+    !req_status
+    !send_status
+    !health_code
+    br health_ok -> L_RPC_UNAUTH_REQ, L_FAIL_HEALTH
+
+L_HEALTH_SEND_FAIL:
+    !health_send_ok
+    call @sa_http_client_req_free(^req)
+    call @sa_http_client_free(^client)
+    !status
+    !req_status
+    !send_status
+    jmp L_FAIL_HEALTH_NO_RESPONSE
+
+L_RPC_UNAUTH_REQ:
+    !health_ok
+    unauth_client_slot = stack_alloc 8
+    unauth_req_slot = stack_alloc 8
+    unauth_resp_slot = stack_alloc 8
+    unauth_reader_slot = stack_alloc 8
+    unauth_read_len_slot = stack_alloc 8
+    unauth_resp_buf = stack_alloc RESP_BUF_SIZE
+    unauth_client_status = call @sa_http_client_new(0, &unauth_client_slot)
+    unauth_client = load unauth_client_slot+0 as ptr
+    unauth_req_status = call @sa_http_client_req_new(unauth_client, 2, &URL_RPC, URL_RPC_LEN, &unauth_req_slot)
+    unauth_req = load unauth_req_slot+0 as ptr
+    unauth_hdr_status = call @sa_http_client_req_add_header(unauth_req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    unauth_body_status = call @sa_http_client_req_set_body(unauth_req, &RPC_INIT_BODY, RPC_INIT_BODY_LEN)
+    unauth_send_status = call @sa_http_client_req_send(unauth_req, &unauth_resp_slot)
+    unauth_resp = load unauth_resp_slot+0 as ptr
+    unauth_code = call @sa_http_client_resp_status(unauth_resp)
+    unauth_reader_status = call @sa_http_client_resp_body_reader(unauth_resp, &unauth_reader_slot)
+    unauth_reader = load unauth_reader_slot+0 as ptr
+    unauth_read_status = call @sa_http_client_resp_read_chunk(unauth_reader, &unauth_resp_buf, RESP_BUF_SIZE, &unauth_read_len_slot)
+    unauth_read_len = load unauth_read_len_slot+0 as u64
+    unauth_body_match = call @sa_bytes_eq(&unauth_resp_buf, unauth_read_len, &UNAUTH_RESP, UNAUTH_RESP_LEN)
+    unauth_code_ok = eq unauth_code, 401
+    unauth_body_ok = eq unauth_body_match, 1
+    unauth_ok = and unauth_code_ok, unauth_body_ok
+    call @sa_http_client_body_reader_free(^unauth_reader)
+    call @sa_http_client_resp_free(^unauth_resp)
+    call @sa_http_client_req_free(^unauth_req)
+    call @sa_http_client_free(^unauth_client)
+    !unauth_client_status
+    !unauth_req_status
+    !unauth_hdr_status
+    !unauth_body_status
+    !unauth_send_status
+    !unauth_code
+    !unauth_reader_status
+    !unauth_read_status
+    !unauth_read_len
+    !unauth_body_match
+    !unauth_code_ok
+    !unauth_body_ok
+    br unauth_ok -> L_MODELS_PUBLIC_REQ, L_FAIL_UNAUTH
+
+L_MODELS_PUBLIC_REQ:
+    !unauth_ok
+    models_client_slot = stack_alloc 8
+    models_req_slot = stack_alloc 8
+    models_resp_slot = stack_alloc 8
+    models_reader_slot = stack_alloc 8
+    models_read_len_slot = stack_alloc 8
+    models_resp_buf = stack_alloc RESP_BUF_SIZE
+    models_client_status = call @sa_http_client_new(0, &models_client_slot)
+    models_client = load models_client_slot+0 as ptr
+    models_req_status = call @sa_http_client_req_new(models_client, 1, &URL_MODELS, URL_MODELS_LEN, &models_req_slot)
+    models_req = load models_req_slot+0 as ptr
+    models_send_status = call @sa_http_client_req_send(models_req, &models_resp_slot)
+    models_resp = load models_resp_slot+0 as ptr
+    models_code = call @sa_http_client_resp_status(models_resp)
+    models_hdr_ptr_slot = stack_alloc 8
+    models_hdr_len_slot = stack_alloc 8
+    store models_hdr_ptr_slot+0, 0 as ptr
+    store models_hdr_len_slot+0, 0 as u64
+    models_hdr_status = call @sa_http_client_resp_get_header(models_resp, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &models_hdr_ptr_slot, &models_hdr_len_slot)
+    models_hdr_ptr = load models_hdr_ptr_slot+0 as ptr
+    models_hdr_len = load models_hdr_len_slot+0 as u64
+    models_text_idx = call @sa_bytes_find(&models_hdr_ptr, models_hdr_len, &MIME_TEXT_PLAIN, MIME_TEXT_PLAIN_LEN)
+    models_not_text = slt models_text_idx, 0
+    models_reader_status = call @sa_http_client_resp_body_reader(models_resp, &models_reader_slot)
+    models_reader = load models_reader_slot+0 as ptr
+    models_read_status = call @sa_http_client_resp_read_chunk(models_reader, &models_resp_buf, RESP_BUF_SIZE, &models_read_len_slot)
+    models_read_len = load models_read_len_slot+0 as u64
+    models_unauth_idx = call @sa_bytes_find(&models_resp_buf, models_read_len, &NEEDLE_LOCAL_UNAUTH, NEEDLE_LOCAL_UNAUTH_LEN)
+    models_public_ok = slt models_unauth_idx, 0
+    models_public_ok = and models_public_ok, models_not_text
+    call @sa_http_client_body_reader_free(^models_reader)
+    call @sa_http_client_resp_free(^models_resp)
+    call @sa_http_client_req_free(^models_req)
+    call @sa_http_client_free(^models_client)
+    !models_client_status
+    !models_req_status
+    !models_send_status
+    !models_hdr_status
+    !models_hdr_ptr
+    !models_hdr_len
+    !models_text_idx
+    !models_not_text
+    !models_code
+    !models_reader_status
+    !models_read_status
+    !models_read_len
+    !models_unauth_idx
+    br models_public_ok -> L_AUTH_HEADER, L_FAIL_MODELS_PUBLIC
+
+L_AUTH_HEADER:
+    !models_public_ok
+    auth_buf = stack_alloc AUTH_BUF_SIZE
+    auth_dst = ptr_add auth_buf, 0
+    prefix_copy = call @sa_bytes_copy(&auth_dst, &AUTH_PREFIX, AUTH_PREFIX_LEN)
+    !prefix_copy
+    !auth_dst
+    auth_token_ptr = load cfg+CFG_AUTH_PTR as ptr
+    auth_token_len = load cfg+CFG_AUTH_LEN as u64
+    token_dst = ptr_add auth_buf, AUTH_PREFIX_LEN
+    token_copy = call @sa_bytes_copy(&token_dst, &auth_token_ptr, auth_token_len)
+    !token_copy
+    !token_dst
+    auth_len = add auth_token_len, AUTH_PREFIX_LEN
+    token_present = ugt auth_token_len, 0
+    br token_present -> L_CHAT_STATUS_REQ, L_FAIL_AUTH
+
+L_CHAT_STATUS_REQ:
+    !token_present
+    chat_client_slot = stack_alloc 8
+    chat_req_slot = stack_alloc 8
+    chat_resp_slot = stack_alloc 8
+    chat_client_status = call @sa_http_client_new(0, &chat_client_slot)
+    chat_client = load chat_client_slot+0 as ptr
+    chat_req_status = call @sa_http_client_req_new(chat_client, 2, &URL_CHAT, URL_CHAT_LEN, &chat_req_slot)
+    chat_req = load chat_req_slot+0 as ptr
+    chat_auth_status = call @sa_http_client_req_add_header(chat_req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    chat_ct_status = call @sa_http_client_req_add_header(chat_req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    chat_body_status = call @sa_http_client_req_set_body(chat_req, &EMPTY_JSON_BODY, EMPTY_JSON_BODY_LEN)
+    chat_send_status = call @sa_http_client_req_send(chat_req, &chat_resp_slot)
+    chat_resp = load chat_resp_slot+0 as ptr
+    chat_code = call @sa_http_client_resp_status(chat_resp)
+    chat_hdr_ptr_slot = stack_alloc 8
+    chat_hdr_len_slot = stack_alloc 8
+    store chat_hdr_ptr_slot+0, 0 as ptr
+    store chat_hdr_len_slot+0, 0 as u64
+    chat_hdr_status = call @sa_http_client_resp_get_header(chat_resp, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &chat_hdr_ptr_slot, &chat_hdr_len_slot)
+    chat_hdr_ptr = load chat_hdr_ptr_slot+0 as ptr
+    chat_hdr_len = load chat_hdr_len_slot+0 as u64
+    chat_sse_idx = call @sa_bytes_find(&chat_hdr_ptr, chat_hdr_len, &MIME_EVENT_STREAM, MIME_EVENT_STREAM_LEN)
+    chat_not_sse = slt chat_sse_idx, 0
+    chat_status_ok = ne chat_code, 200
+    chat_status_ok = and chat_status_ok, chat_not_sse
+    call @sa_http_client_resp_free(^chat_resp)
+    call @sa_http_client_req_free(^chat_req)
+    call @sa_http_client_free(^chat_client)
+    !chat_client_status
+    !chat_req_status
+    !chat_auth_status
+    !chat_ct_status
+    !chat_body_status
+    !chat_send_status
+    !chat_hdr_status
+    !chat_hdr_ptr
+    !chat_hdr_len
+    !chat_sse_idx
+    !chat_not_sse
+    !chat_code
+    br chat_status_ok -> L_RESP_FALLBACK_REQ, L_FAIL_CHAT_STATUS
+
+L_RESP_FALLBACK_REQ:
+    !chat_status_ok
+    resp_client_slot = stack_alloc 8
+    resp_req_slot = stack_alloc 8
+    resp_resp_slot = stack_alloc 8
+    resp_reader_slot = stack_alloc 8
+    resp_read_len_slot = stack_alloc 8
+    resp_buf = stack_alloc RESP_BUF_SIZE
+    resp_client_status = call @sa_http_client_new(0, &resp_client_slot)
+    resp_client = load resp_client_slot+0 as ptr
+    resp_req_status = call @sa_http_client_req_new(resp_client, 2, &URL_RESP, URL_RESP_LEN, &resp_req_slot)
+    resp_req = load resp_req_slot+0 as ptr
+    resp_auth_status = call @sa_http_client_req_add_header(resp_req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    resp_ct_status = call @sa_http_client_req_add_header(resp_req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    resp_body_status = call @sa_http_client_req_set_body(resp_req, &RESP_FALLBACK_BODY, RESP_FALLBACK_BODY_LEN)
+    resp_send_status = call @sa_http_client_req_send(resp_req, &resp_resp_slot)
+    resp_resp = load resp_resp_slot+0 as ptr
+    resp_code = call @sa_http_client_resp_status(resp_resp)
+    resp_reader_status = call @sa_http_client_resp_body_reader(resp_resp, &resp_reader_slot)
+    resp_reader = load resp_reader_slot+0 as ptr
+    resp_read_status = call @sa_http_client_resp_read_chunk(resp_reader, &resp_buf, RESP_BUF_SIZE, &resp_read_len_slot)
+    resp_read_len = load resp_read_len_slot+0 as u64
+    resp_chat_idx = call @sa_bytes_find(&resp_buf, resp_read_len, &NEEDLE_RESPONSE_OBJECT, NEEDLE_RESPONSE_OBJECT_LEN)
+    resp_html_idx = call @sa_bytes_find(&resp_buf, resp_read_len, &NEEDLE_HTML, NEEDLE_HTML_LEN)
+    resp_code_ok = ne resp_code, 404
+    resp_chat_ok = sge resp_chat_idx, 0
+    resp_no_html = slt resp_html_idx, 0
+    resp_ok = and resp_code_ok, resp_chat_ok
+    resp_ok = and resp_ok, resp_no_html
+    call @sa_http_client_body_reader_free(^resp_reader)
+    call @sa_http_client_resp_free(^resp_resp)
+    call @sa_http_client_req_free(^resp_req)
+    call @sa_http_client_free(^resp_client)
+    !resp_client_status
+    !resp_req_status
+    !resp_auth_status
+    !resp_ct_status
+    !resp_body_status
+    !resp_send_status
+    !resp_code
+    !resp_reader_status
+    !resp_read_status
+    !resp_read_len
+    !resp_chat_idx
+    !resp_html_idx
+    !resp_code_ok
+    !resp_chat_ok
+    !resp_no_html
+    br resp_ok -> L_RPC_GET_NOT_FOUND_REQ, L_FAIL_RESP_FALLBACK
+
+L_RPC_GET_NOT_FOUND_REQ:
+    !resp_ok
+    rpc_get_client_slot = stack_alloc 8
+    rpc_get_req_slot = stack_alloc 8
+    rpc_get_resp_slot = stack_alloc 8
+    rpc_get_client_status = call @sa_http_client_new(0, &rpc_get_client_slot)
+    rpc_get_client = load rpc_get_client_slot+0 as ptr
+    rpc_get_req_status = call @sa_http_client_req_new(rpc_get_client, 1, &URL_RPC, URL_RPC_LEN, &rpc_get_req_slot)
+    rpc_get_req = load rpc_get_req_slot+0 as ptr
+    rpc_get_auth_status = call @sa_http_client_req_add_header(rpc_get_req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    rpc_get_send_status = call @sa_http_client_req_send(rpc_get_req, &rpc_get_resp_slot)
+    rpc_get_resp = load rpc_get_resp_slot+0 as ptr
+    rpc_get_code = call @sa_http_client_resp_status(rpc_get_resp)
+    rpc_get_ok = eq rpc_get_code, 404
+    call @sa_http_client_resp_free(^rpc_get_resp)
+    call @sa_http_client_req_free(^rpc_get_req)
+    call @sa_http_client_free(^rpc_get_client)
+    !rpc_get_client_status
+    !rpc_get_req_status
+    !rpc_get_auth_status
+    !rpc_get_send_status
+    !rpc_get_code
+    br rpc_get_ok -> L_RPC_AUTH_REQ, L_FAIL_RPC_GET
+
+L_RPC_AUTH_REQ:
+    !rpc_get_ok
+    auth_client_slot = stack_alloc 8
+    auth_req_slot = stack_alloc 8
+    auth_resp_slot = stack_alloc 8
+    auth_reader_slot = stack_alloc 8
+    auth_read_len_slot = stack_alloc 8
+    auth_resp_buf = stack_alloc RESP_BUF_SIZE
+    auth_client_status = call @sa_http_client_new(0, &auth_client_slot)
+    auth_client = load auth_client_slot+0 as ptr
+    auth_req_status = call @sa_http_client_req_new(auth_client, 2, &URL_RPC, URL_RPC_LEN, &auth_req_slot)
+    auth_req = load auth_req_slot+0 as ptr
+    auth_hdr_status = call @sa_http_client_req_add_header(auth_req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    auth_ct_status = call @sa_http_client_req_add_header(auth_req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    auth_body_status = call @sa_http_client_req_set_body(auth_req, &RPC_INIT_BODY, RPC_INIT_BODY_LEN)
+    auth_send_status = call @sa_http_client_req_send(auth_req, &auth_resp_slot)
+    auth_resp = load auth_resp_slot+0 as ptr
+    auth_code = call @sa_http_client_resp_status(auth_resp)
+    auth_reader_status = call @sa_http_client_resp_body_reader(auth_resp, &auth_reader_slot)
+    auth_reader = load auth_reader_slot+0 as ptr
+    auth_read_status = call @sa_http_client_resp_read_chunk(auth_reader, &auth_resp_buf, RESP_BUF_SIZE, &auth_read_len_slot)
+    auth_read_len = load auth_read_len_slot+0 as u64
+    auth_id_idx = call @sa_bytes_find(&auth_resp_buf, auth_read_len, &NEEDLE_INIT_ID, NEEDLE_INIT_ID_LEN)
+    auth_user_agent_idx = call @sa_bytes_find(&auth_resp_buf, auth_read_len, &NEEDLE_INIT_USER_AGENT, NEEDLE_INIT_USER_AGENT_LEN)
+    auth_codex_home_idx = call @sa_bytes_find(&auth_resp_buf, auth_read_len, &NEEDLE_INIT_CODEX_HOME, NEEDLE_INIT_CODEX_HOME_LEN)
+    auth_platform_family_idx = call @sa_bytes_find(&auth_resp_buf, auth_read_len, &NEEDLE_INIT_PLATFORM_FAMILY, NEEDLE_INIT_PLATFORM_FAMILY_LEN)
+    auth_platform_os_idx = call @sa_bytes_find(&auth_resp_buf, auth_read_len, &NEEDLE_INIT_PLATFORM_OS, NEEDLE_INIT_PLATFORM_OS_LEN)
+    auth_code_ok = eq auth_code, 200
+    auth_id_ok = sge auth_id_idx, 0
+    auth_user_agent_ok = sge auth_user_agent_idx, 0
+    auth_codex_home_ok = sge auth_codex_home_idx, 0
+    auth_platform_family_ok = sge auth_platform_family_idx, 0
+    auth_platform_os_ok = sge auth_platform_os_idx, 0
+    auth_body_ok = and auth_id_ok, auth_user_agent_ok
+    auth_body_ok = and auth_body_ok, auth_codex_home_ok
+    auth_body_ok = and auth_body_ok, auth_platform_family_ok
+    auth_body_ok = and auth_body_ok, auth_platform_os_ok
+    auth_reader_ok = eq auth_reader_status, 0
+    auth_read_ok = eq auth_read_status, 0
+    auth_ok = and auth_code_ok, auth_body_ok
+    auth_ok = and auth_ok, auth_reader_ok
+    auth_ok = and auth_ok, auth_read_ok
+    call @sa_http_client_body_reader_free(^auth_reader)
+    call @sa_http_client_resp_free(^auth_resp)
+    call @sa_http_client_req_free(^auth_req)
+    call @sa_http_client_free(^auth_client)
+    !auth_client_status
+    !auth_req_status
+    !auth_hdr_status
+    !auth_ct_status
+    !auth_body_status
+    !auth_send_status
+    !auth_code
+    !auth_reader_status
+    !auth_read_status
+    !auth_read_len
+    !auth_id_idx
+    !auth_user_agent_idx
+    !auth_codex_home_idx
+    !auth_platform_family_idx
+    !auth_platform_os_idx
+    !auth_code_ok
+    !auth_id_ok
+    !auth_user_agent_ok
+    !auth_codex_home_ok
+    !auth_platform_family_ok
+    !auth_platform_os_ok
+    !auth_body_ok
+    !auth_reader_ok
+    !auth_read_ok
+    br auth_ok -> L_THREAD_START_REQ, L_FAIL_AUTH_RPC
+
+L_THREAD_START_REQ:
+    !auth_ok
+    thread_start_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_START_BODY, RPC_THREAD_START_BODY_LEN, &NEEDLE_THREAD, NEEDLE_THREAD_LEN)
+    is_thread_start_ok = eq thread_start_ok, 1
+    !thread_start_ok
+    br is_thread_start_ok -> L_THREAD_NAME_SET_REQ, L_FAIL_THREAD_START
+
+L_THREAD_NAME_SET_REQ:
+    !is_thread_start_ok
+    thread_name_set_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_NAME_SET_BODY, RPC_THREAD_NAME_SET_BODY_LEN, &NEEDLE_NAME_RENAMED, NEEDLE_NAME_RENAMED_LEN)
+    is_thread_name_set_ok = eq thread_name_set_ok, 1
+    !thread_name_set_ok
+    br is_thread_name_set_ok -> L_THREAD_METADATA_REQ, L_FAIL_THREAD_NAME_SET
+
+L_THREAD_METADATA_REQ:
+    !is_thread_name_set_ok
+    thread_metadata_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_METADATA_BODY, RPC_THREAD_METADATA_BODY_LEN, &NEEDLE_PREVIEW, NEEDLE_PREVIEW_LEN)
+    is_thread_metadata_ok = eq thread_metadata_ok, 1
+    !thread_metadata_ok
+    br is_thread_metadata_ok -> L_THREAD_INC_REQ, L_FAIL_THREAD_METADATA
+
+L_THREAD_INC_REQ:
+    !is_thread_metadata_ok
+    thread_inc_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_INC_ELIC_BODY, RPC_THREAD_INC_ELIC_BODY_LEN, &NEEDLE_PAUSED_TRUE, NEEDLE_PAUSED_TRUE_LEN)
+    is_thread_inc_ok = eq thread_inc_ok, 1
+    !thread_inc_ok
+    br is_thread_inc_ok -> L_THREAD_DEC_REQ, L_FAIL_THREAD_INC
+
+L_THREAD_DEC_REQ:
+    !is_thread_inc_ok
+    thread_dec_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_DEC_ELIC_BODY, RPC_THREAD_DEC_ELIC_BODY_LEN, &NEEDLE_PAUSED_FALSE, NEEDLE_PAUSED_FALSE_LEN)
+    is_thread_dec_ok = eq thread_dec_ok, 1
+    !thread_dec_ok
+    br is_thread_dec_ok -> L_GOAL_SET_OBJECTIVE_REQ, L_FAIL_THREAD_DEC
+
+L_GOAL_SET_OBJECTIVE_REQ:
+    !is_thread_dec_ok
+    goal_set_obj_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_GOAL_SET_BODY, RPC_GOAL_SET_BODY_LEN, &NEEDLE_GOAL_OBJECTIVE, NEEDLE_GOAL_OBJECTIVE_LEN)
+    is_goal_set_obj_ok = eq goal_set_obj_ok, 1
+    !goal_set_obj_ok
+    br is_goal_set_obj_ok -> L_GOAL_SET_BUDGET_REQ, L_FAIL_GOAL_SET_OBJECTIVE
+
+L_GOAL_SET_BUDGET_REQ:
+    !is_goal_set_obj_ok
+    goal_set_budget_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_GOAL_SET_BODY, RPC_GOAL_SET_BODY_LEN, &NEEDLE_GOAL_BUDGET, NEEDLE_GOAL_BUDGET_LEN)
+    is_goal_set_budget_ok = eq goal_set_budget_ok, 1
+    !goal_set_budget_ok
+    br is_goal_set_budget_ok -> L_GOAL_GET_OBJECTIVE_REQ, L_FAIL_GOAL_SET_BUDGET
+
+L_GOAL_GET_OBJECTIVE_REQ:
+    !is_goal_set_budget_ok
+    goal_get_obj_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_GOAL_GET_BODY, RPC_GOAL_GET_BODY_LEN, &NEEDLE_GOAL_OBJECTIVE, NEEDLE_GOAL_OBJECTIVE_LEN)
+    is_goal_get_obj_ok = eq goal_get_obj_ok, 1
+    !goal_get_obj_ok
+    br is_goal_get_obj_ok -> L_GOAL_CLEAR_REQ, L_FAIL_GOAL_GET_OBJECTIVE
+
+L_GOAL_CLEAR_REQ:
+    !is_goal_get_obj_ok
+    goal_clear_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_GOAL_CLEAR_BODY, RPC_GOAL_CLEAR_BODY_LEN, &NEEDLE_CLEARED_TRUE, NEEDLE_CLEARED_TRUE_LEN)
+    is_goal_clear_ok = eq goal_clear_ok, 1
+    !goal_clear_ok
+    br is_goal_clear_ok -> L_GOAL_GET_NULL_REQ, L_FAIL_GOAL_CLEAR
+
+L_GOAL_GET_NULL_REQ:
+    !is_goal_clear_ok
+    goal_get_null_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_GOAL_GET_BODY, RPC_GOAL_GET_BODY_LEN, &NEEDLE_GOAL_NULL, NEEDLE_GOAL_NULL_LEN)
+    is_goal_get_null_ok = eq goal_get_null_ok, 1
+    !goal_get_null_ok
+    br is_goal_get_null_ok -> L_TURN_START_REQ, L_FAIL_GOAL_GET_NULL
+
+L_TURN_START_REQ:
+    !is_goal_get_null_ok
+    turn_start_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_TURN_START_BODY, RPC_TURN_START_BODY_LEN, &NEEDLE_TURN, NEEDLE_TURN_LEN)
+    is_turn_start_ok = eq turn_start_ok, 1
+    !turn_start_ok
+    br is_turn_start_ok -> L_THREAD_READ_TURNS_REQ, L_FAIL_TURN_START
+
+L_THREAD_READ_TURNS_REQ:
+    !is_turn_start_ok
+    thread_read_turns_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_READ_TURNS_BODY, RPC_THREAD_READ_TURNS_BODY_LEN, &NEEDLE_TURNS_INCLUDE, NEEDLE_TURNS_INCLUDE_LEN)
+    is_thread_read_turns_ok = eq thread_read_turns_ok, 1
+    !thread_read_turns_ok
+    br is_thread_read_turns_ok -> L_TURN_STEER_REQ, L_FAIL_THREAD_READ_TURNS
+
+L_TURN_STEER_REQ:
+    !is_thread_read_turns_ok
+    turn_steer_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_TURN_STEER_BODY, RPC_TURN_STEER_BODY_LEN, &NEEDLE_TURN_ID_2, NEEDLE_TURN_ID_2_LEN)
+    is_turn_steer_ok = eq turn_steer_ok, 1
+    !turn_steer_ok
+    br is_turn_steer_ok -> L_THREAD_ARCHIVE_REQ, L_FAIL_TURN_STEER
+
+L_THREAD_ARCHIVE_REQ:
+    !is_turn_steer_ok
+    archive_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_ARCHIVE_BODY, RPC_THREAD_ARCHIVE_BODY_LEN, &NEEDLE_ARCHIVED, NEEDLE_ARCHIVED_LEN)
+    is_archive_ok = eq archive_ok, 1
+    !archive_ok
+    br is_archive_ok -> L_THREAD_UNARCHIVE_REQ, L_FAIL_THREAD_ARCHIVE
+
+L_THREAD_UNARCHIVE_REQ:
+    !is_archive_ok
+    unarchive_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_UNARCHIVE_BODY, RPC_THREAD_UNARCHIVE_BODY_LEN, &NEEDLE_THREAD, NEEDLE_THREAD_LEN)
+    is_unarchive_ok = eq unarchive_ok, 1
+    !unarchive_ok
+    br is_unarchive_ok -> L_THREAD_ROLLBACK_REQ, L_FAIL_THREAD_UNARCHIVE
+
+L_THREAD_ROLLBACK_REQ:
+    !is_unarchive_ok
+    rollback_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_ROLLBACK_BODY, RPC_THREAD_ROLLBACK_BODY_LEN, &NEEDLE_THREAD, NEEDLE_THREAD_LEN)
+    is_rollback_ok = eq rollback_ok, 1
+    !rollback_ok
+    br is_rollback_ok -> L_THREAD_FORK_REQ, L_FAIL_THREAD_ROLLBACK
+
+L_THREAD_FORK_REQ:
+    !is_rollback_ok
+    fork_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_FORK_BODY, RPC_THREAD_FORK_BODY_LEN, &NEEDLE_FORKED_FROM, NEEDLE_FORKED_FROM_LEN)
+    is_fork_ok = eq fork_ok, 1
+    !fork_ok
+    br is_fork_ok -> L_FS_MKDIR_REQ, L_FAIL_THREAD_FORK
+
+L_FS_MKDIR_REQ:
+    !is_fork_ok
+    mkdir_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_MKDIR_BODY, RPC_FS_MKDIR_BODY_LEN, &NEEDLE_OK, NEEDLE_OK_LEN)
+    is_mkdir_ok = eq mkdir_ok, 1
+    !mkdir_ok
+    br is_mkdir_ok -> L_FS_WRITE_REQ, L_FAIL_FS_MKDIR
+
+L_FS_WRITE_REQ:
+    !is_mkdir_ok
+    write_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_WRITE_BODY, RPC_FS_WRITE_BODY_LEN, &NEEDLE_OK, NEEDLE_OK_LEN)
+    is_write_ok = eq write_ok, 1
+    !write_ok
+    br is_write_ok -> L_FS_READ_REQ, L_FAIL_FS_WRITE
+
+L_FS_READ_REQ:
+    !is_write_ok
+    read_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_READ_BODY, RPC_FS_READ_BODY_LEN, &NEEDLE_DATA, NEEDLE_DATA_LEN)
+    is_read_ok = eq read_ok, 1
+    !read_ok
+    br is_read_ok -> L_FS_READDIR_FILE_REQ, L_FAIL_FS_READ
+
+L_FS_READDIR_FILE_REQ:
+    !is_read_ok
+    readdir_file_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_READDIR_BODY, RPC_FS_READDIR_BODY_LEN, &NEEDLE_FILE, NEEDLE_FILE_LEN)
+    is_readdir_file_ok = eq readdir_file_ok, 1
+    !readdir_file_ok
+    br is_readdir_file_ok -> L_FS_READDIR_TYPE_REQ, L_FAIL_FS_READDIR_FILE
+
+L_FS_READDIR_TYPE_REQ:
+    !is_readdir_file_ok
+    readdir_type_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_READDIR_BODY, RPC_FS_READDIR_BODY_LEN, &NEEDLE_IS_FILE, NEEDLE_IS_FILE_LEN)
+    is_readdir_type_ok = eq readdir_type_ok, 1
+    !readdir_type_ok
+    br is_readdir_type_ok -> L_FS_METADATA_REQ, L_FAIL_FS_READDIR_TYPE
+
+L_FS_METADATA_REQ:
+    !is_readdir_type_ok
+    metadata_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_METADATA_BODY, RPC_FS_METADATA_BODY_LEN, &NEEDLE_IS_FILE, NEEDLE_IS_FILE_LEN)
+    is_metadata_ok = eq metadata_ok, 1
+    !metadata_ok
+    br is_metadata_ok -> L_FS_COPY_REQ, L_FAIL_FS_METADATA
+
+L_FS_COPY_REQ:
+    !is_metadata_ok
+    copy_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_COPY_BODY, RPC_FS_COPY_BODY_LEN, &NEEDLE_OK, NEEDLE_OK_LEN)
+    is_copy_ok = eq copy_ok, 1
+    !copy_ok
+    br is_copy_ok -> L_FS_READ_COPY_REQ, L_FAIL_FS_COPY
+
+L_FS_READ_COPY_REQ:
+    !is_copy_ok
+    read_copy_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_READ_COPY_BODY, RPC_FS_READ_COPY_BODY_LEN, &NEEDLE_DATA, NEEDLE_DATA_LEN)
+    is_read_copy_ok = eq read_copy_ok, 1
+    !read_copy_ok
+    br is_read_copy_ok -> L_FS_WATCH_REQ, L_FAIL_FS_READ_COPY
+
+L_FS_WATCH_REQ:
+    !is_read_copy_ok
+    watch_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_WATCH_BODY, RPC_FS_WATCH_BODY_LEN, &NEEDLE_WATCH_PATH, NEEDLE_WATCH_PATH_LEN)
+    is_watch_ok = eq watch_ok, 1
+    !watch_ok
+    br is_watch_ok -> L_FS_UNWATCH_REQ, L_FAIL_FS_WATCH
+
+L_FS_UNWATCH_REQ:
+    !is_watch_ok
+    unwatch_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_UNWATCH_BODY, RPC_FS_UNWATCH_BODY_LEN, &NEEDLE_OK, NEEDLE_OK_LEN)
+    is_unwatch_ok = eq unwatch_ok, 1
+    !unwatch_ok
+    br is_unwatch_ok -> L_FS_REMOVE_REQ, L_FAIL_FS_UNWATCH
+
+L_FS_REMOVE_REQ:
+    !is_unwatch_ok
+    remove_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_REMOVE_BODY, RPC_FS_REMOVE_BODY_LEN, &NEEDLE_OK, NEEDLE_OK_LEN)
+    is_remove_ok = eq remove_ok, 1
+    !remove_ok
+    br is_remove_ok -> L_THREAD_LOADED_REQ, L_FAIL_FS_REMOVE
+
+L_THREAD_LOADED_REQ:
+    !is_remove_ok
+    loaded_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_LOADED_BODY, RPC_THREAD_LOADED_BODY_LEN, &NEEDLE_NEXT_CURSOR, NEEDLE_NEXT_CURSOR_LEN)
+    is_loaded_ok = eq loaded_ok, 1
+    !loaded_ok
+    br is_loaded_ok -> L_TURN_ITEMS_REQ, L_FAIL_THREAD_LOADED
+
+L_TURN_ITEMS_REQ:
+    !is_loaded_ok
+    turn_items_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_TURN_ITEMS_BODY, RPC_TURN_ITEMS_BODY_LEN, &NEEDLE_BACK_CURSOR, NEEDLE_BACK_CURSOR_LEN)
+    is_turn_items_ok = eq turn_items_ok, 1
+    !turn_items_ok
+    br is_turn_items_ok -> L_THREAD_INJECT_REQ, L_FAIL_TURN_ITEMS
+
+L_THREAD_INJECT_REQ:
+    !is_turn_items_ok
+    inject_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_INJECT_BODY, RPC_THREAD_INJECT_BODY_LEN, &NEEDLE_INJECTED_COUNT, NEEDLE_INJECTED_COUNT_LEN)
+    is_inject_ok = eq inject_ok, 1
+    !inject_ok
+    br is_inject_ok -> L_MEMORY_RESET_REQ, L_FAIL_THREAD_INJECT_LOCAL
+
+L_FAIL_THREAD_INJECT_LOCAL:
+    !is_inject_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(292)
+
+L_MEMORY_RESET_REQ:
+    !is_inject_ok
+    memory_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MEMORY_RESET_BODY, RPC_MEMORY_RESET_BODY_LEN, &NEEDLE_RESET, NEEDLE_RESET_LEN)
+    is_memory_ok = eq memory_ok, 1
+    !memory_ok
+    br is_memory_ok -> L_HOOKS_LIST_REQ, L_FAIL_MEMORY_RESET
+
+L_HOOKS_LIST_REQ:
+    !is_memory_ok
+    hooks_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_HOOKS_LIST_BODY, RPC_HOOKS_LIST_BODY_LEN, &NEEDLE_HOOKS, NEEDLE_HOOKS_LEN)
+    is_hooks_ok = eq hooks_ok, 1
+    !hooks_ok
+    br is_hooks_ok -> L_CONFIG_READ_HOST_REQ, L_FAIL_HOOKS_LIST
+
+L_CONFIG_READ_HOST_REQ:
+    !is_hooks_ok
+    config_host_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_CONFIG_READ_BODY, RPC_CONFIG_READ_BODY_LEN, &NEEDLE_CONFIG_HOST, NEEDLE_CONFIG_HOST_LEN)
+    is_config_host_ok = eq config_host_ok, 1
+    !config_host_ok
+    br is_config_host_ok -> L_CONFIG_READ_PORT_REQ, L_FAIL_CONFIG_READ_HOST
+
+L_CONFIG_READ_PORT_REQ:
+    !is_config_host_ok
+    config_port_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_CONFIG_READ_BODY, RPC_CONFIG_READ_BODY_LEN, &NEEDLE_CONFIG_PORT, NEEDLE_CONFIG_PORT_LEN)
+    is_config_port_ok = eq config_port_ok, 1
+    !config_port_ok
+    br is_config_port_ok -> L_SKILLS_LIST_REQ, L_FAIL_CONFIG_READ_PORT
+
+L_SKILLS_LIST_REQ:
+    !is_config_port_ok
+    skills_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_SKILLS_LIST_BODY, RPC_SKILLS_LIST_BODY_LEN, &NEEDLE_SKILLS_EMPTY, NEEDLE_SKILLS_EMPTY_LEN)
+    is_skills_ok = eq skills_ok, 1
+    !skills_ok
+    br is_skills_ok -> L_PLUGIN_LIST_REQ, L_FAIL_SKILLS_LIST
+
+L_PLUGIN_LIST_REQ:
+    !is_skills_ok
+    plugin_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_LIST_BODY, RPC_PLUGIN_LIST_BODY_LEN, &NEEDLE_PLUGIN_MARKETPLACES, NEEDLE_PLUGIN_MARKETPLACES_LEN)
+    is_plugin_ok = eq plugin_ok, 1
+    !plugin_ok
+    br is_plugin_ok -> L_MODEL_CAP_REQ, L_FAIL_PLUGIN_LIST
+
+L_MODEL_CAP_REQ:
+    !is_plugin_ok
+    model_cap_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MODEL_CAP_BODY, RPC_MODEL_CAP_BODY_LEN, &NEEDLE_MODEL_CAP, NEEDLE_MODEL_CAP_LEN)
+    is_model_cap_ok = eq model_cap_ok, 1
+    !model_cap_ok
+    br is_model_cap_ok -> L_COLLAB_REQ, L_FAIL_MODEL_CAP
+
+L_COLLAB_REQ:
+    !is_model_cap_ok
+    collab_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_COLLAB_BODY, RPC_COLLAB_BODY_LEN, &NEEDLE_COLLAB_PLAN, NEEDLE_COLLAB_PLAN_LEN)
+    is_collab_ok = eq collab_ok, 1
+    !collab_ok
+    br is_collab_ok -> L_WINDOWS_READY_REQ, L_FAIL_COLLAB
+
+L_WINDOWS_READY_REQ:
+    !is_collab_ok
+    windows_ready_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_WINDOWS_READY_BODY, RPC_WINDOWS_READY_BODY_LEN, &NEEDLE_WINDOWS_READY, NEEDLE_WINDOWS_READY_LEN)
+    is_windows_ready_ok = eq windows_ready_ok, 1
+    !windows_ready_ok
+    br is_windows_ready_ok -> L_PLUGIN_SHARE_LIST_REQ, L_FAIL_WINDOWS_READY
+
+L_PLUGIN_SHARE_LIST_REQ:
+    !is_windows_ready_ok
+    plugin_share_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_SHARE_LIST_BODY, RPC_PLUGIN_SHARE_LIST_BODY_LEN, &NEEDLE_NEXT_CURSOR, NEEDLE_NEXT_CURSOR_LEN)
+    is_plugin_share_ok = eq plugin_share_ok, 1
+    !plugin_share_ok
+    br is_plugin_share_ok -> L_ACCOUNT_LOGOUT_REQ, L_FAIL_PLUGIN_SHARE_LIST
+
+L_ACCOUNT_LOGOUT_REQ:
+    !is_plugin_share_ok
+    logout_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_ACCOUNT_LOGOUT_BODY, RPC_ACCOUNT_LOGOUT_BODY_LEN, &NEEDLE_LOGGED_OUT, NEEDLE_LOGGED_OUT_LEN)
+    is_logout_ok = eq logout_ok, 1
+    !logout_ok
+    br is_logout_ok -> L_ACCOUNT_RATE_LIMITS_REQ, L_FAIL_ACCOUNT_LOGOUT
+
+L_ACCOUNT_RATE_LIMITS_REQ:
+    !is_logout_ok
+    rate_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_ACCOUNT_RATE_LIMITS_BODY, RPC_ACCOUNT_RATE_LIMITS_BODY_LEN, &NEEDLE_RATE_LIMITS, NEEDLE_RATE_LIMITS_LEN)
+    is_rate_ok = eq rate_ok, 1
+    !rate_ok
+    br is_rate_ok -> L_ATTEST_REQ, L_FAIL_ACCOUNT_RATE_LIMITS
+
+L_ATTEST_REQ:
+    !is_rate_ok
+    attest_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_ATTEST_BODY, RPC_ATTEST_BODY_LEN, &NEEDLE_ATTEST, NEEDLE_ATTEST_LEN)
+    is_attest_ok = eq attest_ok, 1
+    !attest_ok
+    br is_attest_ok -> L_ITEM_CMD_APPROVAL_REQ, L_FAIL_ATTEST
+
+L_ITEM_CMD_APPROVAL_REQ:
+    !is_attest_ok
+    cmd_approval_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_ITEM_CMD_APPROVAL_BODY, RPC_ITEM_CMD_APPROVAL_BODY_LEN, &NEEDLE_DECISION_ACCEPT, NEEDLE_DECISION_ACCEPT_LEN)
+    is_cmd_approval_ok = eq cmd_approval_ok, 1
+    !cmd_approval_ok
+    br is_cmd_approval_ok -> L_MCP_ELICIT_REQ, L_FAIL_ITEM_CMD_APPROVAL
+
+L_MCP_ELICIT_REQ:
+    !is_cmd_approval_ok
+    mcp_elicit_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_ELICIT_BODY, RPC_MCP_ELICIT_BODY_LEN, &NEEDLE_MCP_ACCEPT, NEEDLE_MCP_ACCEPT_LEN)
+    is_mcp_elicit_ok = eq mcp_elicit_ok, 1
+    !mcp_elicit_ok
+    br is_mcp_elicit_ok -> L_PERMISSIONS_REQ, L_FAIL_MCP_ELICIT
+
+L_PERMISSIONS_REQ:
+    !is_mcp_elicit_ok
+    permissions_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PERMISSIONS_BODY, RPC_PERMISSIONS_BODY_LEN, &NEEDLE_PERMISSIONS_SCOPE, NEEDLE_PERMISSIONS_SCOPE_LEN)
+    is_permissions_ok = eq permissions_ok, 1
+    !permissions_ok
+    br is_permissions_ok -> L_CONFIG_WRITE_REQ, L_FAIL_PERMISSIONS
+
+L_CONFIG_WRITE_REQ:
+    !is_permissions_ok
+    config_write_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_CONFIG_WRITE_BODY, RPC_CONFIG_WRITE_BODY_LEN, &NEEDLE_CONFIG_WRITE_STATUS, NEEDLE_CONFIG_WRITE_STATUS_LEN)
+    is_config_write_ok = eq config_write_ok, 1
+    !config_write_ok
+    br is_config_write_ok -> L_CONFIG_WRITE_PATH_REQ, L_FAIL_CONFIG_WRITE
+
+L_CONFIG_WRITE_PATH_REQ:
+    !is_config_write_ok
+    config_path_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_CONFIG_WRITE_BODY, RPC_CONFIG_WRITE_BODY_LEN, &NEEDLE_CONFIG_WRITE_PATH, NEEDLE_CONFIG_WRITE_PATH_LEN)
+    is_config_path_ok = eq config_path_ok, 1
+    !config_path_ok
+    br is_config_path_ok -> L_PLUGIN_READ_NAME_REQ, L_FAIL_CONFIG_WRITE_PATH
+
+L_PLUGIN_READ_NAME_REQ:
+    !is_config_path_ok
+    plugin_read_name_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_READ_BODY, RPC_PLUGIN_READ_BODY_LEN, &NEEDLE_PLUGIN_NAME, NEEDLE_PLUGIN_NAME_LEN)
+    is_plugin_read_name_ok = eq plugin_read_name_ok, 1
+    !plugin_read_name_ok
+    br is_plugin_read_name_ok -> L_PLUGIN_READ_MARKET_REQ, L_FAIL_PLUGIN_READ_NAME
+
+L_PLUGIN_READ_MARKET_REQ:
+    !is_plugin_read_name_ok
+    plugin_read_market_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_READ_BODY, RPC_PLUGIN_READ_BODY_LEN, &NEEDLE_MARKETPLACE_LOCAL, NEEDLE_MARKETPLACE_LOCAL_LEN)
+    is_plugin_read_market_ok = eq plugin_read_market_ok, 1
+    !plugin_read_market_ok
+    br is_plugin_read_market_ok -> L_PLUGIN_SHARE_SAVE_REQ, L_FAIL_PLUGIN_READ_MARKET
+
+L_PLUGIN_SHARE_SAVE_REQ:
+    !is_plugin_read_market_ok
+    plugin_share_save_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_SHARE_SAVE_BODY, RPC_PLUGIN_SHARE_SAVE_BODY_LEN, &NEEDLE_DISCOVERABILITY, NEEDLE_DISCOVERABILITY_LEN)
+    is_plugin_share_save_ok = eq plugin_share_save_ok, 1
+    !plugin_share_save_ok
+    br is_plugin_share_save_ok -> L_PLUGIN_SHARE_UPDATE_REQ, L_FAIL_PLUGIN_SHARE_SAVE
+
+L_PLUGIN_SHARE_UPDATE_REQ:
+    !is_plugin_share_save_ok
+    plugin_share_update_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_SHARE_UPDATE_BODY, RPC_PLUGIN_SHARE_UPDATE_BODY_LEN, &NEEDLE_PRINCIPALS_EMPTY, NEEDLE_PRINCIPALS_EMPTY_LEN)
+    is_plugin_share_update_ok = eq plugin_share_update_ok, 1
+    !plugin_share_update_ok
+    br is_plugin_share_update_ok -> L_PLUGIN_SHARE_CHECKOUT_MARKET_REQ, L_FAIL_PLUGIN_SHARE_UPDATE
+
+L_PLUGIN_SHARE_CHECKOUT_MARKET_REQ:
+    !is_plugin_share_update_ok
+    plugin_checkout_market_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_SHARE_CHECKOUT_BODY, RPC_PLUGIN_SHARE_CHECKOUT_BODY_LEN, &NEEDLE_MARKETPLACE_ECHO, NEEDLE_MARKETPLACE_ECHO_LEN)
+    is_plugin_checkout_market_ok = eq plugin_checkout_market_ok, 1
+    !plugin_checkout_market_ok
+    br is_plugin_checkout_market_ok -> L_PLUGIN_SHARE_CHECKOUT_PLUGIN_REQ, L_FAIL_PLUGIN_CHECKOUT_MARKET
+
+L_PLUGIN_SHARE_CHECKOUT_PLUGIN_REQ:
+    !is_plugin_checkout_market_ok
+    plugin_checkout_plugin_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_SHARE_CHECKOUT_BODY, RPC_PLUGIN_SHARE_CHECKOUT_BODY_LEN, &NEEDLE_PLUGIN_ECHO, NEEDLE_PLUGIN_ECHO_LEN)
+    is_plugin_checkout_plugin_ok = eq plugin_checkout_plugin_ok, 1
+    !plugin_checkout_plugin_ok
+    br is_plugin_checkout_plugin_ok -> L_PLUGIN_SHARE_DELETE_REQ, L_FAIL_PLUGIN_CHECKOUT_PLUGIN
+
+L_PLUGIN_SHARE_DELETE_REQ:
+    !is_plugin_checkout_plugin_ok
+    plugin_share_delete_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_SHARE_DELETE_BODY, RPC_PLUGIN_SHARE_DELETE_BODY_LEN, &NEEDLE_REMOTE_ECHO, NEEDLE_REMOTE_ECHO_LEN)
+    is_plugin_share_delete_ok = eq plugin_share_delete_ok, 1
+    !plugin_share_delete_ok
+    br is_plugin_share_delete_ok -> L_PLUGIN_UNINSTALL_REQ, L_FAIL_PLUGIN_SHARE_DELETE
+
+L_PLUGIN_UNINSTALL_REQ:
+    !is_plugin_share_delete_ok
+    plugin_uninstall_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PLUGIN_UNINSTALL_BODY, RPC_PLUGIN_UNINSTALL_BODY_LEN, &NEEDLE_UNINSTALLED, NEEDLE_UNINSTALLED_LEN)
+    is_plugin_uninstall_ok = eq plugin_uninstall_ok, 1
+    !plugin_uninstall_ok
+    br is_plugin_uninstall_ok -> L_MARKETPLACE_ADD_REQ, L_FAIL_PLUGIN_UNINSTALL
+
+L_MARKETPLACE_ADD_REQ:
+    !is_plugin_uninstall_ok
+    marketplace_add_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MARKETPLACE_ADD_BODY, RPC_MARKETPLACE_ADD_BODY_LEN, &NEEDLE_ALREADY_ADDED, NEEDLE_ALREADY_ADDED_LEN)
+    is_marketplace_add_ok = eq marketplace_add_ok, 1
+    !marketplace_add_ok
+    br is_marketplace_add_ok -> L_MARKETPLACE_REMOVE_REQ, L_FAIL_MARKETPLACE_ADD
+
+L_MARKETPLACE_REMOVE_REQ:
+    !is_marketplace_add_ok
+    marketplace_remove_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MARKETPLACE_REMOVE_BODY, RPC_MARKETPLACE_REMOVE_BODY_LEN, &NEEDLE_MARKETPLACE_ECHO, NEEDLE_MARKETPLACE_ECHO_LEN)
+    is_marketplace_remove_ok = eq marketplace_remove_ok, 1
+    !marketplace_remove_ok
+    br is_marketplace_remove_ok -> L_MARKETPLACE_UPGRADE_REQ, L_FAIL_MARKETPLACE_REMOVE
+
+L_MARKETPLACE_UPGRADE_REQ:
+    !is_marketplace_remove_ok
+    marketplace_upgrade_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MARKETPLACE_UPGRADE_BODY, RPC_MARKETPLACE_UPGRADE_BODY_LEN, &NEEDLE_MARKETPLACE_UPGRADE, NEEDLE_MARKETPLACE_UPGRADE_LEN)
+    is_marketplace_upgrade_ok = eq marketplace_upgrade_ok, 1
+    !marketplace_upgrade_ok
+    br is_marketplace_upgrade_ok -> L_ACCOUNT_LOGIN_START_REQ, L_FAIL_MARKETPLACE_UPGRADE
+
+L_ACCOUNT_LOGIN_START_REQ:
+    !is_marketplace_upgrade_ok
+    login_start_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_ACCOUNT_LOGIN_START_BODY, RPC_ACCOUNT_LOGIN_START_BODY_LEN, &NEEDLE_LOGIN_STARTED, NEEDLE_LOGIN_STARTED_LEN)
+    is_login_start_ok = eq login_start_ok, 1
+    !login_start_ok
+    br is_login_start_ok -> L_ENVIRONMENT_ADD_REQ, L_FAIL_ACCOUNT_LOGIN_START
+
+L_ENVIRONMENT_ADD_REQ:
+    !is_login_start_ok
+    env_add_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_ENVIRONMENT_ADD_BODY, RPC_ENVIRONMENT_ADD_BODY_LEN, &NEEDLE_ENV_ADDED, NEEDLE_ENV_ADDED_LEN)
+    is_env_add_ok = eq env_add_ok, 1
+    !env_add_ok
+    br is_env_add_ok -> L_ENVIRONMENT_PATH_REQ, L_FAIL_ENVIRONMENT_ADD
+
+L_ENVIRONMENT_PATH_REQ:
+    !is_env_add_ok
+    env_path_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_ENVIRONMENT_ADD_BODY, RPC_ENVIRONMENT_ADD_BODY_LEN, &NEEDLE_ENV_PATH, NEEDLE_ENV_PATH_LEN)
+    is_env_path_ok = eq env_path_ok, 1
+    !env_path_ok
+    br is_env_path_ok -> L_REVIEW_START_REQ, L_FAIL_ENVIRONMENT_PATH
+
+L_REVIEW_START_REQ:
+    !is_env_path_ok
+    review_start_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REVIEW_START_BODY, RPC_REVIEW_START_BODY_LEN, &NEEDLE_REVIEW_THREAD, NEEDLE_REVIEW_THREAD_LEN)
+    is_review_start_ok = eq review_start_ok, 1
+    !review_start_ok
+    br is_review_start_ok -> L_OAUTH_REQ, L_FAIL_REVIEW_START
+
+L_OAUTH_REQ:
+    !is_review_start_ok
+    oauth_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_OAUTH_BODY, RPC_OAUTH_BODY_LEN, &NEEDLE_OAUTH, NEEDLE_OAUTH_LEN)
+    is_oauth_ok = eq oauth_ok, 1
+    !oauth_ok
+    br is_oauth_ok -> L_MOCK_REQ, L_FAIL_OAUTH
+
+L_MOCK_REQ:
+    !is_oauth_ok
+    mock_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MOCK_BODY, RPC_MOCK_BODY_LEN, &NEEDLE_MOCK_ECHO, NEEDLE_MOCK_ECHO_LEN)
+    is_mock_ok = eq mock_ok, 1
+    !mock_ok
+    br is_mock_ok -> L_THREAD_COMPACT_REQ, L_FAIL_MOCK
+
+L_THREAD_COMPACT_REQ:
+    !is_mock_ok
+    compact2_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_COMPACT_BODY, RPC_THREAD_COMPACT_BODY_LEN, &NEEDLE_COMPACTED, NEEDLE_COMPACTED_LEN)
+    is_compact2_ok = eq compact2_ok, 1
+    !compact2_ok
+    br is_compact2_ok -> L_THREAD_SHELL_REQ, L_FAIL_THREAD_COMPACT
+
+L_THREAD_SHELL_REQ:
+    !is_compact2_ok
+    shell_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_SHELL_BODY, RPC_THREAD_SHELL_BODY_LEN, &NEEDLE_QUEUED, NEEDLE_QUEUED_LEN)
+    is_shell_ok = eq shell_ok, 1
+    !shell_ok
+    br is_shell_ok -> L_THREAD_GUARDIAN_REQ, L_FAIL_THREAD_SHELL
+
+L_THREAD_GUARDIAN_REQ:
+    !is_shell_ok
+    guardian_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_GUARDIAN_BODY, RPC_THREAD_GUARDIAN_BODY_LEN, &NEEDLE_APPROVED, NEEDLE_APPROVED_LEN)
+    is_guardian_ok = eq guardian_ok, 1
+    !guardian_ok
+    br is_guardian_ok -> L_THREAD_BG_CLEAN_REQ, L_FAIL_THREAD_GUARDIAN
+
+L_THREAD_BG_CLEAN_REQ:
+    !is_guardian_ok
+    bg_clean_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_BG_CLEAN_BODY, RPC_THREAD_BG_CLEAN_BODY_LEN, &NEEDLE_CLEANED, NEEDLE_CLEANED_LEN)
+    is_bg_clean_ok = eq bg_clean_ok, 1
+    !bg_clean_ok
+    br is_bg_clean_ok -> L_THREAD_MEMORY_MODE_REQ, L_FAIL_THREAD_BG_CLEAN
+
+L_THREAD_MEMORY_MODE_REQ:
+    !is_bg_clean_ok
+    memory_mode_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_MEMORY_MODE_BODY, RPC_THREAD_MEMORY_MODE_BODY_LEN, &NEEDLE_MEMORY_MODE, NEEDLE_MEMORY_MODE_LEN)
+    is_memory_mode_ok = eq memory_mode_ok, 1
+    !memory_mode_ok
+    br is_memory_mode_ok -> L_SEND_CREDITS_REQ, L_FAIL_THREAD_MEMORY_MODE
+
+L_SEND_CREDITS_REQ:
+    !is_memory_mode_ok
+    send_credits_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_SEND_CREDITS_BODY, RPC_SEND_CREDITS_BODY_LEN, &NEEDLE_EMAIL, NEEDLE_EMAIL_LEN)
+    is_send_credits_ok = eq send_credits_ok, 1
+    !send_credits_ok
+    br is_send_credits_ok -> L_USER_INPUT_REQ, L_FAIL_SEND_CREDITS
+
+L_USER_INPUT_REQ:
+    !is_send_credits_ok
+    user_input_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_USER_INPUT_BODY, RPC_USER_INPUT_BODY_LEN, &NEEDLE_ANSWERS, NEEDLE_ANSWERS_LEN)
+    is_user_input_ok = eq user_input_ok, 1
+    !user_input_ok
+    br is_user_input_ok -> L_TOOL_RUN_REQ, L_FAIL_USER_INPUT
+
+L_TOOL_RUN_REQ:
+    !is_user_input_ok
+    tool_run_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_TOOL_RUN_BODY, RPC_TOOL_RUN_BODY_LEN, &NEEDLE_TOOL_SUCCESS, NEEDLE_TOOL_SUCCESS_LEN)
+    is_tool_run_ok = eq tool_run_ok, 1
+    !tool_run_ok
+    br is_tool_run_ok -> L_TOOL_RUN_MSG_REQ, L_FAIL_TOOL_RUN
+
+L_TOOL_RUN_MSG_REQ:
+    !is_tool_run_ok
+    tool_msg_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_TOOL_RUN_BODY, RPC_TOOL_RUN_BODY_LEN, &NEEDLE_TOOL_MSG, NEEDLE_TOOL_MSG_LEN)
+    is_tool_msg_ok = eq tool_msg_ok, 1
+    !tool_msg_ok
+    br is_tool_msg_ok -> L_EXTERNAL_DETECT_REQ, L_FAIL_TOOL_MSG
+
+L_EXTERNAL_DETECT_REQ:
+    !is_tool_msg_ok
+    external_detect_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_EXTERNAL_DETECT_BODY, RPC_EXTERNAL_DETECT_BODY_LEN, &NEEDLE_AGENTS_MD, NEEDLE_AGENTS_MD_LEN)
+    is_external_detect_ok = eq external_detect_ok, 1
+    !external_detect_ok
+    br is_external_detect_ok -> L_EXTERNAL_DETECT_CWD_REQ, L_FAIL_EXTERNAL_DETECT
+
+L_EXTERNAL_DETECT_CWD_REQ:
+    !is_external_detect_ok
+    external_cwd_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_EXTERNAL_DETECT_BODY, RPC_EXTERNAL_DETECT_BODY_LEN, &NEEDLE_CWD_ABS, NEEDLE_CWD_ABS_LEN)
+    is_external_cwd_ok = eq external_cwd_ok, 1
+    !external_cwd_ok
+    br is_external_cwd_ok -> L_EXTERNAL_IMPORT_REQ, L_FAIL_EXTERNAL_CWD
+
+L_EXTERNAL_IMPORT_REQ:
+    !is_external_cwd_ok
+    external_import_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_EXTERNAL_IMPORT_BODY, RPC_EXTERNAL_IMPORT_BODY_LEN, &NEEDLE_IMPORTED, NEEDLE_IMPORTED_LEN)
+    is_external_import_ok = eq external_import_ok, 1
+    !external_import_ok
+    br is_external_import_ok -> L_REALTIME_VOICES_REQ, L_FAIL_EXTERNAL_IMPORT
+
+L_REALTIME_VOICES_REQ:
+    !is_external_import_ok
+    voices_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REALTIME_VOICES_BODY, RPC_REALTIME_VOICES_BODY_LEN, &NEEDLE_ALLOY, NEEDLE_ALLOY_LEN)
+    is_voices_ok = eq voices_ok, 1
+    !voices_ok
+    br is_voices_ok -> L_MCP_STATUS_REQ, L_FAIL_REALTIME_VOICES
+
+L_MCP_STATUS_REQ:
+    !is_voices_ok
+    mcp_status_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_STATUS_BODY, RPC_MCP_STATUS_BODY_LEN, &NEEDLE_AUTH_UNSUPPORTED, NEEDLE_AUTH_UNSUPPORTED_LEN)
+    is_mcp_status_ok = eq mcp_status_ok, 1
+    !mcp_status_ok
+    br is_mcp_status_ok -> L_MCP_RESOURCE_REQ, L_FAIL_MCP_STATUS
+
+L_MCP_RESOURCE_REQ:
+    !is_mcp_status_ok
+    mcp_resource_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_RESOURCE_BODY, RPC_MCP_RESOURCE_BODY_LEN, &NEEDLE_URI, NEEDLE_URI_LEN)
+    is_mcp_resource_ok = eq mcp_resource_ok, 1
+    !mcp_resource_ok
+    br is_mcp_resource_ok -> L_REMOTE_ENABLE_REQ, L_FAIL_MCP_RESOURCE
+
+L_REMOTE_ENABLE_REQ:
+    !is_mcp_resource_ok
+    remote_enable_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REMOTE_ENABLE_BODY, RPC_REMOTE_ENABLE_BODY_LEN, &NEEDLE_CONNECTED, NEEDLE_CONNECTED_LEN)
+    is_remote_enable_ok = eq remote_enable_ok, 1
+    !remote_enable_ok
+    br is_remote_enable_ok -> L_REMOTE_SERVER_REQ, L_FAIL_REMOTE_ENABLE
+
+L_REMOTE_SERVER_REQ:
+    !is_remote_enable_ok
+    remote_server_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REMOTE_ENABLE_BODY, RPC_REMOTE_ENABLE_BODY_LEN, &NEEDLE_REMOTE_SERVER, NEEDLE_REMOTE_SERVER_LEN)
+    is_remote_server_ok = eq remote_server_ok, 1
+    !remote_server_ok
+    br is_remote_server_ok -> L_REMOTE_INSTALL_REQ, L_FAIL_REMOTE_SERVER
+
+L_REMOTE_INSTALL_REQ:
+    !is_remote_server_ok
+    remote_install_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REMOTE_ENABLE_BODY, RPC_REMOTE_ENABLE_BODY_LEN, &NEEDLE_REMOTE_INSTALL, NEEDLE_REMOTE_INSTALL_LEN)
+    is_remote_install_ok = eq remote_install_ok, 1
+    !remote_install_ok
+    br is_remote_install_ok -> L_REMOTE_ENV_REQ, L_FAIL_REMOTE_INSTALL
+
+L_REMOTE_ENV_REQ:
+    !is_remote_install_ok
+    remote_env_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REMOTE_ENABLE_BODY, RPC_REMOTE_ENABLE_BODY_LEN, &NEEDLE_REMOTE_ENV, NEEDLE_REMOTE_ENV_LEN)
+    is_remote_env_ok = eq remote_env_ok, 1
+    !remote_env_ok
+    br is_remote_env_ok -> L_WINDOWS_SETUP_REQ, L_FAIL_REMOTE_ENV
+
+L_WINDOWS_SETUP_REQ:
+    !is_remote_env_ok
+    windows_setup_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_WINDOWS_SETUP_BODY, RPC_WINDOWS_SETUP_BODY_LEN, &NEEDLE_STARTED_TRUE, NEEDLE_STARTED_TRUE_LEN)
+    is_windows_setup_ok = eq windows_setup_ok, 1
+    !windows_setup_ok
+    br is_windows_setup_ok -> L_FUZZY_REQ, L_FAIL_WINDOWS_SETUP
+
+L_FUZZY_REQ:
+    !is_windows_setup_ok
+    fuzzy_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FUZZY_BODY, RPC_FUZZY_BODY_LEN, &NEEDLE_QUERY_MAIN, NEEDLE_QUERY_MAIN_LEN)
+    is_fuzzy_ok = eq fuzzy_ok, 1
+    !fuzzy_ok
+    br is_fuzzy_ok -> L_FUZZY_PATH_REQ, L_FAIL_FUZZY
+
+L_FUZZY_PATH_REQ:
+    !is_fuzzy_ok
+    fuzzy_path_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FUZZY_BODY, RPC_FUZZY_BODY_LEN, &NEEDLE_FUZZY_PATH, NEEDLE_FUZZY_PATH_LEN)
+    is_fuzzy_path_ok = eq fuzzy_path_ok, 1
+    !fuzzy_path_ok
+    br is_fuzzy_path_ok -> L_FUZZY_START_REQ, L_FAIL_FUZZY_PATH
+
+L_FUZZY_START_REQ:
+    !is_fuzzy_path_ok
+    fuzzy_start_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FUZZY_START_BODY, RPC_FUZZY_START_BODY_LEN, &NEEDLE_SESSION, NEEDLE_SESSION_LEN)
+    is_fuzzy_start_ok = eq fuzzy_start_ok, 1
+    !fuzzy_start_ok
+    br is_fuzzy_start_ok -> L_FUZZY_STOP_REQ, L_FAIL_FUZZY_START
+
+L_FUZZY_STOP_REQ:
+    !is_fuzzy_start_ok
+    fuzzy_stop_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FUZZY_STOP_BODY, RPC_FUZZY_STOP_BODY_LEN, &NEEDLE_STOPPED, NEEDLE_STOPPED_LEN)
+    is_fuzzy_stop_ok = eq fuzzy_stop_ok, 1
+    !fuzzy_stop_ok
+    br is_fuzzy_stop_ok -> L_SERVER_RESOLVED_REQ, L_FAIL_FUZZY_STOP
+
+L_SERVER_RESOLVED_REQ:
+    !is_fuzzy_stop_ok
+    server_resolved_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_SERVER_RESOLVED_BODY, RPC_SERVER_RESOLVED_BODY_LEN, &NEEDLE_REQUEST_ID, NEEDLE_REQUEST_ID_LEN)
+    is_server_resolved_ok = eq server_resolved_ok, 1
+    !server_resolved_ok
+    br is_server_resolved_ok -> L_WORLD_WARN_REQ, L_FAIL_SERVER_RESOLVED
+
+L_WORLD_WARN_REQ:
+    !is_server_resolved_ok
+    world_warn_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_WORLD_WARN_BODY, RPC_WORLD_WARN_BODY_LEN, &NEEDLE_WARNED, NEEDLE_WARNED_LEN)
+    is_world_warn_ok = eq world_warn_ok, 1
+    !world_warn_ok
+    br is_world_warn_ok -> L_COMMAND_WRITE_REQ2, L_FAIL_WORLD_WARN
+
+L_COMMAND_WRITE_REQ2:
+    !is_world_warn_ok
+    command_write_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_COMMAND_WRITE_BODY, RPC_COMMAND_WRITE_BODY_LEN, &NEEDLE_OK_TRUE, NEEDLE_OK_TRUE_LEN)
+    is_command_write_ok = eq command_write_ok, 1
+    !command_write_ok
+    br is_command_write_ok -> L_PROCESS_SPAWN_REQ, L_FAIL_COMMAND_WRITE
+
+L_PROCESS_SPAWN_REQ:
+    !is_command_write_ok
+    process_spawn_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_PROCESS_SPAWN_BODY, RPC_PROCESS_SPAWN_BODY_LEN, &NEEDLE_PROCESS_HANDLE, NEEDLE_PROCESS_HANDLE_LEN)
+    is_process_spawn_ok = eq process_spawn_ok, 1
+    !process_spawn_ok
+    br is_process_spawn_ok -> L_REALTIME_START_REQ, L_FAIL_PROCESS_SPAWN
+
+L_REALTIME_START_REQ:
+    !is_process_spawn_ok
+    realtime_start_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REALTIME_START_BODY, RPC_REALTIME_START_BODY_LEN, &NEEDLE_STATUS_COMPLETED, NEEDLE_STATUS_COMPLETED_LEN)
+    is_realtime_start_ok = eq realtime_start_ok, 1
+    !realtime_start_ok
+    br is_realtime_start_ok -> L_REALTIME_AUDIO_REQ, L_FAIL_REALTIME_START
+
+L_REALTIME_AUDIO_REQ:
+    !is_realtime_start_ok
+    realtime_audio_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REALTIME_AUDIO_BODY, RPC_REALTIME_AUDIO_BODY_LEN, &NEEDLE_KIND_AUDIO, NEEDLE_KIND_AUDIO_LEN)
+    is_realtime_audio_ok = eq realtime_audio_ok, 1
+    !realtime_audio_ok
+    br is_realtime_audio_ok -> L_REALTIME_TEXT_REQ, L_FAIL_REALTIME_AUDIO
+
+L_REALTIME_TEXT_REQ:
+    !is_realtime_audio_ok
+    realtime_text_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REALTIME_TEXT_BODY, RPC_REALTIME_TEXT_BODY_LEN, &NEEDLE_KIND_TEXT, NEEDLE_KIND_TEXT_LEN)
+    is_realtime_text_ok = eq realtime_text_ok, 1
+    !realtime_text_ok
+    br is_realtime_text_ok -> L_REALTIME_STOP_REQ, L_FAIL_REALTIME_TEXT
+
+L_REALTIME_STOP_REQ:
+    !is_realtime_text_ok
+    realtime_stop_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_REALTIME_STOP_BODY, RPC_REALTIME_STOP_BODY_LEN, &NEEDLE_STOPPED_TRUE, NEEDLE_STOPPED_TRUE_LEN)
+    is_realtime_stop_ok = eq realtime_stop_ok, 1
+    !realtime_stop_ok
+    br is_realtime_stop_ok -> L_MCP_TOOL_REQ, L_FAIL_REALTIME_STOP
+
+L_MCP_TOOL_REQ:
+    !is_realtime_stop_ok
+    mcp_tool_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_STRUCTURED_OK, NEEDLE_STRUCTURED_OK_LEN)
+    is_mcp_tool_ok = eq mcp_tool_ok, 1
+    !mcp_tool_ok
+    br is_mcp_tool_ok -> L_MCP_TOOL_MSG_REQ, L_FAIL_MCP_TOOL
+
+L_MCP_TOOL_MSG_REQ:
+    !is_mcp_tool_ok
+    mcp_msg_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_MSG, NEEDLE_MCP_MSG_LEN)
+    is_mcp_msg_ok = eq mcp_msg_ok, 1
+    !mcp_msg_ok
+    br is_mcp_msg_ok -> L_MCP_TOOL_NAME_REQ, L_FAIL_MCP_MSG
+
+L_MCP_TOOL_NAME_REQ:
+    !is_mcp_msg_ok
+    mcp_tool_name_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_TOOL, NEEDLE_MCP_TOOL_LEN)
+    is_mcp_tool_name_ok = eq mcp_tool_name_ok, 1
+    !mcp_tool_name_ok
+    br is_mcp_tool_name_ok -> L_MCP_TOOL_THREAD_REQ, L_FAIL_MCP_TOOL_NAME
+
+L_MCP_TOOL_THREAD_REQ:
+    !is_mcp_tool_name_ok
+    mcp_thread_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_THREAD, NEEDLE_MCP_THREAD_LEN)
+    is_mcp_thread_ok = eq mcp_thread_ok, 1
+    !mcp_thread_ok
+    br is_mcp_thread_ok -> L_COMMAND_EXEC_EXIT_REQ, L_FAIL_MCP_THREAD
+
+L_COMMAND_EXEC_EXIT_REQ:
+    !is_mcp_thread_ok
+    command_exit_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_COMMAND_EXEC_BODY, RPC_COMMAND_EXEC_BODY_LEN, &NEEDLE_EXIT_ZERO, NEEDLE_EXIT_ZERO_LEN)
+    is_command_exit_ok = eq command_exit_ok, 1
+    !command_exit_ok
+    br is_command_exit_ok -> L_COMMAND_EXEC_STDOUT_REQ, L_FAIL_COMMAND_EXEC_EXIT
+
+L_COMMAND_EXEC_STDOUT_REQ:
+    !is_command_exit_ok
+    command_stdout_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_COMMAND_EXEC_BODY, RPC_COMMAND_EXEC_BODY_LEN, &NEEDLE_STDOUT_HI, NEEDLE_STDOUT_HI_LEN)
+    is_command_stdout_ok = eq command_stdout_ok, 1
+    !command_stdout_ok
+    br is_command_stdout_ok -> L_COMMAND_EXEC_ID_REQ, L_FAIL_COMMAND_EXEC_STDOUT
+
+L_COMMAND_EXEC_ID_REQ:
+    !is_command_stdout_ok
+    command_id_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_COMMAND_EXEC_BODY, RPC_COMMAND_EXEC_BODY_LEN, &NEEDLE_ID_58, NEEDLE_ID_58_LEN)
+    is_command_id_ok = eq command_id_ok, 1
+    !command_id_ok
+    br is_command_id_ok -> L_RPC_UNKNOWN_REQ, L_FAIL_COMMAND_EXEC_ID
+
+L_RPC_UNKNOWN_REQ:
+    !is_command_id_ok
+    unknown_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_READ_EXTRA_BODY, RPC_FS_READ_EXTRA_BODY_LEN, &NEEDLE_METHOD_NOT_FOUND, NEEDLE_METHOD_NOT_FOUND_LEN)
+    is_unknown_ok = eq unknown_ok, 1
+    !unknown_ok
+    br is_unknown_ok -> L_RPC_UNKNOWN_ID_REQ, L_FAIL_RPC_PREFIX_METHOD
+
+L_RPC_UNKNOWN_ID_REQ:
+    !is_unknown_ok
+    unknown_id_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_FS_READ_EXTRA_BODY, RPC_FS_READ_EXTRA_BODY_LEN, &NEEDLE_ID_35, NEEDLE_ID_35_LEN)
+    is_unknown_id_ok = eq unknown_id_ok, 1
+    !unknown_id_ok
+    br is_unknown_id_ok -> L_PASS, L_FAIL_RPC_PREFIX_ID
+
+L_PASS:
+    !is_unknown_id_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    return 0
+
+L_FAIL_CFG:
+    !load_ok
+    !cfg
+    panic(221)
+
+L_FAIL_PORT:
+    !port_ok
+    !cfg
+    panic(222)
+
+L_FAIL_HEALTH:
+    !health_ok
+    !cfg
+    panic(223)
+
+L_FAIL_HEALTH_NO_RESPONSE:
+    !cfg
+    panic(223)
+
+L_FAIL_UNAUTH:
+    !unauth_ok
+    !cfg
+    panic(224)
+
+L_FAIL_MODELS_PUBLIC:
+    !models_public_ok
+    !cfg
+    panic(234)
+
+L_FAIL_CHAT_STATUS:
+    !chat_status_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(235)
+
+L_FAIL_RESP_FALLBACK:
+    !resp_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(244)
+
+L_FAIL_RPC_GET:
+    !rpc_get_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(236)
+
+L_FAIL_AUTH:
+    !token_present
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(225)
+
+L_FAIL_AUTH_RPC:
+    !auth_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(226)
+
+L_FAIL_THREAD_START:
+    !is_thread_start_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(241)
+
+L_FAIL_TURN_START:
+    !is_turn_start_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(242)
+
+L_FAIL_THREAD_READ_TURNS:
+    !is_thread_read_turns_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(254)
+
+L_FAIL_TURN_STEER:
+    !is_turn_steer_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(243)
+
+L_FAIL_THREAD_ARCHIVE:
+    !is_archive_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(244)
+
+L_FAIL_THREAD_UNARCHIVE:
+    !is_unarchive_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(245)
+
+L_FAIL_THREAD_ROLLBACK:
+    !is_rollback_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(246)
+
+L_FAIL_THREAD_NAME_SET:
+    !is_thread_name_set_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(247)
+
+L_FAIL_THREAD_METADATA:
+    !is_thread_metadata_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(248)
+
+L_FAIL_THREAD_INC:
+    !is_thread_inc_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(249)
+
+L_FAIL_THREAD_DEC:
+    !is_thread_dec_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(250)
+
+L_FAIL_GOAL_SET_OBJECTIVE:
+    !is_goal_set_obj_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(338)
+
+L_FAIL_GOAL_SET_BUDGET:
+    !is_goal_set_budget_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(339)
+
+L_FAIL_GOAL_GET_OBJECTIVE:
+    !is_goal_get_obj_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(340)
+
+L_FAIL_GOAL_CLEAR:
+    !is_goal_clear_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(341)
+
+L_FAIL_GOAL_GET_NULL:
+    !is_goal_get_null_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(342)
+
+L_FAIL_THREAD_FORK:
+    !is_fork_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(251)
+
+L_FAIL_FS_MKDIR:
+    !is_mkdir_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(227)
+
+L_FAIL_FS_WRITE:
+    !is_write_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(228)
+
+L_FAIL_FS_READ:
+    !is_read_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(229)
+
+L_FAIL_FS_READDIR_FILE:
+    !is_readdir_file_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(230)
+
+L_FAIL_FS_READDIR_TYPE:
+    !is_readdir_type_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(231)
+
+L_FAIL_FS_METADATA:
+    !is_metadata_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(233)
+
+L_FAIL_FS_COPY:
+    !is_copy_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(234)
+
+L_FAIL_FS_READ_COPY:
+    !is_read_copy_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(235)
+
+L_FAIL_FS_WATCH:
+    !is_watch_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(252)
+
+L_FAIL_FS_UNWATCH:
+    !is_unwatch_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(253)
+
+L_FAIL_FS_REMOVE:
+    !is_remove_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(236)
+
+L_FAIL_THREAD_LOADED:
+    !is_loaded_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(237)
+
+L_FAIL_TURN_ITEMS:
+    !is_turn_items_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(238)
+
+L_FAIL_MEMORY_RESET:
+    !is_memory_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(239)
+
+L_FAIL_HOOKS_LIST:
+    !is_hooks_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(240)
+
+L_FAIL_CONFIG_READ_HOST:
+    !is_config_host_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(260)
+
+L_FAIL_CONFIG_READ_PORT:
+    !is_config_port_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(261)
+
+L_FAIL_SKILLS_LIST:
+    !is_skills_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(262)
+
+L_FAIL_PLUGIN_LIST:
+    !is_plugin_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(263)
+
+L_FAIL_MODEL_CAP:
+    !is_model_cap_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(264)
+
+L_FAIL_COLLAB:
+    !is_collab_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(265)
+
+L_FAIL_WINDOWS_READY:
+    !is_windows_ready_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(266)
+
+L_FAIL_PLUGIN_SHARE_LIST:
+    !is_plugin_share_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(267)
+
+L_FAIL_ACCOUNT_LOGOUT:
+    !is_logout_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(268)
+
+L_FAIL_ACCOUNT_RATE_LIMITS:
+    !is_rate_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(269)
+
+L_FAIL_ATTEST:
+    !is_attest_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(270)
+
+L_FAIL_ITEM_CMD_APPROVAL:
+    !is_cmd_approval_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(271)
+
+L_FAIL_MCP_ELICIT:
+    !is_mcp_elicit_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(272)
+
+L_FAIL_PERMISSIONS:
+    !is_permissions_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(273)
+
+L_FAIL_CONFIG_WRITE:
+    !is_config_write_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(274)
+
+L_FAIL_CONFIG_WRITE_PATH:
+    !is_config_path_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(334)
+
+L_FAIL_PLUGIN_READ_NAME:
+    !is_plugin_read_name_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(275)
+
+L_FAIL_PLUGIN_READ_MARKET:
+    !is_plugin_read_market_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(276)
+
+L_FAIL_PLUGIN_SHARE_SAVE:
+    !is_plugin_share_save_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(277)
+
+L_FAIL_PLUGIN_SHARE_UPDATE:
+    !is_plugin_share_update_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(278)
+
+L_FAIL_PLUGIN_CHECKOUT_MARKET:
+    !is_plugin_checkout_market_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(279)
+
+L_FAIL_PLUGIN_CHECKOUT_PLUGIN:
+    !is_plugin_checkout_plugin_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(280)
+
+L_FAIL_PLUGIN_SHARE_DELETE:
+    !is_plugin_share_delete_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(281)
+
+L_FAIL_PLUGIN_UNINSTALL:
+    !is_plugin_uninstall_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(282)
+
+L_FAIL_MARKETPLACE_ADD:
+    !is_marketplace_add_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(283)
+
+L_FAIL_MARKETPLACE_REMOVE:
+    !is_marketplace_remove_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(284)
+
+L_FAIL_MARKETPLACE_UPGRADE:
+    !is_marketplace_upgrade_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(285)
+
+L_FAIL_ACCOUNT_LOGIN_START:
+    !is_login_start_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(286)
+
+L_FAIL_ENVIRONMENT_ADD:
+    !is_env_add_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(287)
+
+L_FAIL_ENVIRONMENT_PATH:
+    !is_env_path_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(288)
+
+L_FAIL_REVIEW_START:
+    !is_review_start_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(289)
+
+L_FAIL_OAUTH:
+    !is_oauth_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(290)
+
+L_FAIL_MOCK:
+    !is_mock_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(291)
+
+L_FAIL_THREAD_COMPACT:
+    !is_compact2_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(293)
+
+L_FAIL_THREAD_SHELL:
+    !is_shell_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(294)
+
+L_FAIL_THREAD_GUARDIAN:
+    !is_guardian_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(295)
+
+L_FAIL_THREAD_BG_CLEAN:
+    !is_bg_clean_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(296)
+
+L_FAIL_THREAD_MEMORY_MODE:
+    !is_memory_mode_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(297)
+
+L_FAIL_SEND_CREDITS:
+    !is_send_credits_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(298)
+
+L_FAIL_USER_INPUT:
+    !is_user_input_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(299)
+
+L_FAIL_TOOL_RUN:
+    !is_tool_run_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(300)
+
+L_FAIL_TOOL_MSG:
+    !is_tool_msg_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(329)
+
+L_FAIL_EXTERNAL_DETECT:
+    !is_external_detect_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(301)
+
+L_FAIL_EXTERNAL_CWD:
+    !is_external_cwd_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(333)
+
+L_FAIL_EXTERNAL_IMPORT:
+    !is_external_import_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(302)
+
+L_FAIL_REALTIME_VOICES:
+    !is_voices_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(303)
+
+L_FAIL_MCP_STATUS:
+    !is_mcp_status_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(304)
+
+L_FAIL_MCP_RESOURCE:
+    !is_mcp_resource_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(305)
+
+L_FAIL_REMOTE_ENABLE:
+    !is_remote_enable_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(306)
+
+L_FAIL_REMOTE_SERVER:
+    !is_remote_server_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(335)
+
+L_FAIL_REMOTE_INSTALL:
+    !is_remote_install_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(336)
+
+L_FAIL_REMOTE_ENV:
+    !is_remote_env_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(337)
+
+L_FAIL_WINDOWS_SETUP:
+    !is_windows_setup_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(307)
+
+L_FAIL_FUZZY:
+    !is_fuzzy_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(308)
+
+L_FAIL_FUZZY_PATH:
+    !is_fuzzy_path_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(328)
+
+L_FAIL_FUZZY_START:
+    !is_fuzzy_start_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(309)
+
+L_FAIL_FUZZY_STOP:
+    !is_fuzzy_stop_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(310)
+
+L_FAIL_SERVER_RESOLVED:
+    !is_server_resolved_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(311)
+
+L_FAIL_WORLD_WARN:
+    !is_world_warn_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(312)
+
+L_FAIL_COMMAND_WRITE:
+    !is_command_write_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(313)
+
+L_FAIL_PROCESS_SPAWN:
+    !is_process_spawn_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(314)
+
+L_FAIL_REALTIME_START:
+    !is_realtime_start_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(315)
+
+L_FAIL_REALTIME_AUDIO:
+    !is_realtime_audio_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(316)
+
+L_FAIL_REALTIME_TEXT:
+    !is_realtime_text_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(317)
+
+L_FAIL_REALTIME_STOP:
+    !is_realtime_stop_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(318)
+
+L_FAIL_MCP_TOOL:
+    !is_mcp_tool_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(319)
+
+L_FAIL_MCP_MSG:
+    !is_mcp_msg_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(330)
+
+L_FAIL_MCP_TOOL_NAME:
+    !is_mcp_tool_name_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(331)
+
+L_FAIL_MCP_THREAD:
+    !is_mcp_thread_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(332)
+
+L_FAIL_COMMAND_EXEC_EXIT:
+    !is_command_exit_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(241)
+
+L_FAIL_COMMAND_EXEC_STDOUT:
+    !is_command_stdout_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(242)
+
+L_FAIL_COMMAND_EXEC_ID:
+    !is_command_id_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(243)
+
+L_FAIL_RPC_PREFIX_METHOD:
+    !is_unknown_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(232)
+
+L_FAIL_RPC_PREFIX_ID:
+    !is_unknown_id_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(233)

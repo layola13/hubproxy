@@ -1,0 +1,10 @@
+[hubproxy] Initializing SA proxy...
+[config] loaded
+[state] initialized
+[hubproxy] Listening on http://0.0.0.0
+[hubproxy] Health check
+[hubproxy] Health check
+[hubproxy] Auth OK
+[hubproxy] Proxy → /v1/chat/completions
+[hubproxy] Auth OK
+[hubproxy] Proxy → /v1/responses

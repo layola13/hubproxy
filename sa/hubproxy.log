@@ -1,0 +1,54 @@
+[hubproxy] Initializing SA proxy...
+[config] loaded
+[state] initialized
+[hubproxy] Listening on http://0.0.0.0
+[hubproxy] Health check
+[hubproxy] Proxy → /v1/models
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] Proxy → /v1/responses
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call
+[hubproxy] Auth OK
+[hubproxy] RPC call

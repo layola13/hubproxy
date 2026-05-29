@@ -1,0 +1,145 @@
+// test_strings.sa — Unit tests for string utilities
+@import "../src/strings.sa"
+@import "sa_std/io/print.sai"
+
+@const PASS = utf8:"PASS: "
+@const FAIL = utf8:"FAIL: "
+@const TEST_EQ = utf8:"bytes_eq\n"
+#def TEST_EQ_LEN = 9
+@const TEST_FIND = utf8:"bytes_find\n"
+#def TEST_FIND_LEN = 11
+@const TEST_FIND_BYTE = utf8:"bytes_find_byte\n"
+#def TEST_FIND_BYTE_LEN = 16
+@const TEST_COPY = utf8:"bytes_copy\n"
+#def TEST_COPY_LEN = 11
+@const TEST_ATOI = utf8:"bytes_to_u64\n"
+#def TEST_ATOI_LEN = 13
+@const STR_HELLO_A = utf8:"hello"
+@const STR_HELLO_B = utf8:"hello"
+@const STR_WORLD = utf8:"world"
+@const STR_HAY = utf8:"hello world"
+@const STR_NEEDLE_WORLD = utf8:"world"
+@const STR_NEEDLE_XYZ = utf8:"xyz"
+@const STR_LINE = utf8:"KEY=VALUE"
+@const STR_NUM = utf8:"12345"
+
+#def PASS_LEN = 6
+#def FAIL_LEN = 6
+
+@main() -> i32!:
+L_ENTRY:
+    // Test 1: bytes_eq — equal strings
+    eq1 = call @sa_bytes_eq(&STR_HELLO_A, 5, &STR_HELLO_B, 5)
+    is_eq1 = eq eq1, 1
+    !eq1
+    br is_eq1 -> L_TEST1_PASS, L_TEST1_FAIL
+
+L_TEST1_PASS:
+    !is_eq1
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_EQ, TEST_EQ_LEN)
+    jmp L_TEST2
+
+L_TEST1_FAIL:
+    !is_eq1
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_EQ, TEST_EQ_LEN)
+    jmp L_TEST2
+
+// Test 2: bytes_eq — different strings
+L_TEST2:
+    eq2 = call @sa_bytes_eq(&STR_HELLO_A, 5, &STR_WORLD, 5)
+    is_neq = eq eq2, 0
+    !eq2
+    br is_neq -> L_TEST2_PASS, L_TEST2_FAIL
+
+L_TEST2_PASS:
+    !is_neq
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_EQ, TEST_EQ_LEN)
+    jmp L_TEST3
+
+L_TEST2_FAIL:
+    !is_neq
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_EQ, TEST_EQ_LEN)
+    jmp L_TEST3
+
+// Test 3: bytes_find — find substring
+L_TEST3:
+    idx = call @sa_bytes_find(&STR_HAY, 11, &STR_NEEDLE_WORLD, 5)
+    is_6 = eq idx, 6
+    !idx
+    br is_6 -> L_TEST3_PASS, L_TEST3_FAIL
+
+L_TEST3_PASS:
+    !is_6
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_FIND, TEST_FIND_LEN)
+    jmp L_TEST4
+
+L_TEST3_FAIL:
+    !is_6
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_FIND, TEST_FIND_LEN)
+    jmp L_TEST4
+
+// Test 4: bytes_find — not found
+L_TEST4:
+    idx2 = call @sa_bytes_find(&STR_HAY, 11, &STR_NEEDLE_XYZ, 3)
+    is_neg = slt idx2, 0
+    !idx2
+    br is_neg -> L_TEST4_PASS, L_TEST4_FAIL
+
+L_TEST4_PASS:
+    !is_neg
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_FIND, TEST_FIND_LEN)
+    jmp L_TEST5
+
+L_TEST4_FAIL:
+    !is_neg
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_FIND, TEST_FIND_LEN)
+    jmp L_TEST5
+
+// Test 5: bytes_find_byte — find '=' (61)
+L_TEST5:
+    eq_idx = call @sa_bytes_find_byte(&STR_LINE, 9, 61)
+    is_3 = eq eq_idx, 3
+    !eq_idx
+    br is_3 -> L_TEST5_PASS, L_TEST5_FAIL
+
+L_TEST5_PASS:
+    !is_3
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_FIND_BYTE, TEST_FIND_BYTE_LEN)
+    jmp L_TEST6
+
+L_TEST5_FAIL:
+    !is_3
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_FIND_BYTE, TEST_FIND_BYTE_LEN)
+    jmp L_TEST6
+
+// Test 6: bytes_to_u64 — parse "12345"
+L_TEST6:
+    val = call @sa_bytes_to_u64(&STR_NUM, 5)
+    is_12345 = eq val, 12345
+    !val
+    br is_12345 -> L_TEST6_PASS, L_TEST6_FAIL
+
+L_TEST6_PASS:
+    !is_12345
+    call @sa_print_bytes(&PASS, PASS_LEN)
+    call @sa_print_bytes(&TEST_ATOI, TEST_ATOI_LEN)
+    jmp L_TESTS_DONE
+
+L_TEST6_FAIL:
+    !is_12345
+    call @sa_print_bytes(&FAIL, FAIL_LEN)
+    call @sa_print_bytes(&TEST_ATOI, TEST_ATOI_LEN)
+    jmp L_TESTS_DONE
+
+L_TESTS_DONE:
+    return 0

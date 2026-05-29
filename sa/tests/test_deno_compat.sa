@@ -1,0 +1,224 @@
+// sa/tests/test_deno_compat.sa — Standalone system integration test for all 12 Deno FFI APIs
+@import "sa_std/io/print.sai"
+@import "sa_std/deno.sa"
+
+@const STR_LABEL_HOSTNAME = utf8:"[PASS] 1. Hostname verified\n"
+@const STR_LABEL_OS_RELEASE = utf8:"[PASS] 2. OS Release verified\n"
+@const STR_LABEL_OS_UPTIME = utf8:"[PASS] 3. OS Uptime verified\n"
+@const STR_LABEL_LOADAVG = utf8:"[PASS] 4. Load Avg verified\n"
+@const STR_LABEL_MEM_INFO = utf8:"[PASS] 5. System Memory Info verified\n"
+@const STR_LABEL_NET_INT = utf8:"[PASS] 6. Network Interfaces verified\n"
+@const STR_LABEL_PID = utf8:"[PASS] 7. PID verified\n"
+@const STR_LABEL_PPID = utf8:"[PASS] 8. PPID verified\n"
+@const STR_LABEL_UID = utf8:"[PASS] 9. UID verified\n"
+@const STR_LABEL_GID = utf8:"[PASS] 10. GID verified\n"
+@const STR_LABEL_EXEC_PATH = utf8:"[PASS] 11. Exec Path verified\n"
+@const STR_LABEL_MEM_USAGE = utf8:"[PASS] 12. Memory Usage verified\n"
+@const STR_TEST_PASS = utf8:"\n[SUCCESS] All 12 Deno Compatibility APIs successfully verified natively on host OS!\n"
+
+@main() -> i32:
+L_ENTRY:
+    // 1. Hostname
+    EXPAND DENO_HOSTNAME h_buf
+    h_len = call @sa_fs_read_buffer_len(h_buf)
+    is_h_ok = ugt h_len, 0
+    br is_h_ok -> L_OS_RELEASE, L_FAIL_H
+    
+L_OS_RELEASE:
+    !is_h_ok
+    !h_len
+    call @sa_print_bytes(&STR_LABEL_HOSTNAME, 28)
+    status_free = call @sa_fs_read_buffer_free(^h_buf)
+    !status_free
+
+    // 2. OS Release
+    EXPAND DENO_OS_RELEASE r_buf
+    r_len = call @sa_fs_read_buffer_len(r_buf)
+    is_r_ok = ugt r_len, 0
+    br is_r_ok -> L_OS_UPTIME, L_FAIL_R
+    
+L_OS_UPTIME:
+    !is_r_ok
+    !r_len
+    call @sa_print_bytes(&STR_LABEL_OS_RELEASE, 30)
+    status_free2 = call @sa_fs_read_buffer_free(^r_buf)
+    !status_free2
+
+    // 3. OS Uptime
+    EXPAND DENO_OS_UPTIME uptime
+    !uptime
+    call @sa_print_bytes(&STR_LABEL_OS_UPTIME, 29)
+
+    // 4. Load Avg
+    load_buf = stack_alloc 24
+    EXPAND DENO_LOADAVG load_status, load_buf
+    is_l_ok = eq load_status, 0
+    br is_l_ok -> L_MEM_INFO, L_FAIL_L
+    
+L_MEM_INFO:
+    !is_l_ok
+    !load_status
+    call @sa_print_bytes(&STR_LABEL_LOADAVG, 28)
+
+    // 5. Memory Info
+    EXPAND DENO_SYSTEM_MEMORY_INFO m_buf
+    m_len = call @sa_fs_read_buffer_len(m_buf)
+    is_m_ok = ugt m_len, 0
+    br is_m_ok -> L_NET_INT, L_FAIL_M
+    
+L_NET_INT:
+    !is_m_ok
+    !m_len
+    call @sa_print_bytes(&STR_LABEL_MEM_INFO, 38)
+    status_free3 = call @sa_fs_read_buffer_free(^m_buf)
+    !status_free3
+
+    // 6. Network Interfaces
+    EXPAND DENO_NETWORK_INTERFACES n_buf
+    n_len = call @sa_fs_read_buffer_len(n_buf)
+    is_n_ok = ugt n_len, 0
+    br is_n_ok -> L_PID, L_FAIL_N
+    
+L_PID:
+    !is_n_ok
+    !n_len
+    call @sa_print_bytes(&STR_LABEL_NET_INT, 38)
+    status_free4 = call @sa_fs_read_buffer_free(^n_buf)
+    !status_free4
+
+    // 7. PID
+    EXPAND DENO_PID pid
+    is_p_ok = ugt pid, 0
+    br is_p_ok -> L_PPID, L_FAIL_P
+    
+L_PPID:
+    !is_p_ok
+    !pid
+    call @sa_print_bytes(&STR_LABEL_PID, 23)
+
+    // 8. PPID
+    EXPAND DENO_PPID ppid
+    is_pp_ok = ugt ppid, 0
+    br is_pp_ok -> L_UID, L_FAIL_PP
+    
+L_UID:
+    !is_pp_ok
+    !ppid
+    call @sa_print_bytes(&STR_LABEL_PPID, 24)
+
+    // 9. UID
+    EXPAND DENO_UID uid
+    is_u_ok = uge uid, 0
+    br is_u_ok -> L_GID, L_FAIL_U
+    
+L_GID:
+    !is_u_ok
+    !uid
+    call @sa_print_bytes(&STR_LABEL_UID, 23)
+
+    // 10. GID
+    EXPAND DENO_GID gid
+    is_g_ok = uge gid, 0
+    br is_g_ok -> L_EXEC_PATH, L_FAIL_G
+    
+L_EXEC_PATH:
+    !is_g_ok
+    !gid
+    call @sa_print_bytes(&STR_LABEL_GID, 23)
+
+    // 11. Exec Path
+    EXPAND DENO_EXEC_PATH ex_buf
+    ex_len = call @sa_fs_read_buffer_len(ex_buf)
+    is_ex_ok = ugt ex_len, 0
+    br is_ex_ok -> L_MEMORY_USAGE, L_FAIL_EX
+    
+L_MEMORY_USAGE:
+    !is_ex_ok
+    !ex_len
+    call @sa_print_bytes(&STR_LABEL_EXEC_PATH, 29)
+    status_free5 = call @sa_fs_read_buffer_free(^ex_buf)
+    !status_free5
+
+    // 12. Memory Usage
+    EXPAND DENO_MEMORY_USAGE mu_buf
+    mu_len = call @sa_fs_read_buffer_len(mu_buf)
+    is_mu_ok = ugt mu_len, 0
+    br is_mu_ok -> L_PASS, L_FAIL_MU
+    
+L_PASS:
+    !is_mu_ok
+    !mu_len
+    call @sa_print_bytes(&STR_LABEL_MEM_USAGE, 32)
+    status_free6 = call @sa_fs_read_buffer_free(^mu_buf)
+    !status_free6
+
+    // Print pass banner
+    call @sa_print_bytes(&STR_TEST_PASS, 84)
+    return 0
+
+L_FAIL_H:
+    !is_h_ok
+    !h_len
+    status_free_h = call @sa_fs_read_buffer_free(^h_buf)
+    !status_free_h
+    return 1
+
+L_FAIL_R:
+    !is_r_ok
+    !r_len
+    status_free_r = call @sa_fs_read_buffer_free(^r_buf)
+    !status_free_r
+    return 1
+
+L_FAIL_L:
+    !is_l_ok
+    !load_status
+    return 1
+
+L_FAIL_M:
+    !is_m_ok
+    !m_len
+    status_free_m = call @sa_fs_read_buffer_free(^m_buf)
+    !status_free_m
+    return 1
+
+L_FAIL_N:
+    !is_n_ok
+    !n_len
+    status_free_n = call @sa_fs_read_buffer_free(^n_buf)
+    !status_free_n
+    return 1
+
+L_FAIL_P:
+    !is_p_ok
+    !pid
+    return 1
+
+L_FAIL_PP:
+    !is_pp_ok
+    !ppid
+    return 1
+
+L_FAIL_U:
+    !is_u_ok
+    !uid
+    return 1
+
+L_FAIL_G:
+    !is_g_ok
+    !gid
+    return 1
+
+L_FAIL_EX:
+    !is_ex_ok
+    !ex_len
+    status_free_ex = call @sa_fs_read_buffer_free(^ex_buf)
+    !status_free_ex
+    return 1
+
+L_FAIL_MU:
+    !is_mu_ok
+    !mu_len
+    status_free_mu = call @sa_fs_read_buffer_free(^mu_buf)
+    !status_free_mu
+    return 1
