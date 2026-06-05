@@ -2159,6 +2159,21 @@
   `tests/test_thread_resume_envelope.sh`，以及 Python 默认 JSON probe。最终已恢复 SA `hubproxy` 监听
   `0.0.0.0:28080`，Deno 仍监听 `0.0.0.0:27787`。本轮没有发现新的 SA 编译器缺陷；这是 HubProxy RPC 入口
   canonicalization/root-cause 修复。
+- 2026-05-30 继续收口 thread 生命周期回归：在上一轮 whitespace canonicalization 后，补齐 SA native
+  `@test` 覆盖 `thread/fork` 与 `thread/resume`，避免这些 envelope 只靠 shell 回归。`model_list_contract_test.sa`
+  现在覆盖 `thread/start` / `thread/fork` 的 `approvalPolicy`、`approvalsReviewer`、`sandbox` 回显，以及
+  `thread/resume` 的默认值 `never/user/danger-full-access`。真实验证通过：`/home/vscode/.sa/bin/sa test
+  tests/model_list_contract_test.sa --jobs 1`；运行态重启后 `/healthz` 返回 `{"ok":true}`，`thread/start` 与
+  `thread/fork` 在 `28080` 的真实响应都回显了覆盖值，`thread/resume` 回显了默认值，`codex exec "hello"`
+  也在 SA provider 上返回正常 assistant 回复。这个回归主要是在已安装 SCI ReleaseFast 包重新落地后完成的。
+- 2026-05-30 `thread/shellCommand` warning SSE 回归：Deno 端在执行 shell 命令时会发 `warning` 事件，消息必须是
+  `shell command queued: ${command}`，并且携带 `threadId`。SA 之前在 `send_rpc_thread_shell_command`
+  里把 warning 拼成了 JSON 片段，导致事件内容和 Deno 不一致。本轮改为直接用纯文本前缀
+  `shell command queued: ` + 原始 `command`，交给 `state_emit_warning` 统一包装 SSE 帧；同时新增
+  `sa/tests/unit_tests.sa` 的 `state_tracker warning notification frame includes message and threadId`，
+  直接断言 `event: warning`、`message` 和 `threadId` 的完整通知帧。验证通过：
+  `/home/vscode/.sa/bin/sa build main.sa -o hubproxy --json`、`/home/vscode/.sa/bin/sa test tests/unit_tests.sa --jobs 1`、
+  `tests/model_list_contract_test.sa --jobs 1`，以及真实运行态 `/healthz`、`codex exec --config model_provider=sa --config model="mimo-v2.5-pro" "hello"` 和 `/events` 上的 warning 事件。
 - 2026-05-29 HTTP contract 收口复核：`sa/tests/test_http_contract.sa` 仍有几处旧断言落后于当前 Deno/SA 行为，
   包括 `/v1/responses` fallback 不返回顶层 `model` 字段、`initialize` 已返回 runtime info 而不是旧
   `protocolVersion/serverInfo` 形状、`attestation/generate` 和 `thread/realtime/start` 使用动态 UUID、

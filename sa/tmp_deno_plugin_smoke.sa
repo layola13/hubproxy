@@ -1,0 +1,15 @@
+@import "deno.sai"
+
+@main() -> i32:
+L_ENTRY:
+    ptr_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_random_uuid(&ptr_slot, &len_slot)
+    ptr = load ptr_slot+0 as ptr
+    len = load len_slot+0 as u64
+    free_status = call @sa_deno_plugin_free_buffer(ptr, len)
+    !free_status
+    !len
+    !ptr
+    !status
+    return 0

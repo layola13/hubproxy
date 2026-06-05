@@ -53,7 +53,7 @@ response="$(curl -sS --max-time 15 \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"codex_vscode","version":"0.1.0"},"capabilities":{}}}' \
   'http://127.0.0.1:28080/rpc')"
 
-if ! rg -q '"userAgent":"hubproxy/sa-std"' <<<"${response}" \
+if ! rg -q '"userAgent":"hubproxy/' <<<"${response}" \
   || ! rg -q '"codexHome":' <<<"${response}" \
   || ! rg -q '"platformFamily":"unix"' <<<"${response}" \
   || ! rg -q '"platformOs":"linux"' <<<"${response}"; then

@@ -1,6 +1,5 @@
 // SA native @test coverage for Responses -> Chat fallback request construction.
-@import "sa_std/deno.sai"
-@import "sa_std/fs.sai"
+@import "deno.sai"
 @import "../src/strings.sa"
 
 @const RESP_ARRAY_BODY = utf8:"{\"model\":\"models/mimo-v2.5-pro\",\"stream\":false,\"instructions\":\"follow instructions\",\"store\":false,\"prompt_cache_key\":\"drop-me\",\"include\":[\"reasoning.encrypted_content\"],\"reasoning\":{\"effort\":\"medium\"},\"tools\":[{\"type\":\"namespace\",\"name\":\"mcp__code_index__\",\"tools\":[{\"type\":\"function\",\"name\":\"describe_index\",\"parameters\":{\"type\":\"object\"}}]}],\"input\":[{\"type\":\"message\",\"role\":\"developer\",\"content\":[{\"type\":\"input_text\",\"text\":\"dev note\"}]},{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"},{\"type\":\"text\",\"text\":\" world\"}]}]}"
@@ -77,11 +76,15 @@ L_FAIL:
 
 @test "responses input array chat fallback request parity"():
 L_ENTRY:
-    handle = call @sa_deno_responses_chat_fallback_request(&RESP_ARRAY_BODY, RESP_ARRAY_BODY_LEN, &DEFAULT_MODEL, DEFAULT_MODEL_LEN, 0)
-    has_handle = ne handle, 0
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_chat_fallback_request(&RESP_ARRAY_BODY, RESP_ARRAY_BODY_LEN, &DEFAULT_MODEL, DEFAULT_MODEL_LEN, 0, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 389)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
     call @assert_contract(has_handle, 390)
-    data = call @sa_fs_read_buffer_data(handle)
-    len = call @sa_fs_read_buffer_len(handle)
     has_len = ugt len, 0
     call @assert_contract(has_len, 391)
 
@@ -125,12 +128,14 @@ L_ENTRY:
     no_reasoning = slt reasoning_idx, 0
     call @assert_contract(no_reasoning, 399)
 
-    free_status = call @sa_fs_read_buffer_free(^handle)
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
     free_ok = eq free_status, 0
     call @assert_contract(free_ok, 400)
 
     !free_status
     !free_ok
+    !status
+    !status_ok
     !reasoning_idx
     !no_reasoning
     !include_idx
@@ -159,11 +164,15 @@ L_ENTRY:
 
 @test "responses top-level string input chat fallback request parity"():
 L_ENTRY:
-    handle = call @sa_deno_responses_chat_fallback_request(&RESP_STRING_BODY, RESP_STRING_BODY_LEN, &DEFAULT_MODEL, DEFAULT_MODEL_LEN, 0)
-    has_handle = ne handle, 0
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_chat_fallback_request(&RESP_STRING_BODY, RESP_STRING_BODY_LEN, &DEFAULT_MODEL, DEFAULT_MODEL_LEN, 0, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 419)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
     call @assert_contract(has_handle, 420)
-    data = call @sa_fs_read_buffer_data(handle)
-    len = call @sa_fs_read_buffer_len(handle)
     has_len = ugt len, 0
     call @assert_contract(has_len, 421)
 
@@ -195,12 +204,14 @@ L_ENTRY:
     no_input = slt input_idx, 0
     call @assert_contract(no_input, 428)
 
-    free_status = call @sa_fs_read_buffer_free(^handle)
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
     free_ok = eq free_status, 0
     call @assert_contract(free_ok, 429)
 
     !free_status
     !free_ok
+    !status
+    !status_ok
     !input_idx
     !no_input
     !store_idx
@@ -223,11 +234,15 @@ L_ENTRY:
 
 @test "chat fallback SSE keeps message active across multiple deltas"():
 L_ENTRY:
-    handle = call @sa_deno_chat_sse_to_responses(&CHAT_SSE_MULTI_VISIBLE, CHAT_SSE_MULTI_VISIBLE_LEN, &EMPTY_REQ, EMPTY_REQ_LEN)
-    has_handle = ne handle, 0
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_sse_to_responses(&CHAT_SSE_MULTI_VISIBLE, CHAT_SSE_MULTI_VISIBLE_LEN, &EMPTY_REQ, EMPTY_REQ_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 409)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
     call @assert_contract(has_handle, 410)
-    data = call @sa_fs_read_buffer_data(handle)
-    len = call @sa_fs_read_buffer_len(handle)
     has_len = ugt len, 0
     call @assert_contract(has_len, 411)
 
@@ -262,12 +277,14 @@ L_ENTRY:
     no_reason_done_after_msg = slt reason_after_msg_idx, 0
     call @assert_contract(no_reason_done_after_msg, 418)
 
-    free_status = call @sa_fs_read_buffer_free(^handle)
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
     free_ok = eq free_status, 0
     call @assert_contract(free_ok, 419)
 
     !free_status
     !free_ok
+    !status
+    !status_ok
     !reason_after_msg_idx
     !no_reason_done_after_msg
     !after_msg_len

@@ -19,11 +19,11 @@ for name in ("start", "dev", "check"):
     if "src/main.ts" in command or "deno run" in command or "deno check" in command:
         raise SystemExit(f"default task {name!r} still points at Deno: {command}")
 
-if "./restart.sh" not in tasks["start"]:
-    raise SystemExit(f"start task does not use restart.sh: {tasks['start']}")
+if "./restart_sa.sh" not in tasks["start"]:
+    raise SystemExit(f"start task does not use restart_sa.sh: {tasks['start']}")
 if "/home/vscode/.sa/bin/sa build" not in tasks["check"]:
     raise SystemExit(f"check task does not build SA: {tasks['check']}")
-if "/home/vscode/.sa/bin/sa build" not in tasks["dev"] or "../restart.sh" not in tasks["dev"]:
+if "/home/vscode/.sa/bin/sa build" not in tasks["dev"] or "../restart_sa.sh" not in tasks["dev"]:
     raise SystemExit(f"dev task does not build and start SA: {tasks['dev']}")
 
 for name in ("deno:start", "deno:dev", "deno:check"):

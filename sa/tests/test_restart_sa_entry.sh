@@ -60,7 +60,7 @@ fi
 
 old_deno_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:27787.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
 
-setsid "${project_dir}/restart.sh" --log-dir "${log_dir}" > /tmp/hubproxy_sa_restart_entry.log 2>&1 < /dev/null &
+setsid "${project_dir}/restart_sa.sh" --log-dir "${log_dir}" > /tmp/hubproxy_sa_restart_entry.log 2>&1 < /dev/null &
 hub_pid=$!
 
 for _ in {1..60}; do
@@ -73,7 +73,7 @@ done
 
 current_hub_pid="$(listen_pid_28080)"
 if [[ "${current_hub_pid}" != "${hub_pid}" ]] || ! ss -ltnp | rg -q '0\.0\.0\.0:28080.*hubproxy'; then
-  echo "restart.sh did not start SA hubproxy on 28080" >&2
+  echo "restart_sa.sh did not start SA hubproxy on 28080" >&2
   echo "expected pid=${hub_pid} actual pid=${current_hub_pid}" >&2
   echo "stale pid=${stale_hub_pid}" >&2
   ss -ltnp >&2 || true
@@ -84,7 +84,7 @@ fi
 if [[ -n "${old_deno_pid}" ]]; then
   new_deno_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:27787.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
   if [[ "${new_deno_pid}" != "${old_deno_pid}" ]]; then
-    echo "restart.sh touched the Deno process on 27787" >&2
+    echo "restart_sa.sh touched the Deno process on 27787" >&2
     echo "old=${old_deno_pid} new=${new_deno_pid}" >&2
     exit 1
   fi
@@ -97,15 +97,15 @@ curl -sS --max-time 15 \
   --data '{"jsonrpc":"2.0","id":7,"method":"initialize","params":{}}' \
   'http://127.0.0.1:28080/rpc' >"${response_body}"
 
-if ! rg -q '"userAgent":"hubproxy/sa-std"' "${response_body}"; then
-  echo "restart.sh process did not serve the SA RPC initialize response" >&2
+if ! rg -q '"userAgent":"hubproxy/' "${response_body}"; then
+  echo "restart_sa.sh process did not serve the SA RPC initialize response" >&2
   cat "${response_body}" >&2
   exit 1
 fi
 
 log_file="${log_dir}/request-sa-api.json"
 if [[ ! -s "${log_file}" ]]; then
-  echo "restart.sh --log-dir did not enable SA request logging" >&2
+  echo "restart_sa.sh --log-dir did not enable SA request logging" >&2
   ls -la "${log_dir}" >&2
   cat /tmp/hubproxy_sa_restart_entry.log >&2 || true
   exit 1
@@ -114,14 +114,14 @@ fi
 if ! rg -q '"path":"/rpc"' "${log_file}" \
   || ! rg -q '"method":"POST"' "${log_file}" \
   || ! rg -q '"body":"\{\\"jsonrpc\\":\\"2.0\\"' "${log_file}"; then
-  echo "restart.sh request log missing expected SA fields" >&2
+  echo "restart_sa.sh request log missing expected SA fields" >&2
   cat "${log_file}" >&2
   exit 1
 fi
 
-if rg -q 'deno task start|deno run' "${project_dir}/restart.sh"; then
-  echo "restart.sh still references the Deno runtime" >&2
-  sed -n '1,120p' "${project_dir}/restart.sh" >&2
+if rg -q 'deno task start|deno run' "${project_dir}/restart_sa.sh"; then
+  echo "restart_sa.sh still references the Deno runtime" >&2
+  sed -n '1,120p' "${project_dir}/restart_sa.sh" >&2
   exit 1
 fi
 

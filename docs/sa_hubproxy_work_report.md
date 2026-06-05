@@ -92,18 +92,17 @@ The following focused tests were reported passing during this refactor:
 
 ## Not Completed
 
-### Final End-To-End Completion Is Not Yet Reconfirmed
+### Final End-To-End Completion Is Reconfirmed
 
-The final requested state has not been fully reconfirmed after the latest interruptions:
+The final requested runtime state has now been reconfirmed after the latest interruptions:
 
-- Build from clean current files.
-- Install the latest SCI compiler/std package.
-- Restart with `restart_sa.sh`.
-- Verify `/healthz`.
-- Verify OpenAI-compatible chat curl against `127.0.0.1:28080`.
-- Verify `codex exec "hello"` through the SA provider.
-
-These checks were passed earlier, but not repeated after the last partial investigation.
+- Installed the latest SCI compiler/std package with the repository install flow using `zig build -Doptimize=ReleaseFast`.
+- Rebuilt `sa/hubproxy` from the refreshed `/home/vscode/.sa` toolchain.
+- Restarted with `restart_sa.sh`.
+- Verified `/healthz` on `127.0.0.1:28080`.
+- Verified OpenAI-compatible chat curl against `127.0.0.1:28080`.
+- Verified `codex exec "hello"` through the SA provider.
+- Verified `thread/start`, `thread/fork`, and `thread/resume` runtime envelopes against the live SA service, including whitespace-tolerant JSON-RPC request parsing.
 
 ### Remaining JSON-RPC Byte-Scan Paths
 
@@ -121,6 +120,7 @@ Partially fixed:
 
 - `environment/add`
 - `review/start`
+- `thread/start`, `thread/fork`, and `thread/resume` envelope parsing now survive standard JSON whitespace and preserve the expected response fields
 
 Still requiring concentrated review/migration:
 

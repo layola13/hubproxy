@@ -17,6 +17,9 @@
 @const STR_GIT_INFO_2 = utf8:"{\"branch\":\"dev\"}"
 @const STR_PREVIEW = utf8:"git preview"
 @const STR_NAME = utf8:"source-name"
+@const STR_WARNING_MESSAGE = utf8:"shell command queued: echo hi"
+@const STR_WARNING_THREAD = utf8:"thr-warning"
+@const STR_WARNING_FRAME = utf8:"event: warning\ndata: {\"method\":\"warning\",\"params\":{\"message\":\"shell command queued: echo hi\",\"threadId\":\"thr-warning\"}}\n\n"
 
 // ============================================================
 // String Utility Tests
@@ -461,3 +464,62 @@ L_FAIL_CLEARED:
     !state
     panic(103)
 
+
+@test "state_tracker warning notification frame includes message and threadId"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    !init_status
+    br init_ok -> L_WARN_CURSOR, L_FAIL_WARN_INIT
+
+L_WARN_CURSOR:
+    !init_ok
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    !cursor
+    emit_status = call @state_emit_warning(&state, &STR_WARNING_MESSAGE, 29, &STR_WARNING_THREAD, 11)
+    emit_ok = eq emit_status, 0
+    !emit_status
+    br emit_ok -> L_WARN_READ, L_FAIL_WARN_EMIT
+
+L_WARN_READ:
+    !emit_ok
+    out_frame = stack_alloc 256
+    out_len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &out_frame, 256, &out_len_slot)
+    read_ok = eq read_status, 1
+    read_len = load out_len_slot+0 as u64
+    frame_ok = eq read_len, 121
+    frame_eq = call @sa_bytes_eq(&out_frame, read_len, &STR_WARNING_FRAME, 121)
+    frame_text_ok = eq frame_eq, 1
+    !read_status
+    !read_len
+    !frame_eq
+    warning_ok = and read_ok, frame_ok
+    warning_ok = and warning_ok, frame_text_ok
+    !read_ok
+    !frame_ok
+    !frame_text_ok
+    br warning_ok -> L_WARN_PASS, L_FAIL_WARN_READ_STATUS
+
+L_WARN_PASS:
+    !warning_ok
+    !state
+    return
+
+L_FAIL_WARN_INIT:
+    !init_ok
+    !state
+    panic(103)
+
+L_FAIL_WARN_EMIT:
+    !emit_ok
+    !state
+    panic(103)
+
+L_FAIL_WARN_READ_STATUS:
+    !warning_ok
+    !state
+    panic(301)

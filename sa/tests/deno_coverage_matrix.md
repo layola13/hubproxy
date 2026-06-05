@@ -6,7 +6,7 @@ This matrix is the working audit plan for porting the Deno implementation to SA 
 
 Current counts:
 - Deno source tests audited here: 67 `Deno.test(...)` cases from `src/proxy_test.ts`, `src/handlers_test.ts`, `src/env_test.ts`, `src/state_test.ts`, `src/responses_mock_test.ts`, and `src/real_upstream_test.ts`.
-- SA focused tests available: 91 files under `sa/tests/test_*.{sh,sa}` plus focused native `*_test.sa` files.
+- SA focused tests available: 93 files under `sa/tests/test_*.{sh,sa}` plus focused native `*_test.sa` files.
 
 ## Proxy / OpenAI Compatibility
 
@@ -24,6 +24,7 @@ Current counts:
 | Chat fallback namespaced tool-call de-flattening | `test_responses_fallback_stream_tool_call_namespace.sh` | Covered |
 | Native Responses SSE MCP de-flatten and server denormalize | `test_responses_client_mcp_denormalize.sh`; SCI `std-smoke` native responses SSE fixture | Covered through SA std `sa_deno_responses_sse_normalize` |
 | Request-side MCP server alias normalize | `test_responses_mcp_server_normalize.sh`; SCI `std-smoke` responses request fixture | Covered through SA std `sa_deno_responses_request_normalize` for mapped, double-wrapped, and generic aliases |
+| Long Responses request bodies and large normalized SSE bodies do not corrupt SA heap or disconnect Codex streams | `test_responses_long_input_request_no_crash.sh`, `test_responses_native_large_sse_no_crash.sh`; live `codex exec` long prompt smoke | Covered |
 
 ## Reasoning / Thinking / Progress
 
@@ -40,7 +41,7 @@ Current counts:
 
 | Deno behavior group | SA coverage | Status |
 | --- | --- | --- |
-| Thread start/resume/fork/read/list/turns lifecycle, string thread ids, metadata `gitInfo`, fork inheritance, unarchive empty-turn response, inject before reset, dynamic realtime/attestation ids | `unit_tests.sa` native `@test`, `test_http_contract.sa`, `test_thread_start_fork_param_overrides.sh`, `test_thread_resume_envelope.sh`, `test_thread_rollback_numeric_num_turns.sh`, `test_thread_string_id_lifecycle.sh`, `test_inject_items_lifecycle.sh`, `test_realtime_uuid.sh`, `test_attestation_uuid.sh`, `test_turn_*`, `test_thread_*` | Covered for current Deno behavior |
+| Thread start/resume/fork/read/list/turns lifecycle, string thread ids, metadata `gitInfo`, fork inheritance, unarchive empty-turn response, inject before reset, dynamic realtime/attestation ids | `unit_tests.sa` native `@test`, `model_list_contract_test.sa` native `@test` `rpc accepts standard JSON whitespace and preserves params`, `test_http_contract.sa`, `test_thread_start_fork_param_overrides.sh`, `test_thread_resume_envelope.sh`, `test_thread_rollback_numeric_num_turns.sh`, `test_thread_string_id_lifecycle.sh`, `test_inject_items_lifecycle.sh`, `test_realtime_uuid.sh`, `test_attestation_uuid.sh`, `test_turn_*`, `test_thread_*` | Covered for current Deno behavior |
 | Standard JSON-RPC whitespace from normal JSON serializers preserves `id`, string ids, params, goal budget, and thread start envelope fields | `model_list_contract_test.sa` native `@test` `rpc accepts standard JSON whitespace and preserves params` | Covered through `/rpc` canonical JSON parse/stringify before dispatch |
 | Escaped JSON-RPC `params` strings preserve quotes and backslashes when echoed in thin responses | `model_list_contract_test.sa`; SCI `std_smoke_core.zig` JSON-RPC params literal fixture | Covered through SCI std `sa_deno_jsonrpc_params_string_literal` |
 | Turn context resolution from `thread-id` / `turn-id`, stale turn ignored, body-inferred modes | `test_responses_turn_context_goal_continuation.sh` | Covered |
@@ -66,7 +67,7 @@ Current counts:
 
 ## Real Upstream Smoke
 
-`src/real_upstream_test.ts` contains three environment-dependent upstream smoke tests for chat, responses, and models. The SA equivalent is not a deterministic unit gate; verify manually or with a focused live smoke when credentials/network are available. Latest live SA check: the current SA binary builds with `compile_tokens=32143` and `instruction_count=15414`; it was started through the project `restart_sa.sh` entrypoint in an independent session, listens on `28080` while Deno remains on `27787`; a chat-completions request to `127.0.0.1:28080` with `.env` auth returned HTTP 200 with a real `chat.completion` body; and `codex exec --config model_provider=sa --config model="mimo-v2.5-pro" "hello"` completed through the SA provider with `Hey! How can I help you today?`. The latest SA binary is built without the old HubProxy import sentinel after the SCI verifier fix for trailing bodyless extern declarations, old fixed-response/fallback `_LEN` leftovers have been removed, and escaped JSON-RPC params now use SCI std `sa_deno_jsonrpc_params_string_literal`.
+`src/real_upstream_test.ts` contains three environment-dependent upstream smoke tests for chat, responses, and models. The SA equivalent is not a deterministic unit gate; verify manually or with a focused live smoke when credentials/network are available. Latest live SA check: the current SA binary builds with `compile_tokens=32311` and `instruction_count=15523`; it was started through the project `restart_sa.sh` entrypoint, listens on `28080`, and keeps Deno on `27787`. With the current `.env`, direct upstream and SA proxy both return HTTP 200 for `/models`; direct upstream with Deno forwarding headers and SA proxy both return HTTP 200 for the Deno-shaped `/responses` payload from `real_upstream_test.ts`; direct upstream with Deno forwarding headers and SA proxy both return HTTP 400 `invalid codex request` for the minimal `/chat/completions` payload from `real_upstream_test.ts`. That chat result is an upstream contract result, not a SA-only forwarding delta. The latest SA binary is built without the old HubProxy import sentinel after the SCI verifier fix for trailing bodyless extern declarations, old fixed-response/fallback `_LEN` leftovers have been removed, and escaped JSON-RPC params now use SCI std `sa_deno_jsonrpc_params_string_literal`.
 
 ## Remaining Root Gaps
 

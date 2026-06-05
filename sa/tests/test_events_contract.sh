@@ -17,6 +17,8 @@ turn_resp="$(mktemp)"
 watch_resp="$(mktemp)"
 cmd_resp="$(mktemp)"
 events_pid=""
+hub_pid=""
+started_hub=0
 stop_events() {
   if [[ -n "${events_pid}" ]]; then
     kill -TERM "-${events_pid}" 2>/dev/null || true
@@ -26,9 +28,27 @@ stop_events() {
 }
 cleanup() {
   stop_events
+  if [[ "${started_hub}" == "1" ]] && [[ -n "${hub_pid}" ]]; then
+    kill "${hub_pid}" 2>/dev/null || true
+    wait "${hub_pid}" 2>/dev/null || true
+  fi
   rm -f "${events_out}" "${events_err}" "${thread_resp}" "${turn_resp}" "${watch_resp}" "${cmd_resp}"
 }
 trap cleanup EXIT
+
+listen_pid="$(ss -ltnp | sed -n "s/.*0\\.0\\.0\\.0:${sa_port}.*pid=\\([0-9]*\\).*/\\1/p" | head -n 1)"
+if [[ -z "${listen_pid}" ]]; then
+  setsid "${project_dir}/restart_sa.sh" > /tmp/hubproxy_sa_events_contract.log 2>&1 < /dev/null &
+  hub_pid=$!
+  started_hub=1
+  for _ in {1..60}; do
+    listen_pid="$(ss -ltnp | sed -n "s/.*0\\.0\\.0\\.0:${sa_port}.*pid=\\([0-9]*\\).*/\\1/p" | head -n 1)"
+    if [[ -n "${listen_pid}" ]]; then
+      break
+    fi
+    sleep 0.1
+  done
+fi
 
 setsid timeout 8s curl -sS -N -H "authorization: Bearer ${auth}" \
   "${base_url}/events" >"${events_out}" 2>"${events_err}" &

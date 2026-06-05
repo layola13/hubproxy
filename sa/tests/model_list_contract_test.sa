@@ -20,11 +20,18 @@
 @const RPC_CONFIG_REQ_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"configRequirements/read\",\"params\":{}}"
 @const RPC_APP_LIST_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"app/list\",\"params\":{}}"
 @const RPC_WS_THREAD_START_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 201, \"method\": \"thread/start\", \"params\": {\"threadId\": \"ws-thread-native\", \"model\": \"mimo-ws\", \"modelProvider\": \"ws-provider\", \"cwd\": \"/tmp/ws-cwd\", \"ephemeral\": false, \"approvalPolicy\": \"on-request\", \"approvalsReviewer\": \"auto\", \"sandbox\": \"workspace-write\"}}"
+@const RPC_WS_THREAD_FORK_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 206, \"method\": \"thread/fork\", \"params\": {\"threadId\": \"ws-thread-native\", \"model\": \"mimo-ws\", \"modelProvider\": \"ws-provider\", \"cwd\": \"/tmp/ws-cwd\", \"ephemeral\": false, \"approvalPolicy\": \"on-request\", \"approvalsReviewer\": \"auto\", \"sandbox\": \"workspace-write\"}}"
+@const RPC_WS_THREAD_RESUME_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 207, \"method\": \"thread/resume\", \"params\": {\"threadId\": \"ws-thread-native\"}}"
 @const RPC_WS_THREAD_READ_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 202, \"method\": \"thread/read\", \"params\": {\"threadId\": \"ws-thread-native\", \"includeTurns\": true}}"
 @const RPC_WS_GOAL_SET_BODY = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 203, \"method\": \"thread/goal/set\", \"params\": {\"threadId\": \"ws-thread-native\", \"objective\": \"ws objective\", \"tokenBudget\": 456}}"
 @const RPC_ESC_ENV_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":204,\"method\":\"environment/add\",\"params\":{\"name\":\"env \\\"quoted\\\"\",\"path\":\"/tmp/a\\\\b\"}}"
 @const RPC_ESC_REVIEW_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":205,\"method\":\"review/start\",\"params\":{\"threadId\":\"review \\\"quoted\\\"\"}}"
+@const RPC_ESC_SHELL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":208,\"method\":\"thread/shellCommand\",\"params\":{\"threadId\":\"shell \\\"thread\\\"\",\"command\":\"say \\\"hello\\\" \\\\ path\"}}"
+@const RPC_ESC_MCP_TOOL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":209,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"mcp \\\"thread\\\"\",\"turnId\":\"turn\\\\x\",\"itemId\":\"item \\\"quoted\\\"\",\"message\":\"tool \\\"called\\\" \\\\ path\",\"tool\":\"read \\\"file\\\"\",\"server\":\"srv\\\\name\"}}"
+@const RPC_ESC_FUZZY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":210,\"method\":\"fuzzyFileSearch\",\"params\":{\"sessionId\":\"sess \\\"quoted\\\"\",\"query\":\"src/\\\\quoted\\\"file\"}}"
+@const RPC_ESC_SERVER_RES_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":211,\"method\":\"serverRequest/resolved\",\"params\":{\"threadId\":\"server \\\"thread\\\"\",\"requestId\":\"req\\\\id\\\"quoted\"}}"
 @const KEY_OBJECT = utf8:"object"
+@const KEY_ID = utf8:"id"
 @const KEY_DATA = utf8:"data"
 @const VAL_LIST = utf8:"list"
 @const VAL_MODEL = utf8:"model"
@@ -37,17 +44,23 @@
 @const NEEDLE_ALLOWED_APPROVAL = utf8:"\"allowedApprovalPolicies\":null"
 @const NEEDLE_NEXT_CURSOR = utf8:"\"nextCursor\":null"
 @const NEEDLE_ID_201 = utf8:"\"id\":201"
+@const NEEDLE_ID_206 = utf8:"\"id\":206"
+@const NEEDLE_ID_207 = utf8:"\"id\":207"
 @const NEEDLE_ID_202 = utf8:"\"id\":202"
 @const NEEDLE_ID_203 = utf8:"\"id\":203"
 @const NEEDLE_WS_THREAD = utf8:"\"id\":\"ws-thread-native\""
+@const NEEDLE_FORKED_FROM_WS_THREAD = utf8:"\"forkedFromId\":\"ws-thread-native\""
 @const NEEDLE_WS_SESSION = utf8:"\"sessionId\":\"ws-thread-native\""
 @const NEEDLE_WS_MODEL = utf8:"\"model\":\"mimo-ws\""
 @const NEEDLE_WS_PROVIDER = utf8:"\"modelProvider\":\"ws-provider\""
 @const NEEDLE_WS_CWD = utf8:"\"cwd\":\"/tmp/ws-cwd\""
 @const NEEDLE_WS_EPHEMERAL_FALSE = utf8:"\"ephemeral\":false"
 @const NEEDLE_WS_APPROVAL = utf8:"\"approvalPolicy\":\"on-request\""
+@const NEEDLE_WS_APPROVAL_DEFAULT = utf8:"\"approvalPolicy\":\"never\""
 @const NEEDLE_WS_REVIEWER = utf8:"\"approvalsReviewer\":\"auto\""
+@const NEEDLE_WS_REVIEWER_DEFAULT = utf8:"\"approvalsReviewer\":\"user\""
 @const NEEDLE_WS_SANDBOX = utf8:"\"sandbox\":\"workspace-write\""
+@const NEEDLE_WS_SANDBOX_DEFAULT = utf8:"\"sandbox\":\"danger-full-access\""
 @const NEEDLE_WS_GOAL_THREAD = utf8:"\"threadId\":\"ws-thread-native\""
 @const NEEDLE_WS_OBJECTIVE = utf8:"\"objective\":\"ws objective\""
 @const NEEDLE_WS_BUDGET = utf8:"\"tokenBudget\":456"
@@ -55,6 +68,16 @@
 @const NEEDLE_ESC_ENV_PATH = utf8:"\"path\":\"/tmp/a\\\\b\""
 @const NEEDLE_ESC_REVIEW_A = utf8:"\"reviewThreadId\":\"review \\\"quoted\\\"\""
 @const NEEDLE_ESC_REVIEW_B = utf8:"\"threadId\":\"review \\\"quoted\\\"\""
+@const NEEDLE_ESC_SHELL_THREAD = utf8:"\"threadId\":\"shell \\\"thread\\\"\""
+@const NEEDLE_ESC_SHELL_COMMAND = utf8:"\"command\":\"say \\\"hello\\\" \\\\ path\""
+@const NEEDLE_ESC_MCP_MESSAGE = utf8:"\"text\":\"tool \\\"called\\\" \\\\ path\""
+@const NEEDLE_ESC_MCP_TOOL = utf8:"\"tool\":\"read \\\"file\\\"\""
+@const NEEDLE_ESC_MCP_SERVER = utf8:"\"server\":\"srv\\\\name\""
+@const NEEDLE_ESC_MCP_ITEM = utf8:"\"itemId\":\"item \\\"quoted\\\"\""
+@const NEEDLE_ESC_FUZZY_PATH = utf8:"\"path\":\"src/\\\\quoted\\\"file\""
+@const NEEDLE_ESC_FUZZY_QUERY = utf8:"\"query\":\"src/\\\\quoted\\\"file\""
+@const NEEDLE_ESC_SERVER_THREAD = utf8:"\"threadId\":\"server \\\"thread\\\"\""
+@const NEEDLE_ESC_SERVER_REQUEST = utf8:"\"requestId\":\"req\\\\id\\\"quoted\""
 
 #def ENV_PATH_LEN = 35
 #def URL_PREFIX_LEN = 17
@@ -73,11 +96,18 @@
 #def RPC_CONFIG_REQ_BODY_LEN = 71
 #def RPC_APP_LIST_BODY_LEN = 56
 #def RPC_WS_THREAD_START_BODY_LEN = 284
+#def RPC_WS_THREAD_FORK_BODY_LEN = 283
+#def RPC_WS_THREAD_RESUME_BODY_LEN = 100
 #def RPC_WS_THREAD_READ_BODY_LEN = 120
 #def RPC_WS_GOAL_SET_BODY_LEN = 151
 #def RPC_ESC_ENV_BODY_LEN = 107
 #def RPC_ESC_REVIEW_BODY_LEN = 92
+#def RPC_ESC_SHELL_BODY_LEN = 132
+#def RPC_ESC_MCP_TOOL_BODY_LEN = 222
+#def RPC_ESC_FUZZY_BODY_LEN = 123
+#def RPC_ESC_SERVER_RES_BODY_LEN = 132
 #def KEY_OBJECT_LEN = 6
+#def KEY_ID_LEN = 2
 #def KEY_DATA_LEN = 4
 #def VAL_LIST_LEN = 4
 #def VAL_MODEL_LEN = 5
@@ -90,17 +120,23 @@
 #def NEEDLE_ALLOWED_APPROVAL_LEN = 30
 #def NEEDLE_NEXT_CURSOR_LEN = 17
 #def NEEDLE_ID_201_LEN = 8
+#def NEEDLE_ID_206_LEN = 8
+#def NEEDLE_ID_207_LEN = 8
 #def NEEDLE_ID_202_LEN = 8
 #def NEEDLE_ID_203_LEN = 8
 #def NEEDLE_WS_THREAD_LEN = 23
+#def NEEDLE_FORKED_FROM_WS_THREAD_LEN = 33
 #def NEEDLE_WS_SESSION_LEN = 30
 #def NEEDLE_WS_MODEL_LEN = 17
 #def NEEDLE_WS_PROVIDER_LEN = 29
 #def NEEDLE_WS_CWD_LEN = 19
 #def NEEDLE_WS_EPHEMERAL_FALSE_LEN = 17
 #def NEEDLE_WS_APPROVAL_LEN = 29
+#def NEEDLE_WS_APPROVAL_DEFAULT_LEN = 24
 #def NEEDLE_WS_REVIEWER_LEN = 26
+#def NEEDLE_WS_REVIEWER_DEFAULT_LEN = 26
 #def NEEDLE_WS_SANDBOX_LEN = 27
+#def NEEDLE_WS_SANDBOX_DEFAULT_LEN = 30
 #def NEEDLE_WS_GOAL_THREAD_LEN = 29
 #def NEEDLE_WS_OBJECTIVE_LEN = 26
 #def NEEDLE_WS_BUDGET_LEN = 17
@@ -108,6 +144,16 @@
 #def NEEDLE_ESC_ENV_PATH_LEN = 18
 #def NEEDLE_ESC_REVIEW_A_LEN = 36
 #def NEEDLE_ESC_REVIEW_B_LEN = 30
+#def NEEDLE_ESC_SHELL_THREAD_LEN = 29
+#def NEEDLE_ESC_SHELL_COMMAND_LEN = 33
+#def NEEDLE_ESC_MCP_MESSAGE_LEN = 32
+#def NEEDLE_ESC_MCP_TOOL_LEN = 22
+#def NEEDLE_ESC_MCP_SERVER_LEN = 20
+#def NEEDLE_ESC_MCP_ITEM_LEN = 26
+#def NEEDLE_ESC_FUZZY_PATH_LEN = 27
+#def NEEDLE_ESC_FUZZY_QUERY_LEN = 28
+#def NEEDLE_ESC_SERVER_THREAD_LEN = 30
+#def NEEDLE_ESC_SERVER_REQUEST_LEN = 29
 
 @assert_contract(ok: u8, code: i32):
 L_ENTRY:
@@ -411,20 +457,17 @@ L_ENTRY:
     first_is_object = eq first_kind, SA_JSON_KIND_OBJECT
     call @assert_contract(first_is_object, 374)
     !first_kind
-    first_object_ptr_slot = stack_alloc 8
-    first_object_len_slot = stack_alloc 8
-    first_object_status = call @sa_json_object_get_string(first_node, &KEY_OBJECT, KEY_OBJECT_LEN, &first_object_ptr_slot, &first_object_len_slot)
-    first_object_ok = eq first_object_status, 0
-    call @assert_contract(first_object_ok, 375)
-    !first_object_status
-    first_object_ptr = load first_object_ptr_slot+0 as ptr
-    first_object_len = load first_object_len_slot+0 as u64
-    first_model_eq = call @sa_bytes_eq(&first_object_ptr, first_object_len, &VAL_MODEL, VAL_MODEL_LEN)
-    first_model_ok = eq first_model_eq, 1
-    call @assert_contract(first_model_ok, 376)
-    !first_model_eq
-    !first_object_ptr
-    !first_object_len
+    first_id_ptr_slot = stack_alloc 8
+    first_id_len_slot = stack_alloc 8
+    first_id_status = call @sa_json_object_get_string(first_node, &KEY_ID, KEY_ID_LEN, &first_id_ptr_slot, &first_id_len_slot)
+    first_id_ok = eq first_id_status, 0
+    call @assert_contract(first_id_ok, 375)
+    !first_id_status
+    first_id_len = load first_id_len_slot+0 as u64
+    first_id_nonempty = ugt first_id_len, 0
+    call @assert_contract(first_id_nonempty, 376)
+    !first_id_nonempty
+    !first_id_len
 
     first_free = call @sa_json_free(^first_node)
     !first_free
@@ -582,6 +625,96 @@ L_ENTRY:
     call @assert_contract(start_sandbox_pass, 402)
     !start_sandbox_ok
 
+    fork_id_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_ID_206, NEEDLE_ID_206_LEN)
+    fork_id_pass = eq fork_id_ok, 1
+    call @assert_contract(fork_id_pass, 407)
+    !fork_id_ok
+
+    fork_thread_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_FORKED_FROM_WS_THREAD, NEEDLE_FORKED_FROM_WS_THREAD_LEN)
+    fork_thread_pass = eq fork_thread_ok, 1
+    call @assert_contract(fork_thread_pass, 408)
+    !fork_thread_ok
+
+    fork_model_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_WS_MODEL, NEEDLE_WS_MODEL_LEN)
+    fork_model_pass = eq fork_model_ok, 1
+    call @assert_contract(fork_model_pass, 409)
+    !fork_model_ok
+
+    fork_provider_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_WS_PROVIDER, NEEDLE_WS_PROVIDER_LEN)
+    fork_provider_pass = eq fork_provider_ok, 1
+    call @assert_contract(fork_provider_pass, 410)
+    !fork_provider_ok
+
+    fork_cwd_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_WS_CWD, NEEDLE_WS_CWD_LEN)
+    fork_cwd_pass = eq fork_cwd_ok, 1
+    call @assert_contract(fork_cwd_pass, 411)
+    !fork_cwd_ok
+
+    fork_eph_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_WS_EPHEMERAL_FALSE, NEEDLE_WS_EPHEMERAL_FALSE_LEN)
+    fork_eph_pass = eq fork_eph_ok, 1
+    call @assert_contract(fork_eph_pass, 412)
+    !fork_eph_ok
+
+    fork_approval_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_WS_APPROVAL, NEEDLE_WS_APPROVAL_LEN)
+    fork_approval_pass = eq fork_approval_ok, 1
+    call @assert_contract(fork_approval_pass, 413)
+    !fork_approval_ok
+
+    fork_reviewer_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_WS_REVIEWER, NEEDLE_WS_REVIEWER_LEN)
+    fork_reviewer_pass = eq fork_reviewer_ok, 1
+    call @assert_contract(fork_reviewer_pass, 414)
+    !fork_reviewer_ok
+
+    fork_sandbox_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_FORK_BODY, RPC_WS_THREAD_FORK_BODY_LEN, &NEEDLE_WS_SANDBOX, NEEDLE_WS_SANDBOX_LEN)
+    fork_sandbox_pass = eq fork_sandbox_ok, 1
+    call @assert_contract(fork_sandbox_pass, 415)
+    !fork_sandbox_ok
+
+    resume_id_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_ID_207, NEEDLE_ID_207_LEN)
+    resume_id_pass = eq resume_id_ok, 1
+    call @assert_contract(resume_id_pass, 416)
+    !resume_id_ok
+
+    resume_thread_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_THREAD, NEEDLE_WS_THREAD_LEN)
+    resume_thread_pass = eq resume_thread_ok, 1
+    call @assert_contract(resume_thread_pass, 417)
+    !resume_thread_ok
+
+    resume_session_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_SESSION, NEEDLE_WS_SESSION_LEN)
+    resume_session_pass = eq resume_session_ok, 1
+    call @assert_contract(resume_session_pass, 418)
+    !resume_session_ok
+
+    resume_model_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_MODEL, NEEDLE_WS_MODEL_LEN)
+    resume_model_pass = eq resume_model_ok, 1
+    call @assert_contract(resume_model_pass, 419)
+    !resume_model_ok
+
+    resume_provider_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_PROVIDER, NEEDLE_WS_PROVIDER_LEN)
+    resume_provider_pass = eq resume_provider_ok, 1
+    call @assert_contract(resume_provider_pass, 420)
+    !resume_provider_ok
+
+    resume_cwd_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_CWD, NEEDLE_WS_CWD_LEN)
+    resume_cwd_pass = eq resume_cwd_ok, 1
+    call @assert_contract(resume_cwd_pass, 421)
+    !resume_cwd_ok
+
+    resume_approval_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_APPROVAL_DEFAULT, NEEDLE_WS_APPROVAL_DEFAULT_LEN)
+    resume_approval_pass = eq resume_approval_ok, 1
+    call @assert_contract(resume_approval_pass, 422)
+    !resume_approval_ok
+
+    resume_reviewer_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_REVIEWER_DEFAULT, NEEDLE_WS_REVIEWER_DEFAULT_LEN)
+    resume_reviewer_pass = eq resume_reviewer_ok, 1
+    call @assert_contract(resume_reviewer_pass, 423)
+    !resume_reviewer_ok
+
+    resume_sandbox_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_RESUME_BODY, RPC_WS_THREAD_RESUME_BODY_LEN, &NEEDLE_WS_SANDBOX_DEFAULT, NEEDLE_WS_SANDBOX_DEFAULT_LEN)
+    resume_sandbox_pass = eq resume_sandbox_ok, 1
+    call @assert_contract(resume_sandbox_pass, 424)
+    !resume_sandbox_ok
+
     read_id_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_WS_THREAD_READ_BODY, RPC_WS_THREAD_READ_BODY_LEN, &NEEDLE_ID_202, NEEDLE_ID_202_LEN)
     read_id_pass = eq read_id_ok, 1
     call @assert_contract(read_id_pass, 394)
@@ -632,6 +765,66 @@ L_ENTRY:
     call @assert_contract(review_b_pass, 406)
     !review_b_ok
 
+    shell_thread_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_SHELL_BODY, RPC_ESC_SHELL_BODY_LEN, &NEEDLE_ESC_SHELL_THREAD, NEEDLE_ESC_SHELL_THREAD_LEN)
+    shell_thread_pass = eq shell_thread_ok, 1
+    call @assert_contract(shell_thread_pass, 425)
+    !shell_thread_ok
+
+    shell_command_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_SHELL_BODY, RPC_ESC_SHELL_BODY_LEN, &NEEDLE_ESC_SHELL_COMMAND, NEEDLE_ESC_SHELL_COMMAND_LEN)
+    shell_command_pass = eq shell_command_ok, 1
+    call @assert_contract(shell_command_pass, 426)
+    !shell_command_ok
+
+    mcp_message_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_MCP_TOOL_BODY, RPC_ESC_MCP_TOOL_BODY_LEN, &NEEDLE_ESC_MCP_MESSAGE, NEEDLE_ESC_MCP_MESSAGE_LEN)
+    mcp_message_pass = eq mcp_message_ok, 1
+    call @assert_contract(mcp_message_pass, 427)
+    !mcp_message_ok
+
+    mcp_tool_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_MCP_TOOL_BODY, RPC_ESC_MCP_TOOL_BODY_LEN, &NEEDLE_ESC_MCP_TOOL, NEEDLE_ESC_MCP_TOOL_LEN)
+    mcp_tool_pass = eq mcp_tool_ok, 1
+    call @assert_contract(mcp_tool_pass, 428)
+    !mcp_tool_ok
+
+    mcp_server_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_MCP_TOOL_BODY, RPC_ESC_MCP_TOOL_BODY_LEN, &NEEDLE_ESC_MCP_SERVER, NEEDLE_ESC_MCP_SERVER_LEN)
+    mcp_server_pass = eq mcp_server_ok, 1
+    call @assert_contract(mcp_server_pass, 429)
+    !mcp_server_ok
+
+    mcp_item_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_MCP_TOOL_BODY, RPC_ESC_MCP_TOOL_BODY_LEN, &NEEDLE_ESC_MCP_ITEM, NEEDLE_ESC_MCP_ITEM_LEN)
+    mcp_item_pass = eq mcp_item_ok, 1
+    call @assert_contract(mcp_item_pass, 430)
+    !mcp_item_ok
+
+    fuzzy_path_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_FUZZY_BODY, RPC_ESC_FUZZY_BODY_LEN, &NEEDLE_ESC_FUZZY_PATH, NEEDLE_ESC_FUZZY_PATH_LEN)
+    fuzzy_path_pass = eq fuzzy_path_ok, 1
+    call @assert_contract(fuzzy_path_pass, 431)
+    !fuzzy_path_ok
+
+    fuzzy_query_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_FUZZY_BODY, RPC_ESC_FUZZY_BODY_LEN, &NEEDLE_ESC_FUZZY_QUERY, NEEDLE_ESC_FUZZY_QUERY_LEN)
+    fuzzy_query_pass = eq fuzzy_query_ok, 1
+    call @assert_contract(fuzzy_query_pass, 432)
+    !fuzzy_query_ok
+
+    server_thread_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_SERVER_RES_BODY, RPC_ESC_SERVER_RES_BODY_LEN, &NEEDLE_ESC_SERVER_THREAD, NEEDLE_ESC_SERVER_THREAD_LEN)
+    server_thread_pass = eq server_thread_ok, 1
+    call @assert_contract(server_thread_pass, 433)
+    !server_thread_ok
+
+    server_request_ok = call @rpc_post_contains(&url_buf, url_len, &auth_buf, auth_len, &RPC_ESC_SERVER_RES_BODY, RPC_ESC_SERVER_RES_BODY_LEN, &NEEDLE_ESC_SERVER_REQUEST, NEEDLE_ESC_SERVER_REQUEST_LEN)
+    server_request_pass = eq server_request_ok, 1
+    call @assert_contract(server_request_pass, 434)
+    !server_request_ok
+
+    !server_request_pass
+    !server_thread_pass
+    !fuzzy_query_pass
+    !fuzzy_path_pass
+    !mcp_item_pass
+    !mcp_server_pass
+    !mcp_tool_pass
+    !mcp_message_pass
+    !shell_command_pass
+    !shell_thread_pass
     !review_b_pass
     !review_a_pass
     !env_path_pass
@@ -646,6 +839,24 @@ L_ENTRY:
     !start_reviewer_pass
     !start_approval_pass
     !start_eph_pass
+    !fork_sandbox_pass
+    !fork_reviewer_pass
+    !fork_approval_pass
+    !fork_eph_pass
+    !fork_cwd_pass
+    !fork_provider_pass
+    !fork_model_pass
+    !fork_thread_pass
+    !fork_id_pass
+    !resume_sandbox_pass
+    !resume_reviewer_pass
+    !resume_approval_pass
+    !resume_cwd_pass
+    !resume_provider_pass
+    !resume_model_pass
+    !resume_session_pass
+    !resume_thread_pass
+    !resume_id_pass
     !start_cwd_pass
     !start_provider_pass
     !start_model_pass

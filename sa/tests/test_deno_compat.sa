@@ -1,6 +1,6 @@
-// sa/tests/test_deno_compat.sa — Standalone system integration test for all 12 Deno FFI APIs
+// Standalone smoke for Deno plugin direct SA ABI.
 @import "sa_std/io/print.sai"
-@import "sa_std/deno.sa"
+@import "deno.sai"
 
 @const STR_LABEL_HOSTNAME = utf8:"[PASS] 1. Hostname verified\n"
 @const STR_LABEL_OS_RELEASE = utf8:"[PASS] 2. OS Release verified\n"
@@ -14,211 +14,343 @@
 @const STR_LABEL_GID = utf8:"[PASS] 10. GID verified\n"
 @const STR_LABEL_EXEC_PATH = utf8:"[PASS] 11. Exec Path verified\n"
 @const STR_LABEL_MEM_USAGE = utf8:"[PASS] 12. Memory Usage verified\n"
-@const STR_TEST_PASS = utf8:"\n[SUCCESS] All 12 Deno Compatibility APIs successfully verified natively on host OS!\n"
+@const STR_TEST_PASS = utf8:"\n[SUCCESS] All 12 Deno plugin ABI checks passed.\n"
+
+#def STR_LABEL_HOSTNAME_LEN = 28
+#def STR_LABEL_OS_RELEASE_LEN = 30
+#def STR_LABEL_OS_UPTIME_LEN = 29
+#def STR_LABEL_LOADAVG_LEN = 28
+#def STR_LABEL_MEM_INFO_LEN = 38
+#def STR_LABEL_NET_INT_LEN = 38
+#def STR_LABEL_PID_LEN = 23
+#def STR_LABEL_PPID_LEN = 24
+#def STR_LABEL_UID_LEN = 23
+#def STR_LABEL_GID_LEN = 24
+#def STR_LABEL_EXEC_PATH_LEN = 30
+#def STR_LABEL_MEM_USAGE_LEN = 33
+#def STR_TEST_PASS_LEN = 49
 
 @main() -> i32:
 L_ENTRY:
-    // 1. Hostname
-    EXPAND DENO_HOSTNAME h_buf
-    h_len = call @sa_fs_read_buffer_len(h_buf)
-    is_h_ok = ugt h_len, 0
-    br is_h_ok -> L_OS_RELEASE, L_FAIL_H
-    
+    h_ptr_slot = stack_alloc 8
+    h_len_slot = stack_alloc 8
+    store h_ptr_slot+0, 0 as ptr
+    store h_len_slot+0, 0 as u64
+    h_status = call @sa_deno_plugin_hostname(&h_ptr_slot, &h_len_slot)
+    h_ptr = load h_ptr_slot+0 as ptr
+    h_len = load h_len_slot+0 as u64
+    h_status_ok = eq h_status, 0
+    h_len_ok = ugt h_len, 0
+    h_ok = and h_status_ok, h_len_ok
+    br h_ok -> L_OS_RELEASE, L_FAIL_H
+
 L_OS_RELEASE:
-    !is_h_ok
+    !h_ok
+    !h_status_ok
+    !h_len_ok
+    call @sa_print_bytes(&STR_LABEL_HOSTNAME, STR_LABEL_HOSTNAME_LEN)
+    h_free = call @sa_deno_plugin_free_buffer(h_ptr, h_len)
+    !h_free
+    !h_status
+    !h_ptr
     !h_len
-    call @sa_print_bytes(&STR_LABEL_HOSTNAME, 28)
-    status_free = call @sa_fs_read_buffer_free(^h_buf)
-    !status_free
 
-    // 2. OS Release
-    EXPAND DENO_OS_RELEASE r_buf
-    r_len = call @sa_fs_read_buffer_len(r_buf)
-    is_r_ok = ugt r_len, 0
-    br is_r_ok -> L_OS_UPTIME, L_FAIL_R
-    
+    r_ptr_slot = stack_alloc 8
+    r_len_slot = stack_alloc 8
+    store r_ptr_slot+0, 0 as ptr
+    store r_len_slot+0, 0 as u64
+    r_status = call @sa_deno_plugin_os_release(&r_ptr_slot, &r_len_slot)
+    r_ptr = load r_ptr_slot+0 as ptr
+    r_len = load r_len_slot+0 as u64
+    r_status_ok = eq r_status, 0
+    r_len_ok = ugt r_len, 0
+    r_ok = and r_status_ok, r_len_ok
+    br r_ok -> L_OS_UPTIME, L_FAIL_R
+
 L_OS_UPTIME:
-    !is_r_ok
+    !r_ok
+    !r_status_ok
+    !r_len_ok
+    call @sa_print_bytes(&STR_LABEL_OS_RELEASE, STR_LABEL_OS_RELEASE_LEN)
+    r_free = call @sa_deno_plugin_free_buffer(r_ptr, r_len)
+    !r_free
+    !r_status
+    !r_ptr
     !r_len
-    call @sa_print_bytes(&STR_LABEL_OS_RELEASE, 30)
-    status_free2 = call @sa_fs_read_buffer_free(^r_buf)
-    !status_free2
 
-    // 3. OS Uptime
-    EXPAND DENO_OS_UPTIME uptime
+    uptime_slot = stack_alloc 8
+    uptime_status = call @sa_deno_plugin_os_uptime(&uptime_slot)
+    uptime = load uptime_slot+0 as f64
+    uptime_ok = eq uptime_status, 0
+    br uptime_ok -> L_LOADAVG, L_FAIL_UPTIME
+
+L_LOADAVG:
+    !uptime_ok
+    !uptime_status
     !uptime
-    call @sa_print_bytes(&STR_LABEL_OS_UPTIME, 29)
+    call @sa_print_bytes(&STR_LABEL_OS_UPTIME, STR_LABEL_OS_UPTIME_LEN)
 
-    // 4. Load Avg
     load_buf = stack_alloc 24
-    EXPAND DENO_LOADAVG load_status, load_buf
-    is_l_ok = eq load_status, 0
-    br is_l_ok -> L_MEM_INFO, L_FAIL_L
-    
+    load_status = call @sa_deno_plugin_loadavg(load_buf)
+    load_ok = eq load_status, 0
+    br load_ok -> L_MEM_INFO, L_FAIL_L
+
 L_MEM_INFO:
-    !is_l_ok
+    !load_ok
     !load_status
-    call @sa_print_bytes(&STR_LABEL_LOADAVG, 28)
+    call @sa_print_bytes(&STR_LABEL_LOADAVG, STR_LABEL_LOADAVG_LEN)
 
-    // 5. Memory Info
-    EXPAND DENO_SYSTEM_MEMORY_INFO m_buf
-    m_len = call @sa_fs_read_buffer_len(m_buf)
-    is_m_ok = ugt m_len, 0
-    br is_m_ok -> L_NET_INT, L_FAIL_M
-    
+    m_ptr_slot = stack_alloc 8
+    m_len_slot = stack_alloc 8
+    store m_ptr_slot+0, 0 as ptr
+    store m_len_slot+0, 0 as u64
+    m_status = call @sa_deno_plugin_system_memory_info(&m_ptr_slot, &m_len_slot)
+    m_ptr = load m_ptr_slot+0 as ptr
+    m_len = load m_len_slot+0 as u64
+    m_status_ok = eq m_status, 0
+    m_len_ok = ugt m_len, 0
+    m_ok = and m_status_ok, m_len_ok
+    br m_ok -> L_NET_INT, L_FAIL_M
+
 L_NET_INT:
-    !is_m_ok
+    !m_ok
+    !m_status_ok
+    !m_len_ok
+    call @sa_print_bytes(&STR_LABEL_MEM_INFO, STR_LABEL_MEM_INFO_LEN)
+    m_free = call @sa_deno_plugin_free_buffer(m_ptr, m_len)
+    !m_free
+    !m_status
+    !m_ptr
     !m_len
-    call @sa_print_bytes(&STR_LABEL_MEM_INFO, 38)
-    status_free3 = call @sa_fs_read_buffer_free(^m_buf)
-    !status_free3
 
-    // 6. Network Interfaces
-    EXPAND DENO_NETWORK_INTERFACES n_buf
-    n_len = call @sa_fs_read_buffer_len(n_buf)
-    is_n_ok = ugt n_len, 0
-    br is_n_ok -> L_PID, L_FAIL_N
-    
+    n_ptr_slot = stack_alloc 8
+    n_len_slot = stack_alloc 8
+    store n_ptr_slot+0, 0 as ptr
+    store n_len_slot+0, 0 as u64
+    n_status = call @sa_deno_plugin_network_interfaces(&n_ptr_slot, &n_len_slot)
+    n_ptr = load n_ptr_slot+0 as ptr
+    n_len = load n_len_slot+0 as u64
+    n_status_ok = eq n_status, 0
+    n_len_ok = ugt n_len, 0
+    n_ok = and n_status_ok, n_len_ok
+    br n_ok -> L_PID, L_FAIL_N
+
 L_PID:
-    !is_n_ok
+    !n_ok
+    !n_status_ok
+    !n_len_ok
+    call @sa_print_bytes(&STR_LABEL_NET_INT, STR_LABEL_NET_INT_LEN)
+    n_free = call @sa_deno_plugin_free_buffer(n_ptr, n_len)
+    !n_free
+    !n_status
+    !n_ptr
     !n_len
-    call @sa_print_bytes(&STR_LABEL_NET_INT, 38)
-    status_free4 = call @sa_fs_read_buffer_free(^n_buf)
-    !status_free4
 
-    // 7. PID
-    EXPAND DENO_PID pid
-    is_p_ok = ugt pid, 0
-    br is_p_ok -> L_PPID, L_FAIL_P
-    
+    pid_slot = stack_alloc 4
+    pid_status = call @sa_deno_plugin_pid(&pid_slot)
+    pid = load pid_slot+0 as u32
+    pid_status_ok = eq pid_status, 0
+    pid_value_ok = ugt pid, 0
+    pid_ok = and pid_status_ok, pid_value_ok
+    br pid_ok -> L_PPID, L_FAIL_P
+
 L_PPID:
-    !is_p_ok
+    !pid_ok
+    !pid_status_ok
+    !pid_value_ok
     !pid
-    call @sa_print_bytes(&STR_LABEL_PID, 23)
+    !pid_status
+    call @sa_print_bytes(&STR_LABEL_PID, STR_LABEL_PID_LEN)
 
-    // 8. PPID
-    EXPAND DENO_PPID ppid
-    is_pp_ok = ugt ppid, 0
-    br is_pp_ok -> L_UID, L_FAIL_PP
-    
+    ppid_slot = stack_alloc 4
+    ppid_status = call @sa_deno_plugin_ppid(&ppid_slot)
+    ppid = load ppid_slot+0 as u32
+    ppid_status_ok = eq ppid_status, 0
+    ppid_value_ok = ugt ppid, 0
+    ppid_ok = and ppid_status_ok, ppid_value_ok
+    br ppid_ok -> L_UID, L_FAIL_PP
+
 L_UID:
-    !is_pp_ok
+    !ppid_ok
+    !ppid_status_ok
+    !ppid_value_ok
     !ppid
-    call @sa_print_bytes(&STR_LABEL_PPID, 24)
+    !ppid_status
+    call @sa_print_bytes(&STR_LABEL_PPID, STR_LABEL_PPID_LEN)
 
-    // 9. UID
-    EXPAND DENO_UID uid
-    is_u_ok = uge uid, 0
-    br is_u_ok -> L_GID, L_FAIL_U
-    
+    uid_slot = stack_alloc 4
+    uid_status = call @sa_deno_plugin_uid(&uid_slot)
+    uid = load uid_slot+0 as u32
+    uid_ok = eq uid_status, 0
+    br uid_ok -> L_GID, L_FAIL_U
+
 L_GID:
-    !is_u_ok
+    !uid_ok
+    !uid_status
     !uid
-    call @sa_print_bytes(&STR_LABEL_UID, 23)
+    call @sa_print_bytes(&STR_LABEL_UID, STR_LABEL_UID_LEN)
 
-    // 10. GID
-    EXPAND DENO_GID gid
-    is_g_ok = uge gid, 0
-    br is_g_ok -> L_EXEC_PATH, L_FAIL_G
-    
+    gid_slot = stack_alloc 4
+    gid_status = call @sa_deno_plugin_gid(&gid_slot)
+    gid = load gid_slot+0 as u32
+    gid_ok = eq gid_status, 0
+    br gid_ok -> L_EXEC_PATH, L_FAIL_G
+
 L_EXEC_PATH:
-    !is_g_ok
+    !gid_ok
+    !gid_status
     !gid
-    call @sa_print_bytes(&STR_LABEL_GID, 23)
+    call @sa_print_bytes(&STR_LABEL_GID, STR_LABEL_GID_LEN)
 
-    // 11. Exec Path
-    EXPAND DENO_EXEC_PATH ex_buf
-    ex_len = call @sa_fs_read_buffer_len(ex_buf)
-    is_ex_ok = ugt ex_len, 0
-    br is_ex_ok -> L_MEMORY_USAGE, L_FAIL_EX
-    
+    ex_ptr_slot = stack_alloc 8
+    ex_len_slot = stack_alloc 8
+    store ex_ptr_slot+0, 0 as ptr
+    store ex_len_slot+0, 0 as u64
+    ex_status = call @sa_deno_plugin_exec_path(&ex_ptr_slot, &ex_len_slot)
+    ex_ptr = load ex_ptr_slot+0 as ptr
+    ex_len = load ex_len_slot+0 as u64
+    ex_status_ok = eq ex_status, 0
+    ex_len_ok = ugt ex_len, 0
+    ex_ok = and ex_status_ok, ex_len_ok
+    br ex_ok -> L_MEMORY_USAGE, L_FAIL_EX
+
 L_MEMORY_USAGE:
-    !is_ex_ok
+    !ex_ok
+    !ex_status_ok
+    !ex_len_ok
+    call @sa_print_bytes(&STR_LABEL_EXEC_PATH, STR_LABEL_EXEC_PATH_LEN)
+    ex_free = call @sa_deno_plugin_free_buffer(ex_ptr, ex_len)
+    !ex_free
+    !ex_status
+    !ex_ptr
     !ex_len
-    call @sa_print_bytes(&STR_LABEL_EXEC_PATH, 29)
-    status_free5 = call @sa_fs_read_buffer_free(^ex_buf)
-    !status_free5
 
-    // 12. Memory Usage
-    EXPAND DENO_MEMORY_USAGE mu_buf
-    mu_len = call @sa_fs_read_buffer_len(mu_buf)
-    is_mu_ok = ugt mu_len, 0
-    br is_mu_ok -> L_PASS, L_FAIL_MU
-    
+    mu_ptr_slot = stack_alloc 8
+    mu_len_slot = stack_alloc 8
+    store mu_ptr_slot+0, 0 as ptr
+    store mu_len_slot+0, 0 as u64
+    mu_status = call @sa_deno_plugin_memory_usage(&mu_ptr_slot, &mu_len_slot)
+    mu_ptr = load mu_ptr_slot+0 as ptr
+    mu_len = load mu_len_slot+0 as u64
+    mu_status_ok = eq mu_status, 0
+    mu_len_ok = ugt mu_len, 0
+    mu_ok = and mu_status_ok, mu_len_ok
+    br mu_ok -> L_PASS, L_FAIL_MU
+
 L_PASS:
-    !is_mu_ok
+    !mu_ok
+    !mu_status_ok
+    !mu_len_ok
+    call @sa_print_bytes(&STR_LABEL_MEM_USAGE, STR_LABEL_MEM_USAGE_LEN)
+    mu_free = call @sa_deno_plugin_free_buffer(mu_ptr, mu_len)
+    !mu_free
+    !mu_status
+    !mu_ptr
     !mu_len
-    call @sa_print_bytes(&STR_LABEL_MEM_USAGE, 32)
-    status_free6 = call @sa_fs_read_buffer_free(^mu_buf)
-    !status_free6
-
-    // Print pass banner
-    call @sa_print_bytes(&STR_TEST_PASS, 84)
+    call @sa_print_bytes(&STR_TEST_PASS, STR_TEST_PASS_LEN)
     return 0
 
 L_FAIL_H:
-    !is_h_ok
+    !h_ok
+    h_free_fail = call @sa_deno_plugin_free_buffer(h_ptr, h_len)
+    !h_free_fail
+    !h_status
+    !h_status_ok
+    !h_len_ok
+    !h_ptr
     !h_len
-    status_free_h = call @sa_fs_read_buffer_free(^h_buf)
-    !status_free_h
     return 1
 
 L_FAIL_R:
-    !is_r_ok
+    !r_ok
+    r_free_fail = call @sa_deno_plugin_free_buffer(r_ptr, r_len)
+    !r_free_fail
+    !r_status
+    !r_status_ok
+    !r_len_ok
+    !r_ptr
     !r_len
-    status_free_r = call @sa_fs_read_buffer_free(^r_buf)
-    !status_free_r
+    return 1
+
+L_FAIL_UPTIME:
+    !uptime_ok
+    !uptime_status
+    !uptime
     return 1
 
 L_FAIL_L:
-    !is_l_ok
+    !load_ok
     !load_status
     return 1
 
 L_FAIL_M:
-    !is_m_ok
+    !m_ok
+    m_free_fail = call @sa_deno_plugin_free_buffer(m_ptr, m_len)
+    !m_free_fail
+    !m_status
+    !m_status_ok
+    !m_len_ok
+    !m_ptr
     !m_len
-    status_free_m = call @sa_fs_read_buffer_free(^m_buf)
-    !status_free_m
     return 1
 
 L_FAIL_N:
-    !is_n_ok
+    !n_ok
+    n_free_fail = call @sa_deno_plugin_free_buffer(n_ptr, n_len)
+    !n_free_fail
+    !n_status
+    !n_status_ok
+    !n_len_ok
+    !n_ptr
     !n_len
-    status_free_n = call @sa_fs_read_buffer_free(^n_buf)
-    !status_free_n
     return 1
 
 L_FAIL_P:
-    !is_p_ok
+    !pid_ok
     !pid
+    !pid_status
+    !pid_status_ok
+    !pid_value_ok
     return 1
 
 L_FAIL_PP:
-    !is_pp_ok
+    !ppid_ok
     !ppid
+    !ppid_status
+    !ppid_status_ok
+    !ppid_value_ok
     return 1
 
 L_FAIL_U:
-    !is_u_ok
+    !uid_ok
     !uid
+    !uid_status
     return 1
 
 L_FAIL_G:
-    !is_g_ok
+    !gid_ok
     !gid
+    !gid_status
     return 1
 
 L_FAIL_EX:
-    !is_ex_ok
+    !ex_ok
+    ex_free_fail = call @sa_deno_plugin_free_buffer(ex_ptr, ex_len)
+    !ex_free_fail
+    !ex_status
+    !ex_status_ok
+    !ex_len_ok
+    !ex_ptr
     !ex_len
-    status_free_ex = call @sa_fs_read_buffer_free(^ex_buf)
-    !status_free_ex
     return 1
 
 L_FAIL_MU:
-    !is_mu_ok
+    !mu_ok
+    mu_free_fail = call @sa_deno_plugin_free_buffer(mu_ptr, mu_len)
+    !mu_free_fail
+    !mu_status
+    !mu_status_ok
+    !mu_len_ok
+    !mu_ptr
     !mu_len
-    status_free_mu = call @sa_fs_read_buffer_free(^mu_buf)
-    !status_free_mu
     return 1

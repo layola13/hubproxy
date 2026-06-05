@@ -4,10 +4,12 @@
 
 @import "sa_std/io/print.sai"
 @import "sa_std/io.sai"
+@import "sa_std/process.sai"
 @import "sa_std/process.sal"
 @import "sa_std/fmt.sai"
+@import "sa_std/time.sai"
 @import "sa_std/encoding/json.sa"
-@import "sa_std/deno.sa"
+@import "deno.sal"
 @import "src/config.sa"
 @import "src/state.sa"
 
@@ -279,6 +281,8 @@
 @const J_PLUGIN_INSTALL_RESULT = utf8:"{\"appsNeedingAuth\":[],\"authPolicy\":\"NOT_AVAILABLE\"}"
 @const J_PLUGIN_SHARE_LIST_RESULT = utf8:"{\"data\":[],\"nextCursor\":null}"
 @const J_MODEL_CAP_RESULT = utf8:"{\"imageGeneration\":false,\"namespaceTools\":true,\"webSearch\":false}"
+@const J_MODELS_LOCAL_A = utf8:"{\"data\":[{\"id\":"
+@const J_MODELS_LOCAL_B = utf8:",\"object\":\"model\",\"type\":\"model\"}],\"object\":\"list\"}"
 @const J_APP_LIST_RESULT = utf8:"{\"data\":[],\"nextCursor\":null}"
 @const J_EXPERIMENTAL_FEATURE_RESULT = utf8:"{\"data\":[{\"name\":\"reasoning\",\"stage\":\"stable\",\"displayName\":\"Reasoning\",\"description\":\"Reasoning item formatting.\",\"announcement\":null,\"enabled\":true,\"defaultEnabled\":true}],\"nextCursor\":null}"
 @const J_COLLAB_RESULT = utf8:"{\"data\":[{\"name\":\"default\",\"mode\":\"default\",\"model\":null,\"reasoning_effort\":null},{\"name\":\"plan\",\"mode\":\"plan\",\"model\":null,\"reasoning_effort\":\"medium\"}]}"
@@ -385,6 +389,7 @@
 @const J_SHELL_A = utf8:"{\"queued\":true,\"threadId\":"
 @const J_SHELL_B = utf8:",\"command\":"
 @const J_SHELL_C = utf8:"}"
+@const J_SHELL_WARNING_PREFIX = utf8:"shell command queued: "
 @const J_APPROVE_A = utf8:"{\"approved\":true,\"threadId\":"
 @const J_APPROVE_B = utf8:"}"
 @const J_CLEAN_A = utf8:"{\"cleaned\":true,\"threadId\":"
@@ -584,6 +589,8 @@
 @const J_HOOKS_B = utf8:",\"errors\":[],\"hooks\":[],\"warnings\":[]}]}"
 @const J_FS_READ_A = utf8:"{\"dataBase64\":\""
 @const J_FS_READ_B = utf8:"\"}"
+@const J_FS_READDIR_A = utf8:"{\"entries\":"
+@const J_FS_READDIR_B = utf8:"}"
 @const J_FS_OK_TRUE = utf8:"{\"ok\":true}"
 @const J_FS_OK_FALSE = utf8:"{\"ok\":false}"
 @const J_FS_WATCH_A = utf8:"{\"path\":\""
@@ -691,27 +698,27 @@
 @const EV_REMOTE_STATUS = utf8:"remoteControl/status/changed"
 @const EV_MCP_STARTUP = utf8:"mcpServer/startupStatus/updated"
 @const EV_SERVER_RESOLVED = utf8:"serverRequest/resolved"
-@const J_EVT_THREAD_STR_A = utf8:"{\"threadId\":\""
-@const J_EVT_STR_CLOSE = utf8:"\"}"
-@const J_EVT_TOOL_TURN_B = utf8:"\",\"turnId\":"
+@const J_EVT_THREAD_STR_A = utf8:"{\"threadId\":"
+@const J_EVT_STR_CLOSE = utf8:"}"
+@const J_EVT_TOOL_TURN_B = utf8:",\"turnId\":"
 @const J_EVT_TOOL_ITEM_B = utf8:",\"itemId\":"
 @const J_EVT_TOOL_MSG_B = utf8:",\"message\":"
 @const J_EVT_USER_INPUT_Q = utf8:",\"questions\":[{\"id\":\"default\",\"header\":\"Input\",\"question\":\"Provide input\",\"isOther\":true,\"isSecret\":false,\"options\":[{\"label\":\"Continue\",\"description\":\"Provide a value and continue.\"}]}]}"
 @const J_EVT_ELICIT_SERVER_B = utf8:",\"serverName\":"
 @const J_EVT_ELICIT_REQ_A = utf8:",\"request\":{\"type\":\"form\",\"id\":\""
 @const J_EVT_ELICIT_REQ_B = utf8:"\",\"requestedSchema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{},\"required\":[]},\"instructions\":\"Provide a value to continue.\"}}"
-@const J_EVT_RT_STARTED_B1 = utf8:"\",\"version\":\"v2\",\"realtimeSessionId\":\""
+@const J_EVT_RT_STARTED_B1 = utf8:",\"version\":\"v2\",\"realtimeSessionId\":\""
 @const J_EVT_RT_STARTED_B2 = utf8:"\"}"
-@const J_EVT_RT_AUDIO_A = utf8:"\",\"item\":{\"type\":\"audio\",\"audio\":"
+@const J_EVT_RT_AUDIO_A = utf8:",\"item\":{\"type\":\"audio\",\"audio\":"
 @const J_EVT_RT_AUDIO_B2 = utf8:"}}"
-@const J_EVT_RT_TEXT_A = utf8:"\",\"item\":{\"type\":\"text\",\"text\":"
+@const J_EVT_RT_TEXT_A = utf8:",\"item\":{\"type\":\"text\",\"text\":"
 @const J_EVT_RT_TEXT_B2 = utf8:"}}"
-@const J_EVT_RT_DELTA_A = utf8:"\",\"role\":"
+@const J_EVT_RT_DELTA_A = utf8:",\"role\":"
 @const J_EVT_RT_DELTA_B2 = utf8:",\"delta\":"
 @const J_EVT_RT_DELTA_C = utf8:"}"
 @const J_EVT_RT_DONE_B2 = utf8:",\"text\":"
 @const J_EVT_RT_DONE_C = utf8:"}"
-@const J_EVT_RT_AUDIO_DELTA_A = utf8:"\",\"audio\":"
+@const J_EVT_RT_AUDIO_DELTA_A = utf8:",\"audio\":"
 @const J_EVT_RT_AUDIO_DELTA_C = utf8:"}"
 @const J_EVT_FUZZY_A = utf8:"{\"sessionId\":"
 @const J_EVT_FUZZY_B = utf8:",\"query\":"
@@ -820,6 +827,8 @@
 #def J_PLUGIN_INSTALL_RESULT_LEN = 51
 #def J_PLUGIN_SHARE_LIST_RESULT_LEN = 29
 #def J_MODEL_CAP_RESULT_LEN = 65
+#def J_MODELS_LOCAL_A_LEN = 15
+#def J_MODELS_LOCAL_B_LEN = 51
 #def J_APP_LIST_RESULT_LEN = 29
 #def J_EXPERIMENTAL_FEATURE_RESULT_LEN = 192
 #def J_COLLAB_RESULT_LEN = 154
@@ -926,6 +935,7 @@
 #def J_SHELL_A_LEN = 26
 #def J_SHELL_B_LEN = 11
 #def J_SHELL_C_LEN = 1
+#def J_SHELL_WARNING_PREFIX_LEN = 22
 #def J_APPROVE_A_LEN = 28
 #def J_APPROVE_B_LEN = 1
 #def J_CLEAN_A_LEN = 27
@@ -1059,6 +1069,8 @@
 #def J_HOOKS_B_LEN = 40
 #def J_FS_READ_A_LEN = 15
 #def J_FS_READ_B_LEN = 2
+#def J_FS_READDIR_A_LEN = 11
+#def J_FS_READDIR_B_LEN = 1
 #def J_FS_OK_TRUE_LEN = 11
 #def J_FS_OK_FALSE_LEN = 12
 #def J_FS_WATCH_A_LEN = 9
@@ -1169,27 +1181,27 @@
 #def EV_REMOTE_STATUS_LEN = 28
 #def EV_MCP_STARTUP_LEN = 31
 #def EV_SERVER_RESOLVED_LEN = 22
-#def J_EVT_THREAD_STR_A_LEN = 13
-#def J_EVT_STR_CLOSE_LEN = 2
-#def J_EVT_TOOL_TURN_B_LEN = 11
+#def J_EVT_THREAD_STR_A_LEN = 12
+#def J_EVT_STR_CLOSE_LEN = 1
+#def J_EVT_TOOL_TURN_B_LEN = 10
 #def J_EVT_TOOL_ITEM_B_LEN = 10
 #def J_EVT_TOOL_MSG_B_LEN = 11
 #def J_EVT_USER_INPUT_Q_LEN = 187
 #def J_EVT_ELICIT_SERVER_B_LEN = 14
 #def J_EVT_ELICIT_REQ_A_LEN = 32
 #def J_EVT_ELICIT_REQ_B_LEN = 172
-#def J_EVT_RT_STARTED_B1_LEN = 38
+#def J_EVT_RT_STARTED_B1_LEN = 37
 #def J_EVT_RT_STARTED_B2_LEN = 2
-#def J_EVT_RT_AUDIO_A_LEN = 33
+#def J_EVT_RT_AUDIO_A_LEN = 32
 #def J_EVT_RT_AUDIO_B2_LEN = 2
-#def J_EVT_RT_TEXT_A_LEN = 31
+#def J_EVT_RT_TEXT_A_LEN = 30
 #def J_EVT_RT_TEXT_B2_LEN = 2
-#def J_EVT_RT_DELTA_A_LEN = 9
+#def J_EVT_RT_DELTA_A_LEN = 8
 #def J_EVT_RT_DELTA_B2_LEN = 9
 #def J_EVT_RT_DELTA_C_LEN = 1
 #def J_EVT_RT_DONE_B2_LEN = 8
 #def J_EVT_RT_DONE_C_LEN = 1
-#def J_EVT_RT_AUDIO_DELTA_A_LEN = 10
+#def J_EVT_RT_AUDIO_DELTA_A_LEN = 9
 #def J_EVT_RT_AUDIO_DELTA_C_LEN = 1
 #def J_EVT_FUZZY_A_LEN = 13
 #def J_EVT_FUZZY_B_LEN = 9
@@ -1559,7 +1571,7 @@ L_AUTH_LOG_SKIP:
 
 L_AUTH_LOG_BUILD:
     !has_log
-    mkdir_status = call @sa_fs_make_dir(&log_dir_ptr, log_dir_len)
+    mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
     !mkdir_status
     file_len = add log_dir_len, LOG_FILE_AUTH_SUFFIX_LEN
     file_path = alloc file_len
@@ -1632,7 +1644,7 @@ L_AUTH_LOG_EXPECTED:
     call @rpc_builder_append(&result, &LOG_AUTH_JSON_D, LOG_AUTH_JSON_D_LEN)
     body_ptr = call @rpc_builder_data(&result)
     body_len = call @rpc_builder_len(&result)
-    write_status = call @sa_fs_write_file(&file_path, file_len, &body_ptr, body_len)
+    write_status = call @sa_deno_plugin_write_text_file(&file_path, file_len, &body_ptr, body_len)
     !write_status
     !body_ptr
     !body_len
@@ -1672,7 +1684,7 @@ L_REQ_LOG_SKIP:
 
 L_REQ_LOG_BUILD:
     !has_log
-    mkdir_status = call @sa_fs_make_dir(&log_dir_ptr, log_dir_len)
+    mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
     !mkdir_status
     file_len = add log_dir_len, LOG_FILE_REQ_SUFFIX_LEN
     file_path = alloc file_len
@@ -1824,7 +1836,7 @@ L_REQ_LOG_FINISH:
     call @rpc_builder_append(&result, &LOG_REQ_JSON_H, LOG_REQ_JSON_H_LEN)
     body_ptr = call @rpc_builder_data(&result)
     log_body_len = call @rpc_builder_len(&result)
-    write_status = call @sa_fs_write_file(&file_path, file_len, &body_ptr, log_body_len)
+    write_status = call @sa_deno_plugin_write_text_file(&file_path, file_len, &body_ptr, log_body_len)
     !write_status
     !body_ptr
     !log_body_len
@@ -1910,6 +1922,15 @@ L_BODY_BLANK_YES:
 L_ENTRY:
     buf = alloc RPC_JSON_BUF_SIZE
     store buf+0, 0 as u64
+    return buf
+
+@ffi_wrapper rpc_builder_new_capacity(capacity: u64) -> ^ptr:
+L_ENTRY:
+    total = add capacity, 8
+    buf = alloc total
+    store buf+0, 0 as u64
+    !total
+    !capacity
     return buf
 
 @ffi_wrapper rpc_builder_len(&buf: ptr) -> u64:
@@ -3277,7 +3298,7 @@ L_ENTRY:
 L_ENTRY:
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EVT_THREAD_STR_A, J_EVT_THREAD_STR_A_LEN)
-    call @rpc_builder_append_param_raw_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
+    call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &suffix_ptr, suffix_len)
     params_ptr = call @rpc_builder_data(&result)
     params_len = call @rpc_builder_len(&result)
@@ -3296,20 +3317,23 @@ L_ENTRY:
 
 @ffi_wrapper notify_realtime_started(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
-    uuid_buf = call @sa_deno_random_uuid()
-    uuid_ptr = call @sa_fmt_buffer_data(uuid_buf)
-    uuid_len = call @sa_fmt_buffer_len(uuid_buf)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EVT_THREAD_STR_A, J_EVT_THREAD_STR_A_LEN)
-    call @rpc_builder_append_param_raw_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
+    call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_EVT_RT_STARTED_B1, J_EVT_RT_STARTED_B1_LEN)
     call @rpc_builder_append(&result, &uuid_ptr, uuid_len)
     call @rpc_builder_append(&result, &J_EVT_RT_STARTED_B2, J_EVT_RT_STARTED_B2_LEN)
     params_ptr = call @rpc_builder_data(&result)
     params_len = call @rpc_builder_len(&result)
     call @notify_const_params(&state_ptr, &EV_RT_STARTED, EV_RT_STARTED_LEN, &params_ptr, params_len)
-    uuid_free_status = call @sa_fmt_buffer_free(^uuid_buf)
+    uuid_free_status = call @sa_deno_plugin_free_buffer(uuid_ptr, uuid_len)
     !uuid_free_status
+    !uuid_status
     !uuid_ptr
     !uuid_len
     !params_ptr
@@ -3322,12 +3346,14 @@ L_ENTRY:
 
 @ffi_wrapper notify_mcp_tool_progress(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
-    uuid_buf = call @sa_deno_random_uuid()
-    uuid_ptr = call @sa_fmt_buffer_data(uuid_buf)
-    uuid_len = call @sa_fmt_buffer_len(uuid_buf)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EVT_THREAD_STR_A, J_EVT_THREAD_STR_A_LEN)
-    call @rpc_builder_append_param_raw_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
+    call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_EVT_TOOL_TURN_B, J_EVT_TOOL_TURN_B_LEN)
     call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_TURNID_KEY, J_TURNID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_EVT_TOOL_ITEM_B, J_EVT_TOOL_ITEM_B_LEN)
@@ -3338,8 +3364,9 @@ L_ENTRY:
     params_ptr = call @rpc_builder_data(&result)
     params_len = call @rpc_builder_len(&result)
     call @notify_const_params(&state_ptr, &EV_MCP_TOOL_PROGRESS, EV_MCP_TOOL_PROGRESS_LEN, &params_ptr, params_len)
-    uuid_free_status = call @sa_fmt_buffer_free(^uuid_buf)
+    uuid_free_status = call @sa_deno_plugin_free_buffer(uuid_ptr, uuid_len)
     !uuid_free_status
+    !uuid_status
     !uuid_ptr
     !uuid_len
     !params_ptr
@@ -3352,12 +3379,14 @@ L_ENTRY:
 
 @ffi_wrapper notify_user_input_request(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
-    uuid_buf = call @sa_deno_random_uuid()
-    uuid_ptr = call @sa_fmt_buffer_data(uuid_buf)
-    uuid_len = call @sa_fmt_buffer_len(uuid_buf)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EVT_THREAD_STR_A, J_EVT_THREAD_STR_A_LEN)
-    call @rpc_builder_append_param_raw_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
+    call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_EVT_TOOL_TURN_B, J_EVT_TOOL_TURN_B_LEN)
     call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_TURNID_KEY, J_TURNID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_EVT_TOOL_ITEM_B, J_EVT_TOOL_ITEM_B_LEN)
@@ -3366,8 +3395,9 @@ L_ENTRY:
     params_ptr = call @rpc_builder_data(&result)
     params_len = call @rpc_builder_len(&result)
     call @notify_const_params(&state_ptr, &EV_USER_INPUT, EV_USER_INPUT_LEN, &params_ptr, params_len)
-    uuid_free_status = call @sa_fmt_buffer_free(^uuid_buf)
+    uuid_free_status = call @sa_deno_plugin_free_buffer(uuid_ptr, uuid_len)
     !uuid_free_status
+    !uuid_status
     !uuid_ptr
     !uuid_len
     !params_ptr
@@ -3380,12 +3410,14 @@ L_ENTRY:
 
 @ffi_wrapper notify_mcp_elicitation_request(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
-    uuid_buf = call @sa_deno_random_uuid()
-    uuid_ptr = call @sa_fmt_buffer_data(uuid_buf)
-    uuid_len = call @sa_fmt_buffer_len(uuid_buf)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EVT_THREAD_STR_A, J_EVT_THREAD_STR_A_LEN)
-    call @rpc_builder_append_param_raw_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
+    call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_EVT_TOOL_TURN_B, J_EVT_TOOL_TURN_B_LEN)
     call @rpc_builder_append_param_string_or_null(&result, &body, body_len, &J_TURNID_KEY, J_TURNID_KEY_LEN)
     call @rpc_builder_append(&result, &J_EVT_ELICIT_SERVER_B, J_EVT_ELICIT_SERVER_B_LEN)
@@ -3396,8 +3428,9 @@ L_ENTRY:
     params_ptr = call @rpc_builder_data(&result)
     params_len = call @rpc_builder_len(&result)
     call @notify_const_params(&state_ptr, &EV_MCP_ELICITATION, EV_MCP_ELICITATION_LEN, &params_ptr, params_len)
-    uuid_free_status = call @sa_fmt_buffer_free(^uuid_buf)
+    uuid_free_status = call @sa_deno_plugin_free_buffer(uuid_ptr, uuid_len)
     !uuid_free_status
+    !uuid_status
     !uuid_ptr
     !uuid_len
     !params_ptr
@@ -3412,7 +3445,7 @@ L_ENTRY:
 L_ENTRY:
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EVT_THREAD_STR_A, J_EVT_THREAD_STR_A_LEN)
-    call @rpc_builder_append_param_raw_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
+    call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &prefix, prefix_len)
     call @rpc_builder_append_param_string_or_null(&result, &body, body_len, &key, key_len)
     call @rpc_builder_append(&result, &suffix, suffix_len)
@@ -3439,7 +3472,7 @@ L_ENTRY:
 L_ENTRY:
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EVT_THREAD_STR_A, J_EVT_THREAD_STR_A_LEN)
-    call @rpc_builder_append_param_raw_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
+    call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_EVT_RT_DELTA_A, J_EVT_RT_DELTA_A_LEN)
     call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_ROLE_KEY, J_ROLE_KEY_LEN, &DEFAULT_ASSISTANT, DEFAULT_ASSISTANT_LEN)
     call @rpc_builder_append(&result, &mid, mid_len)
@@ -3765,38 +3798,99 @@ L_ENTRY:
     !req
     return 0
 
+@ffi_wrapper rpc_jsonrpc_lookup_key(&key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    has_len = ugt key_len, 0
+    br has_len -> L_LOOKUP_FIRST, L_LOOKUP_RAW_EMPTY
+
+L_LOOKUP_FIRST:
+    first = load key+0 as u8
+    is_quote = eq first, 34
+    br is_quote -> L_LOOKUP_SCAN, L_LOOKUP_RAW_FIRST
+
+L_LOOKUP_SCAN:
+    !is_quote
+    tail_ptr = ptr_add key, 1
+    tail_len = sub key_len, 1
+    end_idx = call @sa_bytes_find_byte(&tail_ptr, tail_len, 34)
+    has_end = sge end_idx, 0
+    br has_end -> L_LOOKUP_STRIP, L_LOOKUP_RAW_STRIP
+
+L_LOOKUP_STRIP:
+    !has_end
+    store out_ptr+0, tail_ptr as ptr
+    store out_len+0, end_idx as u64
+    !end_idx
+    !tail_ptr
+    !tail_len
+    !first
+    !has_len
+    !key
+    !key_len
+    !out_ptr
+    !out_len
+    return 1
+
+L_LOOKUP_RAW_STRIP:
+    !has_end
+    !end_idx
+    !tail_ptr
+    !tail_len
+    !first
+    store out_ptr+0, key as ptr
+    store out_len+0, key_len as u64
+    !has_len
+    !key
+    !key_len
+    !out_ptr
+    !out_len
+    return 0
+
+L_LOOKUP_RAW_FIRST:
+    !is_quote
+    !first
+    store out_ptr+0, key as ptr
+    store out_len+0, key_len as u64
+    !has_len
+    !key
+    !key_len
+    !out_ptr
+    !out_len
+    return 0
+
+L_LOOKUP_RAW_EMPTY:
+    !has_len
+    store out_ptr+0, key as ptr
+    store out_len+0, key_len as u64
+    !key
+    !key_len
+    !out_ptr
+    !out_len
+    return 0
+
 @ffi_wrapper rpc_extract_u64_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: u64) -> u64:
 L_ENTRY:
-    idx = call @sa_bytes_find(&body, body_len, &key, key_len)
-    found = sge idx, 0
-    br found -> L_EXTRACT_PREP, L_EXTRACT_FALLBACK
+    str_ptr_slot = stack_alloc 8
+    str_len_slot = stack_alloc 8
+    status = call @rpc_extract_string_after(&body, body_len, &key, key_len, &str_ptr_slot, &str_len_slot)
+    has_string = eq status, 1
+    !status
+    br has_string -> L_EXTRACT_STR, L_EXTRACT_NO_STRING
 
-L_EXTRACT_PREP:
-    !found
-    val_off_i = add idx, key_len
-    !idx
-    val_off = bitcast val_off_i as u64
-    remaining = sub body_len, val_off
-    val_ptr = ptr_add body, val_off
-    quote_idx = call @sa_bytes_find_byte(&val_ptr, remaining, 34)
-    has_quote = sge quote_idx, 0
-    br has_quote -> L_EXTRACT_PARSE, L_EXTRACT_NO_QUOTE
-
-L_EXTRACT_PARSE:
-    !has_quote
-    parsed = call @sa_bytes_to_u64(&val_ptr, quote_idx)
+L_EXTRACT_STR:
+    !has_string
+    str_ptr = load str_ptr_slot+0 as ptr
+    str_len = load str_len_slot+0 as u64
+    parsed = call @sa_bytes_to_u64(&str_ptr, str_len)
     parsed_ok = sge parsed, 0
-    br parsed_ok -> L_EXTRACT_OK, L_EXTRACT_BAD_PARSE
+    br parsed_ok -> L_EXTRACT_STR_OK, L_EXTRACT_STR_FALLBACK
 
-L_EXTRACT_OK:
+L_EXTRACT_STR_OK:
     !parsed_ok
     result = bitcast parsed as u64
     !parsed
-    !quote_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
+    !str_ptr
+    !str_len
     !body
     !body_len
     !key
@@ -3804,36 +3898,110 @@ L_EXTRACT_OK:
     !fallback
     return result
 
-L_EXTRACT_BAD_PARSE:
+L_EXTRACT_STR_FALLBACK:
     !parsed_ok
     !parsed
-    !quote_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
+    !str_ptr
+    !str_len
+    jmp L_EXTRACT_DOM
+
+L_EXTRACT_NO_STRING:
+    !has_string
+    jmp L_EXTRACT_DOM
+
+L_EXTRACT_DOM:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_EXTRACT_ROOT, L_EXTRACT_FALLBACK2
+
+L_EXTRACT_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    !params_status
+    br params_ok -> L_EXTRACT_PARAMS, L_EXTRACT_FREE_ROOT
+
+L_EXTRACT_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    lookup_ptr_slot = stack_alloc 8
+    lookup_len_slot = stack_alloc 8
+    lookup_status = call @rpc_jsonrpc_lookup_key(&key, key_len, &lookup_ptr_slot, &lookup_len_slot)
+    !lookup_status
+    lookup_ptr = load lookup_ptr_slot+0 as ptr
+    lookup_len = load lookup_len_slot+0 as u64
+    value_slot = stack_alloc 8
+    value_status = call @sa_json_object_get_i64(params_node, &lookup_ptr, lookup_len, &value_slot)
+    value_ok = eq value_status, 0
+    !value_status
+    br value_ok -> L_EXTRACT_NUM, L_EXTRACT_NUM_MISSING
+
+L_EXTRACT_NUM:
+    !value_ok
+    value_i64 = load value_slot+0 as i64
+    value_nonneg = sge value_i64, 0
+    br value_nonneg -> L_EXTRACT_NUM_OK, L_EXTRACT_NUM_STR_FALLBACK
+
+L_EXTRACT_NUM_OK:
+    !value_nonneg
+    result = zext value_i64
+    free_params = call @sa_json_free(^params_node)
+    free_root = call @sa_json_free(^root)
+    !free_params
+    !free_root
+    !value_i64
+    !lookup_ptr
+    !lookup_len
+    !body
+    !body_len
+    !key
+    !key_len
+    !fallback
+    return result
+
+L_EXTRACT_NUM_STR_FALLBACK:
+    !value_nonneg
+    !value_i64
+    free_params_bad = call @sa_json_free(^params_node)
+    free_root_bad = call @sa_json_free(^root)
+    !free_params_bad
+    !free_root_bad
+    !lookup_ptr
+    !lookup_len
     !body
     !body_len
     !key
     !key_len
     return fallback
 
-L_EXTRACT_NO_QUOTE:
-    !has_quote
-    !quote_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
+L_EXTRACT_NUM_MISSING:
+    !value_ok
+    !lookup_ptr
+    !lookup_len
+    free_params_missing = call @sa_json_free(^params_node)
+    free_root_missing = call @sa_json_free(^root)
+    !free_params_missing
+    !free_root_missing
     !body
     !body_len
     !key
     !key_len
     return fallback
 
-L_EXTRACT_FALLBACK:
-    !found
-    !idx
+L_EXTRACT_FREE_ROOT:
+    !params_ok
+    free_root_only = call @sa_json_free(^root)
+    !free_root_only
+    !body
+    !body_len
+    !key
+    !key_len
+    return fallback
+
+L_EXTRACT_FALLBACK2:
+    !has_root
+    !root
     !body
     !body_len
     !key
@@ -3842,148 +4010,60 @@ L_EXTRACT_FALLBACK:
 
 @ffi_wrapper rpc_extract_u64_number_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: u64) -> u64:
 L_ENTRY:
-    idx = call @sa_bytes_find(&body, body_len, &key, key_len)
-    found = sge idx, 0
-    br found -> L_NUM_PREP, L_NUM_FALLBACK
-
-L_NUM_PREP:
-    !found
-    val_off_i = add idx, key_len
-    !idx
-    val_off = bitcast val_off_i as u64
-    remaining = sub body_len, val_off
-    val_ptr = ptr_add body, val_off
-    comma_idx = call @sa_bytes_find_byte(&val_ptr, remaining, 44)
-    has_comma = sge comma_idx, 0
-    br has_comma -> L_NUM_PARSE_COMMA, L_NUM_BRACE
-
-L_NUM_PARSE_COMMA:
-    !has_comma
-    parsed = call @sa_bytes_to_u64(&val_ptr, comma_idx)
-    parsed_ok = sge parsed, 0
-    br parsed_ok -> L_NUM_OK, L_NUM_BAD
-
-L_NUM_OK:
-    !parsed_ok
-    result = bitcast parsed as u64
-    !parsed
-    !comma_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
-    !body
-    !body_len
-    !key
-    !key_len
-    !fallback
+    result = call @rpc_extract_u64_after(&body, body_len, &key, key_len, fallback)
     return result
-
-L_NUM_BAD:
-    !parsed_ok
-    !parsed
-    !comma_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
-    !body
-    !body_len
-    !key
-    !key_len
-    return fallback
-
-L_NUM_BRACE:
-    !has_comma
-    !comma_idx
-    brace_idx = call @sa_bytes_find_byte(&val_ptr, remaining, 125)
-    has_brace = sge brace_idx, 0
-    br has_brace -> L_NUM_PARSE_BRACE, L_NUM_FALLBACK2
-
-L_NUM_PARSE_BRACE:
-    !has_brace
-    parsed2 = call @sa_bytes_to_u64(&val_ptr, brace_idx)
-    parsed2_ok = sge parsed2, 0
-    br parsed2_ok -> L_NUM_OK2, L_NUM_BAD2
-
-L_NUM_OK2:
-    !parsed2_ok
-    result2 = bitcast parsed2 as u64
-    !parsed2
-    !brace_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
-    !body
-    !body_len
-    !key
-    !key_len
-    !fallback
-    return result2
-
-L_NUM_BAD2:
-    !parsed2_ok
-    !parsed2
-    !brace_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
-    !body
-    !body_len
-    !key
-    !key_len
-    return fallback
-
-L_NUM_FALLBACK2:
-    !has_brace
-    !brace_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
-    !body
-    !body_len
-    !key
-    !key_len
-    return fallback
-
-L_NUM_FALLBACK:
-    !found
-    !idx
-    !body
-    !body_len
-    !key
-    !key_len
-    return fallback
 
 @ffi_wrapper rpc_extract_string_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32:
 L_ENTRY:
-    idx = call @sa_bytes_find(&body, body_len, &key, key_len)
-    found = sge idx, 0
-    br found -> L_STR_PREP, L_STR_NOT_FOUND
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_STR_ROOT, L_STR_NOT_FOUND
 
-L_STR_PREP:
-    !found
-    val_off_i = add idx, key_len
-    !idx
-    val_off = bitcast val_off_i as u64
-    remaining = sub body_len, val_off
-    val_ptr = ptr_add body, val_off
-    quote_idx = call @sa_bytes_find_byte(&val_ptr, remaining, 34)
-    has_quote = sge quote_idx, 0
-    br has_quote -> L_STR_FOUND, L_STR_NO_QUOTE
+L_STR_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    !params_status
+    br params_ok -> L_STR_PARAMS, L_STR_FREE_ROOT
 
-L_STR_FOUND:
-    !has_quote
-    store out_ptr+0, val_ptr as ptr
-    store out_len+0, quote_idx as u64
-    !quote_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
+L_STR_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    lookup_ptr_slot = stack_alloc 8
+    lookup_len_slot = stack_alloc 8
+    lookup_status = call @rpc_jsonrpc_lookup_key(&key, key_len, &lookup_ptr_slot, &lookup_len_slot)
+    !lookup_status
+    lookup_ptr = load lookup_ptr_slot+0 as ptr
+    lookup_len = load lookup_len_slot+0 as u64
+    value_ptr_slot = stack_alloc 8
+    value_len_slot = stack_alloc 8
+    value_status = call @sa_json_object_get_string(params_node, &lookup_ptr, lookup_len, &value_ptr_slot, &value_len_slot)
+    value_ok = eq value_status, 0
+    !value_status
+    br value_ok -> L_STR_COPY, L_STR_FREE_PARAMS
+
+L_STR_COPY:
+    !value_ok
+    value_ptr = load value_ptr_slot+0 as ptr
+    value_len = load value_len_slot+0 as u64
+    is_empty = eq value_len, 0
+    br is_empty -> L_STR_COPY_EMPTY, L_STR_COPY_NONEMPTY
+
+L_STR_COPY_EMPTY:
+    !is_empty
+    out = alloc 1
+    store out_ptr+0, out as ptr
+    store out_len+0, 0 as u64
+    free_params = call @sa_json_free(^params_node)
+    free_root = call @sa_json_free(^root)
+    !free_params
+    !free_root
+    !value_ptr
+    !value_len
+    !out
+    !lookup_ptr
+    !lookup_len
     !body
     !body_len
     !key
@@ -3992,13 +4072,50 @@ L_STR_FOUND:
     !out_len
     return 1
 
-L_STR_NO_QUOTE:
-    !has_quote
-    !quote_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
+L_STR_COPY_NONEMPTY:
+    !is_empty
+    out2 = alloc value_len
+    copy_status = call @sa_bytes_copy(&out2, &value_ptr, value_len)
+    !copy_status
+    store out_ptr+0, out2 as ptr
+    store out_len+0, value_len as u64
+    free_params2 = call @sa_json_free(^params_node)
+    free_root2 = call @sa_json_free(^root)
+    !free_params2
+    !free_root2
+    !value_ptr
+    !value_len
+    !out2
+    !lookup_ptr
+    !lookup_len
+    !body
+    !body_len
+    !key
+    !key_len
+    !out_ptr
+    !out_len
+    return 1
+
+L_STR_FREE_PARAMS:
+    !value_ok
+    !lookup_ptr
+    !lookup_len
+    free_params_bad = call @sa_json_free(^params_node)
+    free_root_bad = call @sa_json_free(^root)
+    !free_params_bad
+    !free_root_bad
+    !body
+    !body_len
+    !key
+    !key_len
+    !out_ptr
+    !out_len
+    return 0
+
+L_STR_FREE_ROOT:
+    !params_ok
+    free_root_only = call @sa_json_free(^root)
+    !free_root_only
     !body
     !body_len
     !key
@@ -4008,8 +4125,8 @@ L_STR_NO_QUOTE:
     return 0
 
 L_STR_NOT_FOUND:
-    !found
-    !idx
+    !has_root
+    !root
     !body
     !body_len
     !key
@@ -4737,61 +4854,35 @@ L_JSON_STR_DONE:
 
 @ffi_wrapper rpc_builder_append_param_string_or_default(&buf: ptr, &body: ptr, body_len: u64, &key: ptr, key_len: u64, &fallback: ptr, fallback_len: u64) -> u32:
 L_ENTRY:
-    value_ptr_slot = stack_alloc 8
-    value_len_slot = stack_alloc 8
-    status = call @rpc_extract_string_after(&body, body_len, &key, key_len, &value_ptr_slot, &value_len_slot)
-    found = eq status, 1
-    br found -> L_PARAM_STRING_FOUND, L_PARAM_STRING_DEFAULT
-
-L_PARAM_STRING_FOUND:
-    !found
-    value_ptr = load value_ptr_slot+0 as ptr
-    value_len = load value_len_slot+0 as u64
-    append_status = call @rpc_builder_append_json_string(&buf, &value_ptr, value_len)
-    !append_status
-    !value_ptr
-    !value_len
-    !status
-    !buf
-    !body
-    !body_len
-    !key
-    !key_len
-    !fallback
-    !fallback_len
-    return 0
-
-L_PARAM_STRING_DEFAULT:
-    !found
-    append_status2 = call @rpc_builder_append_json_string(&buf, &fallback, fallback_len)
-    !append_status2
-    !status
-    !buf
-    !body
-    !body_len
-    !key
-    !key_len
-    !fallback
-    !fallback_len
-    return 0
+    status = call @rpc_builder_append_params_string_or_default(&buf, &body, body_len, &key, key_len, &fallback, fallback_len)
+    return status
 
 @ffi_wrapper rpc_builder_append_param_string_or_alt_default(&buf: ptr, &body: ptr, body_len: u64, &primary_key: ptr, primary_key_len: u64, &alt_key: ptr, alt_key_len: u64, &fallback: ptr, fallback_len: u64) -> u32:
 L_ENTRY:
-    value_ptr_slot = stack_alloc 8
-    value_len_slot = stack_alloc 8
-    primary_status = call @rpc_extract_string_after(&body, body_len, &primary_key, primary_key_len, &value_ptr_slot, &value_len_slot)
-    primary_found = eq primary_status, 1
-    !primary_status
-    br primary_found -> L_PARAM_ALT_FOUND, L_PARAM_ALT_TRY_ALT
+    primary_ptr_slot = stack_alloc 8
+    primary_len_slot = stack_alloc 8
+    primary_status = call @sa_deno_plugin_jsonrpc_params_string_literal(&body, body_len, &primary_key, primary_key_len, &EMPTY_TEXT, EMPTY_TEXT_LEN, 1, &primary_ptr_slot, &primary_len_slot)
+    primary_ok = eq primary_status, 0
+    br primary_ok -> L_PARAM_ALT_PRIMARY_HANDLE, L_PARAM_ALT_PRIMARY_MISSING
 
-L_PARAM_ALT_FOUND:
-    !primary_found
-    value_ptr = load value_ptr_slot+0 as ptr
-    value_len = load value_len_slot+0 as u64
-    append_status = call @rpc_builder_append_json_string(&buf, &value_ptr, value_len)
+L_PARAM_ALT_PRIMARY_HANDLE:
+    !primary_ok
+    primary_ptr = load primary_ptr_slot+0 as ptr
+    primary_len = load primary_len_slot+0 as u64
+    primary_null_eq = call @sa_bytes_eq(&primary_ptr, primary_len, &J_NULL, J_NULL_LEN)
+    primary_is_null = eq primary_null_eq, 1
+    !primary_null_eq
+    br primary_is_null -> L_PARAM_ALT_PRIMARY_NULL, L_PARAM_ALT_PRIMARY_VALUE
+
+L_PARAM_ALT_PRIMARY_VALUE:
+    !primary_is_null
+    append_status = call @rpc_builder_append(&buf, &primary_ptr, primary_len)
     !append_status
-    !value_ptr
-    !value_len
+    primary_free = call @sa_deno_plugin_free_buffer(primary_ptr, primary_len)
+    !primary_free
+    !primary_ptr
+    !primary_len
+    !primary_status
     !buf
     !body
     !body_len
@@ -4803,21 +4894,15 @@ L_PARAM_ALT_FOUND:
     !fallback_len
     return 0
 
-L_PARAM_ALT_TRY_ALT:
-    !primary_found
-    alt_status = call @rpc_extract_string_after(&body, body_len, &alt_key, alt_key_len, &value_ptr_slot, &value_len_slot)
-    alt_found = eq alt_status, 1
+L_PARAM_ALT_PRIMARY_NULL:
+    !primary_is_null
+    primary_free_null = call @sa_deno_plugin_free_buffer(primary_ptr, primary_len)
+    !primary_free_null
+    !primary_ptr
+    !primary_len
+    alt_status = call @rpc_builder_append_params_string_or_default(&buf, &body, body_len, &alt_key, alt_key_len, &fallback, fallback_len)
     !alt_status
-    br alt_found -> L_PARAM_ALT_FOUND2, L_PARAM_ALT_DEFAULT
-
-L_PARAM_ALT_FOUND2:
-    !alt_found
-    value_ptr2 = load value_ptr_slot+0 as ptr
-    value_len2 = load value_len_slot+0 as u64
-    append_status2 = call @rpc_builder_append_json_string(&buf, &value_ptr2, value_len2)
-    !append_status2
-    !value_ptr2
-    !value_len2
+    !primary_status
     !buf
     !body
     !body_len
@@ -4829,10 +4914,11 @@ L_PARAM_ALT_FOUND2:
     !fallback_len
     return 0
 
-L_PARAM_ALT_DEFAULT:
-    !alt_found
-    append_status3 = call @rpc_builder_append_json_string(&buf, &fallback, fallback_len)
-    !append_status3
+L_PARAM_ALT_PRIMARY_MISSING:
+    alt_status2 = call @rpc_builder_append_params_string_or_default(&buf, &body, body_len, &alt_key, alt_key_len, &fallback, fallback_len)
+    !alt_status2
+    !primary_ok
+    !primary_status
     !buf
     !body
     !body_len
@@ -5220,22 +5306,25 @@ L_REPL_DONE:
 
 @ffi_wrapper normalize_responses_client_json_body(&body: ptr, body_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    norm_handle = call @sa_deno_responses_json_normalize(&body, body_len)
-    norm_ok = ne norm_handle, 0
+    norm_ptr_slot = stack_alloc 8
+    norm_len_slot = stack_alloc 8
+    norm_status = call @sa_deno_plugin_responses_json_normalize(&body, body_len, &norm_ptr_slot, &norm_len_slot)
+    norm_ok = eq norm_status, 0
     br norm_ok -> L_RESP_JSON_STD_COPY, L_RESP_JSON_STD_COPY_ORIGINAL
 
 L_RESP_JSON_STD_COPY:
     !norm_ok
-    norm_ptr = call @sa_fs_read_buffer_data(norm_handle)
-    norm_len = call @sa_fs_read_buffer_len(norm_handle)
-    out_std = alloc RPC_JSON_BUF_SIZE
+    norm_ptr = load norm_ptr_slot+0 as ptr
+    norm_len = load norm_len_slot+0 as u64
+    out_std = alloc norm_len
     copy_status = call @sa_bytes_copy(&out_std, &norm_ptr, norm_len)
     !copy_status
-    free_status = call @sa_fs_read_buffer_free(^norm_handle)
+    free_status = call @sa_deno_plugin_free_buffer(norm_ptr, norm_len)
     !free_status
     store out_len+0, norm_len as u64
     !norm_ptr
     !norm_len
+    !norm_status
     !body
     !body_len
     !out_len
@@ -5243,8 +5332,8 @@ L_RESP_JSON_STD_COPY:
 
 L_RESP_JSON_STD_COPY_ORIGINAL:
     !norm_ok
-    !norm_handle
-    out_copy = alloc RPC_JSON_BUF_SIZE
+    !norm_status
+    out_copy = alloc body_len
     copy_status2 = call @sa_bytes_copy(&out_copy, &body, body_len)
     !copy_status2
     store out_len+0, body_len as u64
@@ -5255,22 +5344,25 @@ L_RESP_JSON_STD_COPY_ORIGINAL:
 
 @ffi_wrapper normalize_chat_fallback_json_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    std_json_handle = call @sa_deno_chat_json_to_responses(&body, body_len, &req_body, req_body_len)
-    std_json_ok = ne std_json_handle, 0
+    std_json_ptr_slot = stack_alloc 8
+    std_json_len_slot = stack_alloc 8
+    std_json_status = call @sa_deno_plugin_chat_json_to_responses(&body, body_len, &req_body, req_body_len, &std_json_ptr_slot, &std_json_len_slot)
+    std_json_ok = eq std_json_status, 0
     br std_json_ok -> L_CHAT_JSON_STD_COPY, L_CHAT_JSON_STD_COPY_ORIGINAL
 
 L_CHAT_JSON_STD_COPY:
     !std_json_ok
-    std_json_ptr = call @sa_fs_read_buffer_data(std_json_handle)
-    std_json_len = call @sa_fs_read_buffer_len(std_json_handle)
-    out_std_json = alloc RPC_JSON_BUF_SIZE
+    std_json_ptr = load std_json_ptr_slot+0 as ptr
+    std_json_len = load std_json_len_slot+0 as u64
+    out_std_json = alloc std_json_len
     std_json_copy_status = call @sa_bytes_copy(&out_std_json, &std_json_ptr, std_json_len)
     !std_json_copy_status
-    std_json_free_status = call @sa_fs_read_buffer_free(^std_json_handle)
+    std_json_free_status = call @sa_deno_plugin_free_buffer(std_json_ptr, std_json_len)
     !std_json_free_status
     store out_len+0, std_json_len as u64
     !std_json_ptr
     !std_json_len
+    !std_json_status
     !body
     !body_len
     !req_body
@@ -5280,8 +5372,8 @@ L_CHAT_JSON_STD_COPY:
 
 L_CHAT_JSON_STD_COPY_ORIGINAL:
     !std_json_ok
-    !std_json_handle
-    out_std_json_orig = alloc RPC_JSON_BUF_SIZE
+    !std_json_status
+    out_std_json_orig = alloc body_len
     std_json_copy_orig_status = call @sa_bytes_copy(&out_std_json_orig, &body, body_len)
     !std_json_copy_orig_status
     store out_len+0, body_len as u64
@@ -5294,13 +5386,33 @@ L_CHAT_JSON_STD_COPY_ORIGINAL:
 
 @ffi_wrapper normalize_responses_client_sse_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    norm_handle = call @sa_deno_responses_sse_normalize(&body, body_len)
-    norm_ptr = call @sa_fs_read_buffer_data(norm_handle)
-    norm_len = call @sa_fs_read_buffer_len(norm_handle)
+    norm_ptr_slot = stack_alloc 8
+    norm_len_slot = stack_alloc 8
+    norm_status = call @sa_deno_plugin_responses_sse_normalize(&body, body_len, &norm_ptr_slot, &norm_len_slot)
+    norm_ok = eq norm_status, 0
+    br norm_ok -> L_NATIVE_HAVE_NORM, L_NATIVE_COPY_ORIGINAL
 
+L_NATIVE_HAVE_NORM:
+    !norm_ok
+    norm_ptr = load norm_ptr_slot+0 as ptr
+    norm_len = load norm_len_slot+0 as u64
     allow_native_status = call @body_allows_progress_continuation(&req_body, req_body_len)
     allow_native = eq allow_native_status, 1
     br allow_native -> L_NATIVE_CONT_PROGRESS_CHECK, L_NATIVE_CONT_COPY_NO_ALLOW
+
+L_NATIVE_COPY_ORIGINAL:
+    !norm_ok
+    !norm_status
+    out_orig = alloc body_len
+    copy_orig_status = call @sa_bytes_copy(&out_orig, &body, body_len)
+    !copy_orig_status
+    store out_len+0, body_len as u64
+    !body
+    !body_len
+    !req_body
+    !req_body_len
+    !out_len
+    return out_orig
 
 L_NATIVE_CONT_PROGRESS_CHECK:
     !allow_native
@@ -5312,22 +5424,25 @@ L_NATIVE_CONT_PROGRESS_CHECK:
 L_NATIVE_CONT_REWRITE:
     !native_progress
     !native_progress_status
-    pass5 = call @rpc_builder_new()
+    pass5_capacity = add norm_len, RESP_NATIVE_CONT_BEFORE_COMPLETED_LEN
+    pass5 = call @rpc_builder_new_capacity(pass5_capacity)
     p5_status = call @append_with_replacement(&pass5, &norm_ptr, norm_len, &RESP_EVENT_COMPLETED_PREFIX, RESP_EVENT_COMPLETED_PREFIX_LEN, &RESP_NATIVE_CONT_BEFORE_COMPLETED, RESP_NATIVE_CONT_BEFORE_COMPLETED_LEN)
     !p5_status
     p5_ptr = call @rpc_builder_data(&pass5)
     p5_len = call @rpc_builder_len(&pass5)
-    out2 = alloc RPC_JSON_BUF_SIZE
+    out2 = alloc p5_len
     copy_status2 = call @sa_bytes_copy(&out2, &p5_ptr, p5_len)
     !copy_status2
     store out_len+0, p5_len as u64
     !p5_ptr
     !p5_len
     !pass5
-    norm_free_status2 = call @sa_fs_read_buffer_free(^norm_handle)
+    !pass5_capacity
+    norm_free_status2 = call @sa_deno_plugin_free_buffer(norm_ptr, norm_len)
     !norm_free_status2
     !norm_ptr
     !norm_len
+    !norm_status
     !body
     !body_len
     !req_body
@@ -5346,14 +5461,15 @@ L_NATIVE_CONT_COPY_NO_ALLOW:
     jmp L_NATIVE_CONT_COPY
 
 L_NATIVE_CONT_COPY:
-    out = alloc RPC_JSON_BUF_SIZE
+    out = alloc norm_len
     copy_status = call @sa_bytes_copy(&out, &norm_ptr, norm_len)
     !copy_status
     store out_len+0, norm_len as u64
-    norm_free_status = call @sa_fs_read_buffer_free(^norm_handle)
+    norm_free_status = call @sa_deno_plugin_free_buffer(norm_ptr, norm_len)
     !norm_free_status
     !norm_ptr
     !norm_len
+    !norm_status
     !body
     !body_len
     !req_body
@@ -5363,22 +5479,25 @@ L_NATIVE_CONT_COPY:
 
 @ffi_wrapper chat_fallback_sse_to_responses_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    std_sse_handle = call @sa_deno_chat_sse_to_responses(&body, body_len, &req_body, req_body_len)
-    std_sse_ok = ne std_sse_handle, 0
+    std_sse_ptr_slot = stack_alloc 8
+    std_sse_len_slot = stack_alloc 8
+    std_sse_status = call @sa_deno_plugin_chat_sse_to_responses(&body, body_len, &req_body, req_body_len, &std_sse_ptr_slot, &std_sse_len_slot)
+    std_sse_ok = eq std_sse_status, 0
     br std_sse_ok -> L_CHAT_SSE_STD_COPY, L_CHAT_SSE_STD_COPY_ORIGINAL
 
 L_CHAT_SSE_STD_COPY:
     !std_sse_ok
-    std_sse_ptr = call @sa_fs_read_buffer_data(std_sse_handle)
-    std_sse_len = call @sa_fs_read_buffer_len(std_sse_handle)
-    out_std = alloc RPC_JSON_BUF_SIZE
+    std_sse_ptr = load std_sse_ptr_slot+0 as ptr
+    std_sse_len = load std_sse_len_slot+0 as u64
+    out_std = alloc std_sse_len
     std_copy_status = call @sa_bytes_copy(&out_std, &std_sse_ptr, std_sse_len)
     !std_copy_status
-    std_free_status = call @sa_fs_read_buffer_free(^std_sse_handle)
+    std_free_status = call @sa_deno_plugin_free_buffer(std_sse_ptr, std_sse_len)
     !std_free_status
     store out_len+0, std_sse_len as u64
     !std_sse_ptr
     !std_sse_len
+    !std_sse_status
     !body
     !body_len
     !req_body
@@ -5388,8 +5507,8 @@ L_CHAT_SSE_STD_COPY:
 
 L_CHAT_SSE_STD_COPY_ORIGINAL:
     !std_sse_ok
-    !std_sse_handle
-    out_std_orig = alloc RPC_JSON_BUF_SIZE
+    !std_sse_status
+    out_std_orig = alloc body_len
     std_copy_orig_status = call @sa_bytes_copy(&out_std_orig, &body, body_len)
     !std_copy_orig_status
     store out_len+0, body_len as u64
@@ -6999,7 +7118,8 @@ L_RESP_PROXY_ROOT:
 L_RESP_PROXY_LOOP_INIT:
     !count_ok
     count = load count_slot+0 as u64
-    result = call @rpc_builder_new()
+    result_capacity = add body_len, RPC_JSON_BUF_SIZE
+    result = call @rpc_builder_new_capacity(result_capacity)
     first_slot = stack_alloc 1
     index_slot = stack_alloc 8
     key_ptr_slot = stack_alloc 8
@@ -7126,7 +7246,7 @@ L_RESP_PROXY_DONE:
     !obj_close_status
     result_ptr = call @rpc_builder_data(&result)
     result_len = call @rpc_builder_len(&result)
-    out = alloc RPC_JSON_BUF_SIZE
+    out = alloc result_len
     copy_status = call @sa_bytes_copy(&out, &result_ptr, result_len)
     !copy_status
     store out_len+0, result_len as u64
@@ -7135,6 +7255,7 @@ L_RESP_PROXY_DONE:
     !result_ptr
     !result_len
     !result
+    !result_capacity
     !count
     !count_status
     !is_gemini
@@ -7348,7 +7469,8 @@ L_CHAT_PROXY_ROOT:
 L_CHAT_PROXY_LOOP_INIT:
     !count_ok
     count = load count_slot+0 as u64
-    result = call @rpc_builder_new()
+    result_capacity = add body_len, RPC_JSON_BUF_SIZE
+    result = call @rpc_builder_new_capacity(result_capacity)
     first_slot = stack_alloc 1
     index_slot = stack_alloc 8
     key_ptr_slot = stack_alloc 8
@@ -7463,7 +7585,7 @@ L_CHAT_PROXY_DONE:
     !obj_close_status
     result_ptr = call @rpc_builder_data(&result)
     result_len = call @rpc_builder_len(&result)
-    out = alloc RPC_JSON_BUF_SIZE
+    out = alloc result_len
     copy_status = call @sa_bytes_copy(&out, &result_ptr, result_len)
     !copy_status
     store out_len+0, result_len as u64
@@ -7472,6 +7594,7 @@ L_CHAT_PROXY_DONE:
     !result_ptr
     !result_len
     !result
+    !result_capacity
     !count
     !count_status
     !body
@@ -7546,56 +7669,28 @@ L_PARAM_RAW_DEFAULT:
 
 @ffi_wrapper rpc_builder_append_param_string_or_null(&buf: ptr, &body: ptr, body_len: u64, &key: ptr, key_len: u64) -> u32:
 L_ENTRY:
-    value_ptr_slot = stack_alloc 8
-    value_len_slot = stack_alloc 8
-    status = call @rpc_extract_string_after(&body, body_len, &key, key_len, &value_ptr_slot, &value_len_slot)
-    found = eq status, 1
-    br found -> L_PARAM_STRING_FOUND, L_PARAM_STRING_NULL
-
-L_PARAM_STRING_FOUND:
-    !found
-    value_ptr = load value_ptr_slot+0 as ptr
-    value_len = load value_len_slot+0 as u64
-    append_status = call @rpc_builder_append_json_string(&buf, &value_ptr, value_len)
-    !append_status
-    !value_ptr
-    !value_len
-    !status
-    !buf
-    !body
-    !body_len
-    !key
-    !key_len
-    return 0
-
-L_PARAM_STRING_NULL:
-    !found
-    append_status2 = call @rpc_builder_append(&buf, &J_NULL, J_NULL_LEN)
-    !append_status2
-    !status
-    !buf
-    !body
-    !body_len
-    !key
-    !key_len
-    return 0
+    status = call @rpc_builder_append_params_string_or_null(&buf, &body, body_len, &key, key_len)
+    return status
 
 @ffi_wrapper rpc_builder_append_params_string_or_default(&buf: ptr, &body: ptr, body_len: u64, &key: ptr, key_len: u64, &fallback: ptr, fallback_len: u64) -> u32:
 L_ENTRY:
-    literal_handle = call @sa_deno_jsonrpc_params_string_literal(&body, body_len, &key, key_len, &fallback, fallback_len, 0)
-    literal_ok = ne literal_handle, 0
+    literal_ptr_slot = stack_alloc 8
+    literal_len_slot = stack_alloc 8
+    literal_status = call @sa_deno_plugin_jsonrpc_params_string_literal(&body, body_len, &key, key_len, &fallback, fallback_len, 0, &literal_ptr_slot, &literal_len_slot)
+    literal_ok = eq literal_status, 0
     br literal_ok -> L_PARAMS_STR_LITERAL, L_PARAMS_STR_DEFAULT
 
 L_PARAMS_STR_LITERAL:
     !literal_ok
-    literal_ptr = call @sa_fs_read_buffer_data(literal_handle)
-    literal_len = call @sa_fs_read_buffer_len(literal_handle)
+    literal_ptr = load literal_ptr_slot+0 as ptr
+    literal_len = load literal_len_slot+0 as u64
     append_status = call @rpc_builder_append(&buf, &literal_ptr, literal_len)
     !append_status
-    literal_free = call @sa_fs_read_buffer_free(^literal_handle)
+    literal_free = call @sa_deno_plugin_free_buffer(literal_ptr, literal_len)
     !literal_free
     !literal_ptr
     !literal_len
+    !literal_status
     !buf
     !body
     !body_len
@@ -7609,7 +7704,7 @@ L_PARAMS_STR_DEFAULT:
     !literal_ok
     append_default = call @rpc_builder_append_json_string(&buf, &fallback, fallback_len)
     !append_default
-    !literal_handle
+    !literal_status
     !buf
     !body
     !body_len
@@ -7621,20 +7716,23 @@ L_PARAMS_STR_DEFAULT:
 
 @ffi_wrapper rpc_builder_append_params_string_or_null(&buf: ptr, &body: ptr, body_len: u64, &key: ptr, key_len: u64) -> u32:
 L_ENTRY:
-    literal_handle = call @sa_deno_jsonrpc_params_string_literal(&body, body_len, &key, key_len, &EMPTY_TEXT, EMPTY_TEXT_LEN, 1)
-    literal_ok = ne literal_handle, 0
+    literal_ptr_slot = stack_alloc 8
+    literal_len_slot = stack_alloc 8
+    literal_status = call @sa_deno_plugin_jsonrpc_params_string_literal(&body, body_len, &key, key_len, &EMPTY_TEXT, EMPTY_TEXT_LEN, 1, &literal_ptr_slot, &literal_len_slot)
+    literal_ok = eq literal_status, 0
     br literal_ok -> L_PARAMS_NULL_LITERAL, L_PARAMS_NULL_DEFAULT
 
 L_PARAMS_NULL_LITERAL:
     !literal_ok
-    literal_ptr = call @sa_fs_read_buffer_data(literal_handle)
-    literal_len = call @sa_fs_read_buffer_len(literal_handle)
+    literal_ptr = load literal_ptr_slot+0 as ptr
+    literal_len = load literal_len_slot+0 as u64
     append_status = call @rpc_builder_append(&buf, &literal_ptr, literal_len)
     !append_status
-    literal_free = call @sa_fs_read_buffer_free(^literal_handle)
+    literal_free = call @sa_deno_plugin_free_buffer(literal_ptr, literal_len)
     !literal_free
     !literal_ptr
     !literal_len
+    !literal_status
     !buf
     !body
     !body_len
@@ -7646,7 +7744,7 @@ L_PARAMS_NULL_DEFAULT:
     !literal_ok
     append_null = call @rpc_builder_append(&buf, &J_NULL, J_NULL_LEN)
     !append_null
-    !literal_handle
+    !literal_status
     !buf
     !body
     !body_len
@@ -7656,22 +7754,25 @@ L_PARAMS_NULL_DEFAULT:
 
 @ffi_wrapper build_chat_fallback_body(&body: ptr, body_len: u64, &model_ptr: ptr, model_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    std_fb_handle = call @sa_deno_responses_chat_fallback_request(&body, body_len, &model_ptr, model_len, 0)
-    std_fb_ok = ne std_fb_handle, 0
+    std_fb_ptr_slot = stack_alloc 8
+    std_fb_len_slot = stack_alloc 8
+    std_fb_status = call @sa_deno_plugin_responses_chat_fallback_request(&body, body_len, &model_ptr, model_len, 0, &std_fb_ptr_slot, &std_fb_len_slot)
+    std_fb_ok = eq std_fb_status, 0
     br std_fb_ok -> L_CHAT_FB_STD_COPY, L_CHAT_FB_STD_FAIL
 
 L_CHAT_FB_STD_COPY:
     !std_fb_ok
-    std_fb_ptr = call @sa_fs_read_buffer_data(std_fb_handle)
-    std_fb_len = call @sa_fs_read_buffer_len(std_fb_handle)
-    out_std_fb = alloc RPC_JSON_BUF_SIZE
+    std_fb_ptr = load std_fb_ptr_slot+0 as ptr
+    std_fb_len = load std_fb_len_slot+0 as u64
+    out_std_fb = alloc std_fb_len
     std_fb_copy_status = call @sa_bytes_copy(&out_std_fb, &std_fb_ptr, std_fb_len)
     !std_fb_copy_status
-    std_fb_free_status = call @sa_fs_read_buffer_free(^std_fb_handle)
+    std_fb_free_status = call @sa_deno_plugin_free_buffer(std_fb_ptr, std_fb_len)
     !std_fb_free_status
     store out_len+0, std_fb_len as u64
     !std_fb_ptr
     !std_fb_len
+    !std_fb_status
     !body
     !body_len
     !model_ptr
@@ -7681,7 +7782,7 @@ L_CHAT_FB_STD_COPY:
 
 L_CHAT_FB_STD_FAIL:
     !std_fb_ok
-    !std_fb_handle
+    !std_fb_status
     store out_len+0, 0 as u64
     out_empty = alloc 1
     !body
@@ -8482,14 +8583,13 @@ L_FS_READ_DO:
     !has_path
     path_ptr = load path_ptr_slot+0 as ptr
     path_len = load path_len_slot+0 as u64
-    EXPAND DENO_READ_FILE_BASE64 read_status, read_handle, path_ptr, path_len, FS_MAX_READ_BYTES
+    EXPAND DENO_READ_FILE_BASE64 read_ptr, read_len, read_status, path_ptr, path_len
     read_ok = eq read_status, 0
     !read_status
     br read_ok -> L_FS_READ_OK, L_FS_READ_ERR
 
 L_FS_READ_ERR:
     !read_ok
-    !read_handle
     !path_ptr
     !path_len
     call @send_error_with_id(&req, 500, &id_ptr, id_len, &J_ERR_FS, J_ERR_FS_LEN)
@@ -8500,17 +8600,15 @@ L_FS_READ_ERR:
 
 L_FS_READ_OK:
     !read_ok
-    data_ptr = call @sa_fs_read_buffer_data(read_handle)
-    data_len = call @sa_fs_read_buffer_len(read_handle)
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_FS_READ_A, J_FS_READ_A_LEN)
-    call @rpc_builder_append(&result, &data_ptr, data_len)
+    call @rpc_builder_append(&result, &read_ptr, read_len)
     call @rpc_builder_append(&result, &J_FS_READ_B, J_FS_READ_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    !data_ptr
-    !data_len
-    free_status = call @sa_fs_read_buffer_free(^read_handle)
+    free_status = call @sa_deno_plugin_free_buffer(read_ptr, read_len)
     !free_status
+    !read_ptr
+    !read_len
     !path_ptr
     !path_len
     !body
@@ -8608,7 +8706,7 @@ L_FS_MKDIR_DO:
     !has_path
     path_ptr = load path_ptr_slot+0 as ptr
     path_len = load path_len_slot+0 as u64
-    EXPAND DENO_MKDIR mkdir_status, path_ptr, path_len
+    EXPAND DENO_MKDIR mkdir_status, path_ptr, path_len, 1
     mkdir_ok = eq mkdir_status, 0
     !mkdir_status
     br mkdir_ok -> L_FS_MKDIR_OK, L_FS_MKDIR_ERR
@@ -8654,14 +8752,13 @@ L_FS_READDIR_DO:
     !has_path
     path_ptr = load path_ptr_slot+0 as ptr
     path_len = load path_len_slot+0 as u64
-    EXPAND DENO_READ_DIR_JSON dir_status, dir_handle, path_ptr, path_len, FS_MAX_DIR_ENTRIES
+    EXPAND DENO_READ_DIR_JSON dir_ptr, dir_len, dir_status, path_ptr, path_len
     dir_ok = eq dir_status, 0
     !dir_status
     br dir_ok -> L_FS_READDIR_OK, L_FS_READDIR_ERR
 
 L_FS_READDIR_ERR:
     !dir_ok
-    !dir_handle
     !path_ptr
     !path_len
     call @send_error_with_id(&req, 500, &id_ptr, id_len, &J_ERR_FS, J_ERR_FS_LEN)
@@ -8672,15 +8769,15 @@ L_FS_READDIR_ERR:
 
 L_FS_READDIR_OK:
     !dir_ok
-    data_ptr = call @sa_fs_dir_buffer_data(dir_handle)
-    data_len = call @sa_fs_dir_buffer_len(dir_handle)
     result = call @rpc_builder_new()
-    call @rpc_builder_append(&result, &data_ptr, data_len)
+    call @rpc_builder_append(&result, &J_FS_READDIR_A, J_FS_READDIR_A_LEN)
+    call @rpc_builder_append(&result, &dir_ptr, dir_len)
+    call @rpc_builder_append(&result, &J_FS_READDIR_B, J_FS_READDIR_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    !data_ptr
-    !data_len
-    free_status = call @sa_fs_dir_buffer_free(^dir_handle)
+    free_status = call @sa_deno_plugin_free_buffer(dir_ptr, dir_len)
     !free_status
+    !dir_ptr
+    !dir_len
     !path_ptr
     !path_len
     !body
@@ -8709,14 +8806,13 @@ L_FS_METADATA_DO:
     !has_path
     path_ptr = load path_ptr_slot+0 as ptr
     path_len = load path_len_slot+0 as u64
-    EXPAND DENO_LSTAT_JSON meta_status, meta_handle, path_ptr, path_len
+    EXPAND DENO_LSTAT_JSON meta_ptr, meta_len, meta_status, path_ptr, path_len
     meta_ok = eq meta_status, 0
     !meta_status
     br meta_ok -> L_FS_METADATA_OK, L_FS_METADATA_ERR
 
 L_FS_METADATA_ERR:
     !meta_ok
-    !meta_handle
     !path_ptr
     !path_len
     call @send_error_with_id(&req, 500, &id_ptr, id_len, &J_ERR_FS, J_ERR_FS_LEN)
@@ -8727,15 +8823,13 @@ L_FS_METADATA_ERR:
 
 L_FS_METADATA_OK:
     !meta_ok
-    data_ptr = call @sa_fs_read_buffer_data(meta_handle)
-    data_len = call @sa_fs_read_buffer_len(meta_handle)
     result = call @rpc_builder_new()
-    call @rpc_builder_append(&result, &data_ptr, data_len)
+    call @rpc_builder_append(&result, &meta_ptr, meta_len)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    !data_ptr
-    !data_len
-    free_status = call @sa_fs_read_buffer_free(^meta_handle)
+    free_status = call @sa_deno_plugin_free_buffer(meta_ptr, meta_len)
     !free_status
+    !meta_ptr
+    !meta_len
     !path_ptr
     !path_len
     !body
@@ -8764,7 +8858,7 @@ L_FS_REMOVE_DO:
     !has_path
     path_ptr = load path_ptr_slot+0 as ptr
     path_len = load path_len_slot+0 as u64
-    EXPAND DENO_REMOVE remove_status, path_ptr, path_len
+    EXPAND DENO_REMOVE remove_status, path_ptr, path_len, 1
     remove_ok = eq remove_status, 0
     !remove_status
     br remove_ok -> L_FS_REMOVE_OK, L_FS_REMOVE_ERR
@@ -10173,16 +10267,19 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_hooks_list(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32:
 L_ENTRY:
-    cwd_buf = call @sa_deno_cwd()
-    cwd_ptr = call @sa_fs_read_buffer_data(cwd_buf)
-    cwd_len = call @sa_fs_read_buffer_len(cwd_buf)
+    cwd_ptr_slot = stack_alloc 8
+    cwd_len_slot = stack_alloc 8
+    cwd_status = call @sa_deno_plugin_cwd(&cwd_ptr_slot, &cwd_len_slot)
+    cwd_ptr = load cwd_ptr_slot+0 as ptr
+    cwd_len = load cwd_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_HOOKS_A, J_HOOKS_A_LEN)
     call @rpc_builder_append_json_string(&result, &cwd_ptr, cwd_len)
     call @rpc_builder_append(&result, &J_HOOKS_B, J_HOOKS_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    free_status = call @sa_fs_read_buffer_free(^cwd_buf)
+    free_status = call @sa_deno_plugin_free_buffer(cwd_ptr, cwd_len)
     !free_status
+    !cwd_status
     !cwd_ptr
     !cwd_len
     !cfg_ptr
@@ -10191,91 +10288,20 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_model_list(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32:
 L_ENTRY:
-    chat_base_ptr = load cfg_ptr+CFG_CHAT_PTR as ptr
-    chat_base_len = load cfg_ptr+CFG_CHAT_LEN as u64
-    url_len_slot = stack_alloc 8
-    models_url = call @build_proxy_url(&chat_base_ptr, chat_base_len, &UP_MODELS_SUFFIX, UP_MODELS_SUFFIX_LEN, &url_len_slot)
-    models_url_len = load url_len_slot+0 as u64
-    api_key_ptr = load cfg_ptr+CFG_KEY_PTR as ptr
-    api_key_len = load cfg_ptr+CFG_KEY_LEN as u64
-    up_auth_buf = stack_alloc UP_AUTH_BUF_SIZE
-    up_auth_dst = ptr_add up_auth_buf, 0
-    up_auth_prefix = call @sa_bytes_copy(&up_auth_dst, &BEARER_PREFIX, BEARER_PREFIX_LEN)
-    !up_auth_prefix
-    !up_auth_dst
-    up_auth_key_dst = ptr_add up_auth_buf, BEARER_PREFIX_LEN
-    up_auth_key_copy = call @sa_bytes_copy(&up_auth_key_dst, &api_key_ptr, api_key_len)
-    !up_auth_key_copy
-    !up_auth_key_dst
-    up_auth_len = add api_key_len, BEARER_PREFIX_LEN
-
-    client_slot = stack_alloc 8
-    client_status = call @sa_http_client_new(1, &client_slot)
-    client = load client_slot+0 as ptr
-    req_slot = stack_alloc 8
-    req_status = call @sa_http_client_req_new(client, 1, &models_url, models_url_len, &req_slot)
-    up_req = load req_slot+0 as ptr
-    call @sa_http_client_req_add_header(up_req, &HDR_AUTH, HDR_AUTH_LEN, &up_auth_buf, up_auth_len)
-    call @sa_http_client_req_add_header(up_req, &HDR_X_API_KEY, HDR_X_API_KEY_LEN, &api_key_ptr, api_key_len)
-    resp_slot = stack_alloc 8
-    send_status = call @sa_http_client_req_send(up_req, &resp_slot)
-    up_resp = load resp_slot+0 as ptr
-    up_status = call @sa_http_client_resp_status(up_resp)
-    ct_ptr_slot = stack_alloc 8
-    ct_len_slot = stack_alloc 8
-    store ct_ptr_slot+0, 0 as ptr
-    store ct_len_slot+0, 0 as u64
-    ct_status = call @sa_http_client_resp_get_header(up_resp, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &ct_ptr_slot, &ct_len_slot)
-    ct_ptr = load ct_ptr_slot+0 as ptr
-    ct_len = load ct_len_slot+0 as u64
-    !ct_status
-    body_ptr_slot = stack_alloc 8
-    body_len_slot = stack_alloc 8
-    body_status = call @sa_http_client_resp_body_slice(up_resp, &body_ptr_slot, &body_len_slot)
-    body_ptr = load body_ptr_slot+0 as ptr
-    body_len = load body_len_slot+0 as u64
-
-    out_slot = stack_alloc 8
-    out_status = call @sa_http_server_resp_new(req, up_status, &out_slot)
-    out_resp = load out_slot+0 as ptr
-    has_ct = ugt ct_len, 0
-    br has_ct -> L_RPC_MODELS_CT_UPSTREAM, L_RPC_MODELS_CT_DEFAULT
-
-L_RPC_MODELS_CT_UPSTREAM:
-    !has_ct
-    set_ct = call @sa_http_server_resp_set_content_type(out_resp, &ct_ptr, ct_len)
-    !set_ct
-    jmp L_RPC_MODELS_SEND
-
-L_RPC_MODELS_CT_DEFAULT:
-    !has_ct
-    set_default_ct = call @sa_http_server_resp_set_content_type(out_resp, &MIME_JSON, MIME_JSON_LEN)
-    !set_default_ct
-    jmp L_RPC_MODELS_SEND
-
-L_RPC_MODELS_SEND:
-    send_back = call @sa_http_server_resp_send(out_resp, &body_ptr, body_len)
-    !send_back
-    !out_status
-    !body_status
-    !body_ptr
-    !body_len
-    !ct_ptr
-    !ct_len
-    call @sa_http_server_resp_free(^out_resp)
-    call @sa_http_client_resp_free(^up_resp)
-    call @sa_http_client_req_free(^up_req)
-    call @sa_http_client_free(^client)
-    !send_status
-    !req_status
-    !client_status
-    !up_auth_len
-    !api_key_ptr
-    !api_key_len
-    !models_url
-    !models_url_len
-    !chat_base_ptr
-    !chat_base_len
+    model_ptr_local = load cfg_ptr+CFG_MODEL_PTR as ptr
+    model_len_local = load cfg_ptr+CFG_MODEL_LEN as u64
+    result_local = call @rpc_builder_new()
+    call @rpc_builder_append(&result_local, &J_MODELS_LOCAL_A, J_MODELS_LOCAL_A_LEN)
+    call @rpc_builder_append_json_string(&result_local, &model_ptr_local, model_len_local)
+    call @rpc_builder_append(&result_local, &J_MODELS_LOCAL_B, J_MODELS_LOCAL_B_LEN)
+    json_ptr_local = call @rpc_builder_data(&result_local)
+    json_len_local = call @rpc_builder_len(&result_local)
+    call @send_json_response(&req, 200, &json_ptr_local, json_len_local)
+    !json_ptr_local
+    !json_len_local
+    !result_local
+    !model_ptr_local
+    !model_len_local
     !id_ptr
     !id_len
     !cfg_ptr
@@ -10386,16 +10412,19 @@ L_RATE_USE_DEFAULT:
 
 @ffi_wrapper send_rpc_chatgpt_tokens_refresh(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
 L_ENTRY:
-    iso_buf = call @sa_deno_date_now_iso()
-    iso_ptr = call @sa_fs_read_buffer_data(iso_buf)
-    iso_len = call @sa_fs_read_buffer_len(iso_buf)
+    iso_ptr_slot = stack_alloc 8
+    iso_len_slot = stack_alloc 8
+    iso_status = call @sa_deno_plugin_date_now_iso(&iso_ptr_slot, &iso_len_slot)
+    iso_ptr = load iso_ptr_slot+0 as ptr
+    iso_len = load iso_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_CHATGPT_REFRESH_A, J_CHATGPT_REFRESH_A_LEN)
     call @rpc_builder_append_json_string(&result, &iso_ptr, iso_len)
     call @rpc_builder_append(&result, &J_CHATGPT_REFRESH_B, J_CHATGPT_REFRESH_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    iso_free = call @sa_fs_read_buffer_free(^iso_buf)
+    iso_free = call @sa_deno_plugin_free_buffer(iso_ptr, iso_len)
     !iso_free
+    !iso_status
     !iso_ptr
     !iso_len
     !req
@@ -10506,9 +10535,11 @@ L_ENTRY:
     host_len = load cfg_ptr+CFG_HOST_LEN as u64
     port = load cfg_ptr+CFG_PORT as u16
     port_u64 = zext port
-    uuid_buf = call @sa_deno_random_uuid()
-    uuid_ptr = call @sa_fmt_buffer_data(uuid_buf)
-    uuid_len = call @sa_fmt_buffer_len(uuid_buf)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_PLUGIN_SHARE_SAVE_A, J_PLUGIN_SHARE_SAVE_A_LEN)
     call @rpc_builder_append(&result, &uuid_ptr, uuid_len)
@@ -10518,8 +10549,9 @@ L_ENTRY:
     call @rpc_builder_append_u64(&result, port_u64)
     call @rpc_builder_append(&result, &J_PLUGIN_SHARE_SAVE_D, J_PLUGIN_SHARE_SAVE_D_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    uuid_free_status = call @sa_fmt_buffer_free(^uuid_buf)
+    uuid_free_status = call @sa_deno_plugin_free_buffer(uuid_ptr, uuid_len)
     !uuid_free_status
+    !uuid_status
     !uuid_ptr
     !uuid_len
     !host_ptr
@@ -10675,9 +10707,11 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_marketplace_add(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
-    cwd_buf = call @sa_deno_cwd()
-    cwd_ptr = call @sa_fs_read_buffer_data(cwd_buf)
-    cwd_len = call @sa_fs_read_buffer_len(cwd_buf)
+    cwd_ptr_slot = stack_alloc 8
+    cwd_len_slot = stack_alloc 8
+    cwd_status = call @sa_deno_plugin_cwd(&cwd_ptr_slot, &cwd_len_slot)
+    cwd_ptr = load cwd_ptr_slot+0 as ptr
+    cwd_len = load cwd_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_MARKETPLACE_ADD_A, J_MARKETPLACE_ADD_A_LEN)
     call @rpc_builder_append_json_string(&result, &cwd_ptr, cwd_len)
@@ -10685,8 +10719,9 @@ L_ENTRY:
     call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_SOURCE_KEY, J_SOURCE_KEY_LEN, &DEFAULT_MARKETPLACE, DEFAULT_MARKETPLACE_LEN)
     call @rpc_builder_append(&result, &J_MARKETPLACE_ADD_C, J_MARKETPLACE_ADD_C_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    free_status = call @sa_fs_read_buffer_free(^cwd_buf)
+    free_status = call @sa_deno_plugin_free_buffer(cwd_ptr, cwd_len)
     !free_status
+    !cwd_status
     !cwd_ptr
     !cwd_len
     !body
@@ -10696,9 +10731,11 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_marketplace_remove(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
-    cwd_buf = call @sa_deno_cwd()
-    cwd_ptr = call @sa_fs_read_buffer_data(cwd_buf)
-    cwd_len = call @sa_fs_read_buffer_len(cwd_buf)
+    cwd_ptr_slot = stack_alloc 8
+    cwd_len_slot = stack_alloc 8
+    cwd_status = call @sa_deno_plugin_cwd(&cwd_ptr_slot, &cwd_len_slot)
+    cwd_ptr = load cwd_ptr_slot+0 as ptr
+    cwd_len = load cwd_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_MARKETPLACE_REMOVE_A, J_MARKETPLACE_REMOVE_A_LEN)
     call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_MARKETPLACE_NAME_KEY, J_MARKETPLACE_NAME_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
@@ -10706,8 +10743,9 @@ L_ENTRY:
     call @rpc_builder_append_json_string(&result, &cwd_ptr, cwd_len)
     call @rpc_builder_append(&result, &J_MARKETPLACE_REMOVE_C, J_MARKETPLACE_REMOVE_C_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    free_status = call @sa_fs_read_buffer_free(^cwd_buf)
+    free_status = call @sa_deno_plugin_free_buffer(cwd_ptr, cwd_len)
     !free_status
+    !cwd_status
     !cwd_ptr
     !cwd_len
     !body
@@ -10751,18 +10789,26 @@ L_UPGRADE_EMPTY:
 
 @ffi_wrapper send_rpc_initialize(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
 L_ENTRY:
-    version_buf = call @sa_deno_version_deno()
-    cwd_buf = call @sa_deno_cwd()
-    family_buf = call @sa_deno_build_platform_family()
-    os_buf = call @sa_deno_build_os()
-    version_ptr = call @sa_fs_read_buffer_data(version_buf)
-    version_len = call @sa_fs_read_buffer_len(version_buf)
-    cwd_ptr = call @sa_fs_read_buffer_data(cwd_buf)
-    cwd_len = call @sa_fs_read_buffer_len(cwd_buf)
-    family_ptr = call @sa_fs_read_buffer_data(family_buf)
-    family_len = call @sa_fs_read_buffer_len(family_buf)
-    os_ptr = call @sa_fs_read_buffer_data(os_buf)
-    os_len = call @sa_fs_read_buffer_len(os_buf)
+    version_ptr_slot = stack_alloc 8
+    version_len_slot = stack_alloc 8
+    cwd_ptr_slot = stack_alloc 8
+    cwd_len_slot = stack_alloc 8
+    family_ptr_slot = stack_alloc 8
+    family_len_slot = stack_alloc 8
+    os_ptr_slot = stack_alloc 8
+    os_len_slot = stack_alloc 8
+    version_status = call @sa_deno_plugin_version_deno(&version_ptr_slot, &version_len_slot)
+    cwd_status = call @sa_deno_plugin_cwd(&cwd_ptr_slot, &cwd_len_slot)
+    family_status = call @sa_deno_plugin_build_platform_family(&family_ptr_slot, &family_len_slot)
+    os_status = call @sa_deno_plugin_build_os(&os_ptr_slot, &os_len_slot)
+    version_ptr = load version_ptr_slot+0 as ptr
+    version_len = load version_len_slot+0 as u64
+    cwd_ptr = load cwd_ptr_slot+0 as ptr
+    cwd_len = load cwd_len_slot+0 as u64
+    family_ptr = load family_ptr_slot+0 as ptr
+    family_len = load family_len_slot+0 as u64
+    os_ptr = load os_ptr_slot+0 as ptr
+    os_len = load os_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_INIT_A, J_INIT_A_LEN)
     call @rpc_builder_append(&result, &version_ptr, version_len)
@@ -10774,14 +10820,18 @@ L_ENTRY:
     call @rpc_builder_append(&result, &os_ptr, os_len)
     call @rpc_builder_append(&result, &J_INIT_E, J_INIT_E_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    version_free = call @sa_fs_read_buffer_free(^version_buf)
-    cwd_free = call @sa_fs_read_buffer_free(^cwd_buf)
-    family_free = call @sa_fs_read_buffer_free(^family_buf)
-    os_free = call @sa_fs_read_buffer_free(^os_buf)
+    version_free = call @sa_deno_plugin_free_buffer(version_ptr, version_len)
+    cwd_free = call @sa_deno_plugin_free_buffer(cwd_ptr, cwd_len)
+    family_free = call @sa_deno_plugin_free_buffer(family_ptr, family_len)
+    os_free = call @sa_deno_plugin_free_buffer(os_ptr, os_len)
     !version_free
     !cwd_free
     !family_free
     !os_free
+    !version_status
+    !cwd_status
+    !family_status
+    !os_status
     !version_ptr
     !version_len
     !cwd_ptr
@@ -11027,8 +11077,25 @@ L_ENTRY:
     !req
     return 0
 
-@ffi_wrapper send_rpc_thread_shell_command(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32:
+@ffi_wrapper send_rpc_thread_shell_command(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
+    thread_ptr_slot = stack_alloc 8
+    thread_len_slot = stack_alloc 8
+    command_ptr_slot = stack_alloc 8
+    command_len_slot = stack_alloc 8
+    thread_status = call @rpc_extract_string_or_default(&body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN, &thread_ptr_slot, &thread_len_slot)
+    command_status = call @rpc_extract_string_or_default(&body, body_len, &J_COMMAND_KEY, J_COMMAND_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN, &command_ptr_slot, &command_len_slot)
+    thread_ptr = load thread_ptr_slot+0 as ptr
+    thread_len = load thread_len_slot+0 as u64
+    command_ptr = load command_ptr_slot+0 as ptr
+    command_len = load command_len_slot+0 as u64
+    warning_text_len = add J_SHELL_WARNING_PREFIX_LEN, command_len
+    warning_text = alloc warning_text_len
+    warning_prefix_dst = ptr_add warning_text, 0
+    warning_prefix_copy = call @state_copy_bytes(&warning_prefix_dst, &J_SHELL_WARNING_PREFIX, J_SHELL_WARNING_PREFIX_LEN)
+    warning_command_dst = ptr_add warning_text, J_SHELL_WARNING_PREFIX_LEN
+    warning_command_copy = call @state_copy_bytes(&warning_command_dst, &command_ptr, command_len)
+    emit_status = call @state_emit_warning(&state_ptr, &warning_text, warning_text_len, &thread_ptr, thread_len)
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_SHELL_A, J_SHELL_A_LEN)
     call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_THREADID_KEY, J_THREADID_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
@@ -11036,6 +11103,19 @@ L_ENTRY:
     call @rpc_builder_append_param_string_or_default(&result, &body, body_len, &J_COMMAND_KEY, J_COMMAND_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result, &J_SHELL_C, J_SHELL_C_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
+    !emit_status
+    !warning_command_copy
+    !warning_command_dst
+    !warning_prefix_copy
+    !warning_prefix_dst
+    !warning_text
+    !warning_text_len
+    !thread_status
+    !command_status
+    !thread_ptr
+    !thread_len
+    !command_ptr
+    !command_len
     !body
     !body_len
     !req
@@ -11069,16 +11149,19 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_attestation_generate(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
 L_ENTRY:
-    uuid_buf = call @sa_deno_random_uuid()
-    uuid_ptr = call @sa_fmt_buffer_data(uuid_buf)
-    uuid_len = call @sa_fmt_buffer_len(uuid_buf)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_ATTEST_A, J_ATTEST_A_LEN)
     call @rpc_builder_append(&result, &uuid_ptr, uuid_len)
     call @rpc_builder_append(&result, &J_ATTEST_B, J_ATTEST_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    uuid_free_status = call @sa_fmt_buffer_free(^uuid_buf)
+    uuid_free_status = call @sa_deno_plugin_free_buffer(uuid_ptr, uuid_len)
     !uuid_free_status
+    !uuid_status
     !uuid_ptr
     !uuid_len
     !req
@@ -11132,9 +11215,11 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_external_detect(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32:
 L_ENTRY:
-    cwd_buf = call @sa_deno_cwd()
-    cwd_ptr = call @sa_fs_read_buffer_data(cwd_buf)
-    cwd_len = call @sa_fs_read_buffer_len(cwd_buf)
+    cwd_ptr_slot = stack_alloc 8
+    cwd_len_slot = stack_alloc 8
+    cwd_status = call @sa_deno_plugin_cwd(&cwd_ptr_slot, &cwd_len_slot)
+    cwd_ptr = load cwd_ptr_slot+0 as ptr
+    cwd_len = load cwd_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EXTERNAL_DETECT_A, J_EXTERNAL_DETECT_A_LEN)
     call @rpc_builder_append_json_string(&result, &cwd_ptr, cwd_len)
@@ -11146,8 +11231,9 @@ L_ENTRY:
     call @rpc_builder_append(&result, &cwd_ptr, cwd_len)
     call @rpc_builder_append(&result, &J_EXTERNAL_DETECT_E, J_EXTERNAL_DETECT_E_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    free_status = call @sa_fs_read_buffer_free(^cwd_buf)
+    free_status = call @sa_deno_plugin_free_buffer(cwd_ptr, cwd_len)
     !free_status
+    !cwd_status
     !cwd_ptr
     !cwd_len
     !cfg_ptr
@@ -11156,16 +11242,19 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_config_write(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32:
 L_ENTRY:
-    cwd_buf = call @sa_deno_cwd()
-    cwd_ptr = call @sa_fs_read_buffer_data(cwd_buf)
-    cwd_len = call @sa_fs_read_buffer_len(cwd_buf)
+    cwd_ptr_slot = stack_alloc 8
+    cwd_len_slot = stack_alloc 8
+    cwd_status = call @sa_deno_plugin_cwd(&cwd_ptr_slot, &cwd_len_slot)
+    cwd_ptr = load cwd_ptr_slot+0 as ptr
+    cwd_len = load cwd_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_CONFIG_WRITE_A, J_CONFIG_WRITE_A_LEN)
     call @rpc_builder_append_json_string(&result, &cwd_ptr, cwd_len)
     call @rpc_builder_append(&result, &J_CONFIG_WRITE_B, J_CONFIG_WRITE_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    free_status = call @sa_fs_read_buffer_free(^cwd_buf)
+    free_status = call @sa_deno_plugin_free_buffer(cwd_ptr, cwd_len)
     !free_status
+    !cwd_status
     !cwd_ptr
     !cwd_len
     !cfg_ptr
@@ -11243,16 +11332,19 @@ L_ENTRY:
 
 @ffi_wrapper send_rpc_external_import(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
 L_ENTRY:
-    iso_buf = call @sa_deno_date_now_iso()
-    iso_ptr = call @sa_fs_read_buffer_data(iso_buf)
-    iso_len = call @sa_fs_read_buffer_len(iso_buf)
+    iso_ptr_slot = stack_alloc 8
+    iso_len_slot = stack_alloc 8
+    iso_status = call @sa_deno_plugin_date_now_iso(&iso_ptr_slot, &iso_len_slot)
+    iso_ptr = load iso_ptr_slot+0 as ptr
+    iso_len = load iso_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_EXTERNAL_IMPORT_A, J_EXTERNAL_IMPORT_A_LEN)
     call @rpc_builder_append_json_string(&result, &iso_ptr, iso_len)
     call @rpc_builder_append(&result, &J_EXTERNAL_IMPORT_B, J_EXTERNAL_IMPORT_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    iso_free = call @sa_fs_read_buffer_free(^iso_buf)
+    iso_free = call @sa_deno_plugin_free_buffer(iso_ptr, iso_len)
     !iso_free
+    !iso_status
     !iso_ptr
     !iso_len
     !req
@@ -11361,9 +11453,11 @@ L_EXP_ENABLE_DEFAULT_NO_ROOT:
 L_ENTRY:
     now_i = call @sa_time_unix_s()
     now = bitcast now_i as u64
-    uuid_buf = call @sa_deno_random_uuid()
-    uuid_ptr = call @sa_fmt_buffer_data(uuid_buf)
-    uuid_len = call @sa_fmt_buffer_len(uuid_buf)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_REALTIME_START_A, J_REALTIME_START_A_LEN)
     call @rpc_builder_append(&result, &uuid_ptr, uuid_len)
@@ -11377,8 +11471,9 @@ L_ENTRY:
     call @rpc_builder_append_u64(&result, now)
     call @rpc_builder_append(&result, &J_REALTIME_START_E, J_REALTIME_START_E_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
-    uuid_free_status = call @sa_fmt_buffer_free(^uuid_buf)
+    uuid_free_status = call @sa_deno_plugin_free_buffer(uuid_ptr, uuid_len)
     !uuid_free_status
+    !uuid_status
     !uuid_ptr
     !uuid_len
     !now_i
@@ -11433,9 +11528,9 @@ L_FUZZY_HIT:
     !has_query
     result_hit = call @rpc_builder_new()
     call @rpc_builder_append(&result_hit, &J_FUZZY_HIT_A, J_FUZZY_HIT_A_LEN)
-    call @rpc_builder_append_json_string(&result_hit, &query_ptr, query_len)
+    call @rpc_builder_append_params_string_or_default(&result_hit, &body, body_len, &J_QUERY_KEY, J_QUERY_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result_hit, &J_FUZZY_HIT_B, J_FUZZY_HIT_B_LEN)
-    call @rpc_builder_append_json_string(&result_hit, &query_ptr, query_len)
+    call @rpc_builder_append_params_string_or_default(&result_hit, &body, body_len, &J_QUERY_KEY, J_QUERY_KEY_LEN, &EMPTY_TEXT, EMPTY_TEXT_LEN)
     call @rpc_builder_append(&result_hit, &J_FUZZY_B, J_FUZZY_B_LEN)
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result_hit)
     !query_ptr
@@ -12243,7 +12338,7 @@ L_RPC_TRY_THR_SHELL_COMMAND:
 
 L_RPC_THR_SHELL_COMMAND:
     !m_shell_ok
-    call @send_rpc_thread_shell_command(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_thread_shell_command(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
     jmp L_RPC_DONE
 
 L_RPC_TRY_THR_APPROVE_GUARDIAN:
@@ -13514,10 +13609,33 @@ L_RPC_DONE:
     !cfg_ptr
     return 0
 
+@accept_and_handle_http_request(server: ptr, &req_slot: ptr, &state_ptr: ptr, &cfg_ptr: ptr) -> u32:
+L_ENTRY:
+    accept_status = call @sa_http_server_accept(server, &req_slot)
+    accept_ok = eq accept_status, 0
+    !accept_status
+    br accept_ok -> L_ACCEPT_OK, L_ACCEPT_SKIP
+
+L_ACCEPT_SKIP:
+    return 0
+
+L_ACCEPT_OK:
+    req = load req_slot+0 as ptr
+    has_req = ne req, 0
+    br has_req -> L_HANDLE, L_NO_REQ
+
+L_NO_REQ:
+    return 0
+
+L_HANDLE:
+    handle_status = call @handle_http_request(^req, &state_ptr, &cfg_ptr)
+    !handle_status
+    return 0
+
 // ============================================================
 // @main — Entry point
 // ============================================================
-@ffi_wrapper handle_http_request(^req: ptr, &state_ptr: ptr, &cfg_ptr: ptr) -> u32:
+@handle_http_request(^req: ptr, &state_ptr: ptr, &cfg_ptr: ptr) -> u32:
 L_ENTRY:
     method_ptr_slot = stack_alloc 8
     method_len_slot = stack_alloc 8
@@ -13843,22 +13961,25 @@ L_CHAT_NON_SSE_DEFAULT:
     !ct_has_len
     !ct_ptr
     !ct_len
-    chat_body_ptr_slot = stack_alloc 8
     chat_body_len_slot = stack_alloc 8
-    chat_body_status = call @sa_http_client_resp_body_slice(out_resp, &chat_body_ptr_slot, &chat_body_len_slot)
-    chat_body_ptr = load chat_body_ptr_slot+0 as ptr
+    chat_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    chat_reader_slot = stack_alloc 8
+    chat_body_status = call @sa_http_client_resp_body_reader(out_resp, &chat_reader_slot)
+    chat_reader = load chat_reader_slot+0 as ptr
+    chat_read_status = call @sa_http_client_resp_read_chunk(chat_reader, &chat_body_buf, RPC_JSON_BUF_SIZE, &chat_body_len_slot)
     chat_body_len = load chat_body_len_slot+0 as u64
     chat_resp_slot = stack_alloc 8
     chat_resp_status = call @sa_http_server_resp_new(req, up_status, &chat_resp_slot)
     chat_resp = load chat_resp_slot+0 as ptr
     chat_set_ct = call @sa_http_server_resp_set_content_type(chat_resp, &MIME_JSON, MIME_JSON_LEN)
-    chat_send_back = call @sa_http_server_resp_send(chat_resp, &chat_body_ptr, chat_body_len)
+    chat_send_back = call @sa_http_server_resp_send(chat_resp, &chat_body_buf, chat_body_len)
+    call @sa_http_client_body_reader_free(^chat_reader)
     call @sa_http_server_resp_free(^chat_resp)
     call @sa_http_client_resp_free(^out_resp)
     call @sa_http_client_req_free(^out_req)
     call @sa_http_client_free(^client)
     !chat_body_status
-    !chat_body_ptr
+    !chat_read_status
     !chat_body_len
     !chat_resp_status
     !chat_set_ct
@@ -13883,22 +14004,25 @@ L_CHAT_NON_SSE_DEFAULT:
 L_CHAT_NON_SSE_HEADER:
     !ct_is_sse
     !ct_idx
-    chat_h_body_ptr_slot = stack_alloc 8
     chat_h_body_len_slot = stack_alloc 8
-    chat_h_body_status = call @sa_http_client_resp_body_slice(out_resp, &chat_h_body_ptr_slot, &chat_h_body_len_slot)
-    chat_h_body_ptr = load chat_h_body_ptr_slot+0 as ptr
+    chat_h_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    chat_h_reader_slot = stack_alloc 8
+    chat_h_body_status = call @sa_http_client_resp_body_reader(out_resp, &chat_h_reader_slot)
+    chat_h_reader = load chat_h_reader_slot+0 as ptr
+    chat_h_read_status = call @sa_http_client_resp_read_chunk(chat_h_reader, &chat_h_body_buf, RPC_JSON_BUF_SIZE, &chat_h_body_len_slot)
     chat_h_body_len = load chat_h_body_len_slot+0 as u64
     chat_h_resp_slot = stack_alloc 8
     chat_h_resp_status = call @sa_http_server_resp_new(req, up_status, &chat_h_resp_slot)
     chat_h_resp = load chat_h_resp_slot+0 as ptr
     chat_h_set_ct = call @sa_http_server_resp_set_content_type(chat_h_resp, &ct_ptr, ct_len)
-    chat_h_send_back = call @sa_http_server_resp_send(chat_h_resp, &chat_h_body_ptr, chat_h_body_len)
+    chat_h_send_back = call @sa_http_server_resp_send(chat_h_resp, &chat_h_body_buf, chat_h_body_len)
+    call @sa_http_client_body_reader_free(^chat_h_reader)
     call @sa_http_server_resp_free(^chat_h_resp)
     call @sa_http_client_resp_free(^out_resp)
     call @sa_http_client_req_free(^out_req)
     call @sa_http_client_free(^client)
     !chat_h_body_status
-    !chat_h_body_ptr
+    !chat_h_read_status
     !chat_h_body_len
     !chat_h_resp_status
     !chat_h_set_ct
@@ -14083,18 +14207,21 @@ L_RESP_BODY_OK:
     r_proxy_pre_len_slot = stack_alloc 8
     r_proxy_pre_ptr = call @build_responses_proxy_body(&r_body_ptr, r_body_len, r_is_gemini, &r_proxy_pre_len_slot)
     r_proxy_pre_len = load r_proxy_pre_len_slot+0 as u64
-    r_proxy_norm_handle = call @sa_deno_responses_request_normalize(&r_proxy_pre_ptr, r_proxy_pre_len)
-    r_proxy_norm_ptr = call @sa_fs_read_buffer_data(r_proxy_norm_handle)
-    r_proxy_norm_len = call @sa_fs_read_buffer_len(r_proxy_norm_handle)
+    r_proxy_norm_ptr_slot = stack_alloc 8
+    r_proxy_norm_len_slot = stack_alloc 8
+    r_proxy_norm_status = call @sa_deno_plugin_responses_request_normalize(&r_proxy_pre_ptr, r_proxy_pre_len, &r_proxy_norm_ptr_slot, &r_proxy_norm_len_slot)
+    r_proxy_norm_ptr = load r_proxy_norm_ptr_slot+0 as ptr
+    r_proxy_norm_len = load r_proxy_norm_len_slot+0 as u64
     r_proxy_body_ptr = alloc r_proxy_norm_len
     r_proxy_copy_status = call @sa_bytes_copy(&r_proxy_body_ptr, &r_proxy_norm_ptr, r_proxy_norm_len)
     !r_proxy_copy_status
     store r_proxy_body_len_slot+0, r_proxy_norm_len as u64
     r_proxy_body_len = load r_proxy_body_len_slot+0 as u64
-    r_proxy_norm_free = call @sa_fs_read_buffer_free(^r_proxy_norm_handle)
+    r_proxy_norm_free = call @sa_deno_plugin_free_buffer(r_proxy_norm_ptr, r_proxy_norm_len)
     !r_proxy_norm_free
     !r_proxy_norm_ptr
     !r_proxy_norm_len
+    !r_proxy_norm_status
     !r_proxy_pre_ptr
     !r_proxy_pre_len
     !r_is_gemini
@@ -14220,10 +14347,12 @@ L_RESP_CHAT_FB_UNSAFE_GEMINI_ORIGINAL:
     r_unsafe_ct_ptr = load r_unsafe_ct_ptr_slot+0 as ptr
     r_unsafe_ct_len = load r_unsafe_ct_len_slot+0 as u64
     !r_unsafe_ct_status
-    r_unsafe_body_ptr_slot = stack_alloc 8
     r_unsafe_body_len_slot = stack_alloc 8
-    r_unsafe_body_status = call @sa_http_client_resp_body_slice(r_out_resp, &r_unsafe_body_ptr_slot, &r_unsafe_body_len_slot)
-    r_unsafe_body_ptr = load r_unsafe_body_ptr_slot+0 as ptr
+    r_unsafe_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    r_unsafe_reader_slot = stack_alloc 8
+    r_unsafe_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_unsafe_reader_slot)
+    r_unsafe_reader = load r_unsafe_reader_slot+0 as ptr
+    r_unsafe_read_status = call @sa_http_client_resp_read_chunk(r_unsafe_reader, &r_unsafe_body_buf, RPC_JSON_BUF_SIZE, &r_unsafe_body_len_slot)
     r_unsafe_body_len = load r_unsafe_body_len_slot+0 as u64
     r_unsafe_resp_slot = stack_alloc 8
     r_unsafe_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_unsafe_resp_slot)
@@ -14244,7 +14373,8 @@ L_RESP_UNSAFE_ORIG_SET_DEFAULT_CT:
     jmp L_RESP_UNSAFE_ORIG_SEND_BACK
 
 L_RESP_UNSAFE_ORIG_SEND_BACK:
-    r_unsafe_send_back = call @sa_http_server_resp_send(r_unsafe_resp, &r_unsafe_body_ptr, r_unsafe_body_len)
+    r_unsafe_send_back = call @sa_http_server_resp_send(r_unsafe_resp, &r_unsafe_body_buf, r_unsafe_body_len)
+    call @sa_http_client_body_reader_free(^r_unsafe_reader)
     call @sa_http_server_resp_free(^r_unsafe_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
@@ -14252,7 +14382,7 @@ L_RESP_UNSAFE_ORIG_SEND_BACK:
     !r_unsafe_send_back
     !r_unsafe_resp_status
     !r_unsafe_body_status
-    !r_unsafe_body_ptr
+    !r_unsafe_read_status
     !r_unsafe_body_len
     !r_unsafe_ct_ptr
     !r_unsafe_ct_len
@@ -14297,10 +14427,12 @@ L_RESP_CHAT_FB_ORIGINAL:
     r_orig_ct_ptr = load r_orig_ct_ptr_slot+0 as ptr
     r_orig_ct_len = load r_orig_ct_len_slot+0 as u64
     !r_orig_ct_status
-    r_orig_body_ptr_slot = stack_alloc 8
     r_orig_body_len_slot = stack_alloc 8
-    r_orig_body_status = call @sa_http_client_resp_body_slice(r_out_resp, &r_orig_body_ptr_slot, &r_orig_body_len_slot)
-    r_orig_body_ptr = load r_orig_body_ptr_slot+0 as ptr
+    r_orig_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    r_orig_reader_slot = stack_alloc 8
+    r_orig_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_orig_reader_slot)
+    r_orig_reader = load r_orig_reader_slot+0 as ptr
+    r_orig_read_status = call @sa_http_client_resp_read_chunk(r_orig_reader, &r_orig_body_buf, RPC_JSON_BUF_SIZE, &r_orig_body_len_slot)
     r_orig_body_len = load r_orig_body_len_slot+0 as u64
     r_orig_resp_slot = stack_alloc 8
     r_orig_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_orig_resp_slot)
@@ -14321,7 +14453,8 @@ L_RESP_ORIG_SET_DEFAULT_CT:
     jmp L_RESP_ORIG_SEND_BACK
 
 L_RESP_ORIG_SEND_BACK:
-    r_orig_send_back = call @sa_http_server_resp_send(r_orig_resp, &r_orig_body_ptr, r_orig_body_len)
+    r_orig_send_back = call @sa_http_server_resp_send(r_orig_resp, &r_orig_body_buf, r_orig_body_len)
+    call @sa_http_client_body_reader_free(^r_orig_reader)
     call @sa_http_server_resp_free(^r_orig_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
@@ -14329,7 +14462,7 @@ L_RESP_ORIG_SEND_BACK:
     !r_orig_send_back
     !r_orig_resp_status
     !r_orig_body_status
-    !r_orig_body_ptr
+    !r_orig_read_status
     !r_orig_body_len
     !r_orig_ct_ptr
     !r_orig_ct_len
@@ -14390,10 +14523,12 @@ L_RESP_CHAT_FB_SEND_PREP:
     r_fb_ct_ptr = load r_fb_ct_ptr_slot+0 as ptr
     r_fb_ct_len = load r_fb_ct_len_slot+0 as u64
     !r_fb_ct_status
-    r_fb_body_ptr_slot = stack_alloc 8
     r_fb_body_len_slot = stack_alloc 8
-    r_fb_body_status = call @sa_http_client_resp_body_slice(r_fb_resp, &r_fb_body_ptr_slot, &r_fb_body_len_slot)
-    r_fb_body_ptr = load r_fb_body_ptr_slot+0 as ptr
+    r_fb_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    r_fb_reader_slot = stack_alloc 8
+    r_fb_body_status = call @sa_http_client_resp_body_reader(r_fb_resp, &r_fb_reader_slot)
+    r_fb_reader = load r_fb_reader_slot+0 as ptr
+    r_fb_read_status = call @sa_http_client_resp_read_chunk(r_fb_reader, &r_fb_body_buf, RPC_JSON_BUF_SIZE, &r_fb_body_len_slot)
     r_fb_body_len = load r_fb_body_len_slot+0 as u64
     r_fb_out_slot = stack_alloc 8
     r_fb_out_status = call @sa_http_server_resp_new(req, r_fb_status, &r_fb_out_slot)
@@ -14428,10 +14563,11 @@ L_RESP_CHAT_FB_SEND_SSE_BACK:
     r_fb_ctx_len_slot = stack_alloc 8
     r_fb_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_fb_ctx_len_slot)
     r_fb_ctx_len = load r_fb_ctx_len_slot+0 as u64
-    r_fb_sse_body = call @chat_fallback_sse_to_responses_body(&r_fb_body_ptr, r_fb_body_len, &r_fb_ctx_body, r_fb_ctx_len, &r_fb_sse_len_slot)
+    r_fb_sse_body = call @chat_fallback_sse_to_responses_body(&r_fb_body_buf, r_fb_body_len, &r_fb_ctx_body, r_fb_ctx_len, &r_fb_sse_len_slot)
     r_fb_sse_len = load r_fb_sse_len_slot+0 as u64
     r_fb_sse_send_back = call @sa_http_server_resp_send(r_fb_out, &r_fb_sse_body, r_fb_sse_len)
     call @sa_http_server_resp_free(^r_fb_out)
+    call @sa_http_client_body_reader_free(^r_fb_reader)
     call @sa_http_client_resp_free(^r_fb_resp)
     call @sa_http_client_req_free(^r_fb_req)
     call @sa_http_client_free(^r_fb_client)
@@ -14442,7 +14578,7 @@ L_RESP_CHAT_FB_SEND_SSE_BACK:
     !r_fb_ctx_len
     !r_fb_out_status
     !r_fb_body_status
-    !r_fb_body_ptr
+    !r_fb_read_status
     !r_fb_body_len
     !r_fb_status
     !r_fb_send_status
@@ -14473,17 +14609,18 @@ L_RESP_CHAT_FB_SEND_BACK:
     r_fb_json_ctx_len_slot = stack_alloc 8
     r_fb_json_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_fb_json_ctx_len_slot)
     r_fb_json_ctx_len = load r_fb_json_ctx_len_slot+0 as u64
-    r_fb_json_norm_body = call @normalize_chat_fallback_json_body(&r_fb_body_ptr, r_fb_body_len, &r_fb_json_ctx_body, r_fb_json_ctx_len, &r_fb_json_norm_len_slot)
+    r_fb_json_norm_body = call @normalize_chat_fallback_json_body(&r_fb_body_buf, r_fb_body_len, &r_fb_json_ctx_body, r_fb_json_ctx_len, &r_fb_json_norm_len_slot)
     r_fb_json_norm_len = load r_fb_json_norm_len_slot+0 as u64
     r_fb_send_back = call @sa_http_server_resp_send(r_fb_out, &r_fb_json_norm_body, r_fb_json_norm_len)
     call @sa_http_server_resp_free(^r_fb_out)
+    call @sa_http_client_body_reader_free(^r_fb_reader)
     call @sa_http_client_resp_free(^r_fb_resp)
     call @sa_http_client_req_free(^r_fb_req)
     call @sa_http_client_free(^r_fb_client)
     !r_fb_send_back
     !r_fb_out_status
     !r_fb_body_status
-    !r_fb_body_ptr
+    !r_fb_read_status
     !r_fb_body_len
     !r_fb_json_norm_body
     !r_fb_json_norm_len
@@ -14536,25 +14673,28 @@ L_RESP_NON_SSE_DEFAULT:
     !r_ct_has_len
     !r_ct_ptr
     !r_ct_len
-    r_plain_body_ptr_slot = stack_alloc 8
+    r_plain_reader_slot = stack_alloc 8
     r_plain_body_len_slot = stack_alloc 8
-    r_plain_body_status = call @sa_http_client_resp_body_slice(r_out_resp, &r_plain_body_ptr_slot, &r_plain_body_len_slot)
-    r_plain_body_ptr = load r_plain_body_ptr_slot+0 as ptr
+    r_plain_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    r_plain_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_plain_reader_slot)
+    r_plain_reader = load r_plain_reader_slot+0 as ptr
+    r_plain_read_status = call @sa_http_client_resp_read_chunk(r_plain_reader, &r_plain_body_buf, RPC_JSON_BUF_SIZE, &r_plain_body_len_slot)
     r_plain_body_len = load r_plain_body_len_slot+0 as u64
     r_plain_norm_len_slot = stack_alloc 8
-    r_plain_norm_body = call @normalize_responses_client_json_body(&r_plain_body_ptr, r_plain_body_len, &r_plain_norm_len_slot)
+    r_plain_norm_body = call @normalize_responses_client_json_body(&r_plain_body_buf, r_plain_body_len, &r_plain_norm_len_slot)
     r_plain_norm_len = load r_plain_norm_len_slot+0 as u64
     r_plain_resp_slot = stack_alloc 8
     r_plain_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_plain_resp_slot)
     r_plain_resp = load r_plain_resp_slot+0 as ptr
     r_plain_set_ct = call @sa_http_server_resp_set_content_type(r_plain_resp, &MIME_JSON, MIME_JSON_LEN)
     r_plain_send_back = call @sa_http_server_resp_send(r_plain_resp, &r_plain_norm_body, r_plain_norm_len)
+    call @sa_http_client_body_reader_free(^r_plain_reader)
     call @sa_http_server_resp_free(^r_plain_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
     call @sa_http_client_free(^r_client)
     !r_plain_body_status
-    !r_plain_body_ptr
+    !r_plain_read_status
     !r_plain_body_len
     !r_plain_norm_body
     !r_plain_norm_len
@@ -14581,25 +14721,28 @@ L_RESP_NON_SSE_DEFAULT:
 L_RESP_NON_SSE_HEADER:
     !r_ct_is_sse
     !r_ct_idx
-    r_h_body_ptr_slot = stack_alloc 8
+    r_h_reader_slot = stack_alloc 8
     r_h_body_len_slot = stack_alloc 8
-    r_h_body_status = call @sa_http_client_resp_body_slice(r_out_resp, &r_h_body_ptr_slot, &r_h_body_len_slot)
-    r_h_body_ptr = load r_h_body_ptr_slot+0 as ptr
+    r_h_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    r_h_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_h_reader_slot)
+    r_h_reader = load r_h_reader_slot+0 as ptr
+    r_h_read_status = call @sa_http_client_resp_read_chunk(r_h_reader, &r_h_body_buf, RPC_JSON_BUF_SIZE, &r_h_body_len_slot)
     r_h_body_len = load r_h_body_len_slot+0 as u64
     r_h_norm_len_slot = stack_alloc 8
-    r_h_norm_body = call @normalize_responses_client_json_body(&r_h_body_ptr, r_h_body_len, &r_h_norm_len_slot)
+    r_h_norm_body = call @normalize_responses_client_json_body(&r_h_body_buf, r_h_body_len, &r_h_norm_len_slot)
     r_h_norm_len = load r_h_norm_len_slot+0 as u64
     r_h_resp_slot = stack_alloc 8
     r_h_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_h_resp_slot)
     r_h_resp = load r_h_resp_slot+0 as ptr
     r_h_set_ct = call @sa_http_server_resp_set_content_type(r_h_resp, &r_ct_ptr, r_ct_len)
     r_h_send_back = call @sa_http_server_resp_send(r_h_resp, &r_h_norm_body, r_h_norm_len)
+    call @sa_http_client_body_reader_free(^r_h_reader)
     call @sa_http_server_resp_free(^r_h_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
     call @sa_http_client_free(^r_client)
     !r_h_body_status
-    !r_h_body_ptr
+    !r_h_read_status
     !r_h_body_len
     !r_h_norm_body
     !r_h_norm_len
@@ -14635,16 +14778,18 @@ L_RESP_STREAM_START:
     r_stream = load r_stream_slot+0 as ptr
     !r_up_status
 
-    r_sse_body_ptr_slot = stack_alloc 8
     r_sse_body_len_slot = stack_alloc 8
-    r_sse_body_status = call @sa_http_client_resp_body_slice(r_out_resp, &r_sse_body_ptr_slot, &r_sse_body_len_slot)
-    r_sse_body_ptr = load r_sse_body_ptr_slot+0 as ptr
+    r_sse_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    r_sse_reader_slot = stack_alloc 8
+    r_sse_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_sse_reader_slot)
+    r_sse_reader = load r_sse_reader_slot+0 as ptr
+    r_sse_read_status = call @sa_http_client_resp_read_chunk(r_sse_reader, &r_sse_body_buf, RPC_JSON_BUF_SIZE, &r_sse_body_len_slot)
     r_sse_body_len = load r_sse_body_len_slot+0 as u64
     r_norm_len_slot = stack_alloc 8
     r_ctx_len_slot = stack_alloc 8
     r_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_ctx_len_slot)
     r_ctx_len = load r_ctx_len_slot+0 as u64
-    r_norm_body = call @normalize_responses_client_sse_body(&r_sse_body_ptr, r_sse_body_len, &r_ctx_body, r_ctx_len, &r_norm_len_slot)
+    r_norm_body = call @normalize_responses_client_sse_body(&r_sse_body_buf, r_sse_body_len, &r_ctx_body, r_ctx_len, &r_norm_len_slot)
     r_norm_len = load r_norm_len_slot+0 as u64
     r_write_status = call @sa_http_server_resp_stream_write(r_stream, &r_norm_body, r_norm_len)
     r_flush_status = call @sa_http_server_resp_stream_flush(r_stream)
@@ -14652,6 +14797,7 @@ L_RESP_STREAM_START:
     !r_flush_status
     r_end_status = call @sa_http_server_resp_stream_end(r_stream)
     !r_end_status
+    call @sa_http_client_body_reader_free(^r_sse_reader)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
     call @sa_http_client_free(^r_client)
@@ -14661,7 +14807,7 @@ L_RESP_STREAM_START:
     !r_ctx_body
     !r_ctx_len
     !r_sse_body_status
-    !r_sse_body_ptr
+    !r_sse_read_status
     !r_sse_body_len
     !r_proxy_body_ptr
     !r_proxy_body_len
@@ -14731,10 +14877,12 @@ L_PROXY_MODELS:
     m_ct_ptr = load m_ct_ptr_slot+0 as ptr
     m_ct_len = load m_ct_len_slot+0 as u64
     !m_ct_status
-    m_body_ptr_slot = stack_alloc 8
     m_body_len_slot = stack_alloc 8
-    m_body_status = call @sa_http_client_resp_body_slice(m_resp, &m_body_ptr_slot, &m_body_len_slot)
-    m_body_ptr = load m_body_ptr_slot+0 as ptr
+    m_body_buf = stack_alloc RPC_JSON_BUF_SIZE
+    m_reader_slot = stack_alloc 8
+    m_body_status = call @sa_http_client_resp_body_reader(m_resp, &m_reader_slot)
+    m_reader = load m_reader_slot+0 as ptr
+    m_read_status = call @sa_http_client_resp_read_chunk(m_reader, &m_body_buf, RPC_JSON_BUF_SIZE, &m_body_len_slot)
     m_body_len = load m_body_len_slot+0 as u64
 
     m_out_resp_slot = stack_alloc 8
@@ -14756,15 +14904,16 @@ L_MODELS_SEND_DEFAULT_CT:
     jmp L_MODELS_SEND_BODY
 
 L_MODELS_SEND_BODY:
-    m_send_back = call @sa_http_server_resp_send(m_out_resp, &m_body_ptr, m_body_len)
+    m_send_back = call @sa_http_server_resp_send(m_out_resp, &m_body_buf, m_body_len)
     !m_send_back
     !m_out_status
     !m_body_status
-    !m_body_ptr
+    !m_read_status
     !m_body_len
     !m_ct_ptr
     !m_ct_len
 
+    call @sa_http_client_body_reader_free(^m_reader)
     call @sa_http_server_resp_free(^m_out_resp)
     call @sa_http_client_resp_free(^m_resp)
     call @sa_http_client_req_free(^m_req)
@@ -14922,7 +15071,7 @@ L_CFG_OK:
     // Ensure data directory exists
     data_dir_ptr = load cfg_ptr+CFG_DIR_PTR as ptr
     data_dir_len = load cfg_ptr+CFG_DIR_LEN as u64
-    EXPAND DENO_MKDIR dir_status, data_dir_ptr, data_dir_len
+    EXPAND DENO_MKDIR dir_status, data_dir_ptr, data_dir_len, 1
     !dir_status
 
     // Phase 2: Initialize state
@@ -14960,11 +15109,8 @@ L_CFG_OK:
 // Main HTTP accept loop
 // ============================================================
 L_HTTP_LOOP:
-    accept_status = call @sa_http_server_accept(server, &req_slot)
-    req = load req_slot+0 as ptr
-    !accept_status
-    handle_status = call @handle_http_request(^req, &state_ptr, &cfg_ptr)
-    !handle_status
+    loop_status = call @accept_and_handle_http_request(server, &req_slot, &state_ptr, &cfg_ptr)
+    !loop_status
     jmp L_HTTP_LOOP
 
 L_EXIT:

@@ -1,12 +1,22 @@
 // state.sa - In-memory state management for HubProxy
 @import "state.sai"
 @import "sa_std/io/print.sai"
+@import "sa_std/encoding/json.sai"
+@import "sa_std/encoding/json.sal"
 @import "strings.sa"
 
 @const LOG_STATE_INIT = utf8:"[state] initialized\n"
 @const DEFAULT_PROVIDER_OPENAI = utf8:"openai"
+@const SSE_WARNING_PREFIX = utf8:"event: warning\ndata: {\"method\":\"warning\",\"params\":"
+@const SSE_WARNING_SUFFIX = utf8:"}\n\n"
+@const WARN_KEY_MESSAGE = utf8:"message"
+@const WARN_KEY_THREAD_ID = utf8:"threadId"
 #def LOG_STATE_INIT_LEN = 20
 #def DEFAULT_PROVIDER_OPENAI_LEN = 6
+#def SSE_WARNING_PREFIX_LEN = 50
+#def SSE_WARNING_SUFFIX_LEN = 3
+#def WARN_KEY_MESSAGE_LEN = 7
+#def WARN_KEY_THREAD_ID_LEN = 8
 
 @ffi_wrapper state_clamp_len(len: u64, cap: u64) -> u64:
 L_ENTRY:
@@ -2192,6 +2202,71 @@ L_NP_WRITE:
     !state
     !frame
     !frame_len
+    return 0
+
+@ffi_wrapper state_emit_warning(&state: ptr, &message_ptr: ptr, message_len: u64, &thread_ptr: ptr, thread_len: u64) -> u32:
+L_ENTRY:
+    writer_slot = stack_alloc 8
+    buffer_slot = stack_alloc 8
+    writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
+    writer = load writer_slot+0 as ptr
+    begin_status = call @sa_json_writer_begin_object(writer)
+    field_msg_status = call @sa_json_writer_field_string(writer, &WARN_KEY_MESSAGE, WARN_KEY_MESSAGE_LEN, &message_ptr, message_len)
+    has_thread = ugt thread_len, 0
+    br has_thread -> L_WARN_THREAD, L_WARN_NO_THREAD
+
+L_WARN_THREAD:
+    !has_thread
+    field_thread_status = call @sa_json_writer_field_string(writer, &WARN_KEY_THREAD_ID, WARN_KEY_THREAD_ID_LEN, &thread_ptr, thread_len)
+    !field_thread_status
+    jmp L_WARN_END_OBJECT
+
+L_WARN_NO_THREAD:
+    !has_thread
+    jmp L_WARN_END_OBJECT
+
+L_WARN_END_OBJECT:
+    end_status = call @sa_json_writer_end_object(writer)
+    finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
+    buffer = load buffer_slot+0 as ptr
+    frame_ptr = call @sa_json_buffer_data(&buffer)
+    frame_len = call @sa_json_buffer_len(&buffer)
+    frame_suffix_off = add SSE_WARNING_PREFIX_LEN, frame_len
+    frame_len_total = add frame_suffix_off, SSE_WARNING_SUFFIX_LEN
+    frame = alloc frame_len_total
+    prefix_dst = ptr_add frame, 0
+    prefix_status = call @state_copy_bytes(&prefix_dst, &SSE_WARNING_PREFIX, SSE_WARNING_PREFIX_LEN)
+    payload_dst = ptr_add frame, SSE_WARNING_PREFIX_LEN
+    payload_status = call @state_copy_bytes(&payload_dst, &frame_ptr, frame_len)
+    suffix_dst = ptr_add frame, frame_suffix_off
+    suffix_status = call @state_copy_bytes(&suffix_dst, &SSE_WARNING_SUFFIX, SSE_WARNING_SUFFIX_LEN)
+    push_status = call @state_notify_push(&state, &frame, frame_len_total)
+    buffer_free_status = call @sa_json_buffer_free(^buffer)
+    writer_free_status = call @sa_json_writer_free(^writer)
+    !suffix_status
+    !suffix_dst
+    !payload_status
+    !payload_dst
+    !prefix_status
+    !prefix_dst
+    !frame_len_total
+    !frame_suffix_off
+    !frame
+    !push_status
+    !buffer_free_status
+    !writer_free_status
+    !frame_ptr
+    !frame_len
+    !writer_status
+    !begin_status
+    !field_msg_status
+    !end_status
+    !finish_status
+    !state
+    !message_ptr
+    !message_len
+    !thread_ptr
+    !thread_len
     return 0
 
 @ffi_wrapper state_notify_pop(&state: ptr, &out_frame: ptr, out_cap: u64, &out_len: ptr) -> u32:

@@ -6,6 +6,7 @@
 @extern sa_http_client_req_send(req: ptr, &out_resp: ptr) -> u32
 @extern sa_http_client_resp_status(resp: ptr) -> u16
 @extern sa_http_client_resp_get_header(resp: ptr, &key: ptr, key_len: u64, &out_val: ptr, &out_len: ptr) -> u32
+@extern sa_http_client_resp_body_slice(resp: ptr, &out_body: ptr, &out_len: ptr) -> u32
 @extern sa_http_client_resp_body_reader(resp: ptr, &out_reader: ptr) -> u32
 @extern sa_http_client_resp_read_chunk(reader: ptr, &buf: ptr, cap: u64, &out_len: ptr) -> u32
 @extern sa_http_client_resp_free(^resp: ptr) -> u32

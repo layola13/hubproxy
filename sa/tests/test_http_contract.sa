@@ -17,11 +17,12 @@
 @const MIME_EVENT_STREAM = utf8:"text/event-stream"
 @const MIME_TEXT_PLAIN = utf8:"text/plain"
 @const EMPTY_JSON_BODY = utf8:"{}"
-@const RESP_FALLBACK_BODY = utf8:"{\"model\":\"mimo-v2.5-pro\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Reply with only OK.\"}]}],\"stream\":false}"
+@const RESP_FALLBACK_BODY_PREFIX = utf8:"{\"model\":\""
+@const RESP_FALLBACK_BODY_SUFFIX = utf8:"\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Reply with only OK.\"}]}],\"stream\":false}"
 @const UNAUTH_RESP = utf8:"{\"error\":\"unauthorized\"}"
 @const RPC_INIT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"initialize\",\"params\":{}}"
 @const NEEDLE_INIT_ID = utf8:"\"id\":9"
-@const NEEDLE_INIT_USER_AGENT = utf8:"\"userAgent\":\"hubproxy/sa-std\""
+@const NEEDLE_INIT_USER_AGENT = utf8:"\"userAgent\":\"hubproxy/"
 @const NEEDLE_INIT_CODEX_HOME = utf8:"\"codexHome\":"
 @const NEEDLE_INIT_PLATFORM_FAMILY = utf8:"\"platformFamily\":\"unix\""
 @const NEEDLE_INIT_PLATFORM_OS = utf8:"\"platformOs\":\"linux\""
@@ -225,11 +226,12 @@
 #def MIME_EVENT_STREAM_LEN = 17
 #def MIME_TEXT_PLAIN_LEN = 10
 #def EMPTY_JSON_BODY_LEN = 2
-#def RESP_FALLBACK_BODY_LEN = 146
+#def RESP_FALLBACK_BODY_PREFIX_LEN = 10
+#def RESP_FALLBACK_BODY_SUFFIX_LEN = 123
 #def UNAUTH_RESP_LEN = 24
 #def RPC_INIT_BODY_LEN = 58
 #def NEEDLE_INIT_ID_LEN = 6
-#def NEEDLE_INIT_USER_AGENT_LEN = 29
+#def NEEDLE_INIT_USER_AGENT_LEN = 22
 #def NEEDLE_INIT_CODEX_HOME_LEN = 12
 #def NEEDLE_INIT_PLATFORM_FAMILY_LEN = 23
 #def NEEDLE_INIT_PLATFORM_OS_LEN = 20
@@ -728,7 +730,25 @@ L_RESP_FALLBACK_REQ:
     resp_req = load resp_req_slot+0 as ptr
     resp_auth_status = call @sa_http_client_req_add_header(resp_req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
     resp_ct_status = call @sa_http_client_req_add_header(resp_req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
-    resp_body_status = call @sa_http_client_req_set_body(resp_req, &RESP_FALLBACK_BODY, RESP_FALLBACK_BODY_LEN)
+    resp_model_ptr = load cfg+CFG_MODEL_PTR as ptr
+    resp_model_len = load cfg+CFG_MODEL_LEN as u64
+    resp_body_len_a = add RESP_FALLBACK_BODY_PREFIX_LEN, resp_model_len
+    resp_body_len = add resp_body_len_a, RESP_FALLBACK_BODY_SUFFIX_LEN
+    resp_body_ptr = alloc resp_body_len
+    resp_body_dst = ptr_add resp_body_ptr, 0
+    resp_prefix_copy = call @sa_bytes_copy(&resp_body_dst, &RESP_FALLBACK_BODY_PREFIX, RESP_FALLBACK_BODY_PREFIX_LEN)
+    !resp_prefix_copy
+    !resp_body_dst
+    resp_model_dst = ptr_add resp_body_ptr, RESP_FALLBACK_BODY_PREFIX_LEN
+    resp_model_copy = call @sa_bytes_copy(&resp_model_dst, &resp_model_ptr, resp_model_len)
+    !resp_model_copy
+    !resp_model_dst
+    resp_suffix_offset = add RESP_FALLBACK_BODY_PREFIX_LEN, resp_model_len
+    resp_suffix_dst = ptr_add resp_body_ptr, resp_suffix_offset
+    resp_suffix_copy = call @sa_bytes_copy(&resp_suffix_dst, &RESP_FALLBACK_BODY_SUFFIX, RESP_FALLBACK_BODY_SUFFIX_LEN)
+    !resp_suffix_copy
+    !resp_suffix_dst
+    resp_body_status = call @sa_http_client_req_set_body(resp_req, &resp_body_ptr, resp_body_len)
     resp_send_status = call @sa_http_client_req_send(resp_req, &resp_resp_slot)
     resp_resp = load resp_resp_slot+0 as ptr
     resp_code = call @sa_http_client_resp_status(resp_resp)
@@ -753,6 +773,12 @@ L_RESP_FALLBACK_REQ:
     !resp_ct_status
     !resp_body_status
     !resp_send_status
+    !resp_model_ptr
+    !resp_model_len
+    !resp_body_len_a
+    !resp_body_len
+    !resp_body_ptr
+    !resp_suffix_offset
     !resp_code
     !resp_reader_status
     !resp_read_status
@@ -858,10 +884,17 @@ L_RPC_AUTH_REQ:
     !auth_body_ok
     !auth_reader_ok
     !auth_read_ok
-    br auth_ok -> L_THREAD_START_REQ, L_FAIL_AUTH_RPC
+    br auth_ok -> L_STATE_RESET_REQ, L_FAIL_AUTH_RPC
+
+L_STATE_RESET_REQ:
+    !auth_ok
+    state_reset_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MEMORY_RESET_BODY, RPC_MEMORY_RESET_BODY_LEN, &NEEDLE_RESET, NEEDLE_RESET_LEN)
+    is_state_reset_ok = eq state_reset_ok, 1
+    !state_reset_ok
+    br is_state_reset_ok -> L_THREAD_START_REQ, L_FAIL_STATE_RESET
 
 L_THREAD_START_REQ:
-    !auth_ok
+    !is_state_reset_ok
     thread_start_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_THREAD_START_BODY, RPC_THREAD_START_BODY_LEN, &NEEDLE_THREAD, NEEDLE_THREAD_LEN)
     is_thread_start_ok = eq thread_start_ok, 1
     !thread_start_ok
@@ -1693,6 +1726,14 @@ L_FAIL_AUTH_RPC:
     !auth_len
     !cfg
     panic(226)
+
+L_FAIL_STATE_RESET:
+    !is_state_reset_ok
+    !auth_token_ptr
+    !auth_token_len
+    !auth_len
+    !cfg
+    panic(343)
 
 L_FAIL_THREAD_START:
     !is_thread_start_ok
