@@ -4,6 +4,8 @@
 @import "sa_std/encoding/json.sai"
 @import "sa_std/encoding/json.sal"
 @import "sa_std/time.sai"
+@import "sa_std/fmt.sai"
+@import "sa_std/string.sai"
 @import "strings.sa"
 
 @const LOG_STATE_INIT = utf8:"[state] initialized\n"
@@ -2541,30 +2543,17 @@ L_WARN_END_OBJECT:
     buffer = load buffer_slot+0 as ptr
     frame_ptr = call @sa_json_buffer_data(&buffer)
     frame_len = call @sa_json_buffer_len(&buffer)
-    frame_suffix_off = add SSE_WARNING_PREFIX_LEN, frame_len
-    frame_len_total = add frame_suffix_off, SSE_WARNING_SUFFIX_LEN
-    frame = alloc frame_len_total
-    prefix_dst = ptr_add frame, 0
-    prefix_status = call @state_copy_bytes(&prefix_dst, &SSE_WARNING_PREFIX, SSE_WARNING_PREFIX_LEN)
-    payload_dst = ptr_add frame, SSE_WARNING_PREFIX_LEN
-    payload_status = call @state_copy_bytes(&payload_dst, &frame_ptr, frame_len)
-    suffix_dst = ptr_add frame, frame_suffix_off
-    suffix_status = call @state_copy_bytes(&suffix_dst, &SSE_WARNING_SUFFIX, SSE_WARNING_SUFFIX_LEN)
+    frame_len_slot = stack_alloc 8
+    frame = call @build_concat3_owned(&SSE_WARNING_PREFIX, SSE_WARNING_PREFIX_LEN, &frame_ptr, frame_len, &SSE_WARNING_SUFFIX, SSE_WARNING_SUFFIX_LEN, &frame_len_slot)
+    frame_len_total = load frame_len_slot+0 as u64
     push_status = call @state_notify_push(&state, &frame, frame_len_total)
     buffer_free_status = call @sa_json_buffer_free(^buffer)
     writer_free_status = call @sa_json_writer_free(^writer)
-    !suffix_status
-    !suffix_dst
-    !payload_status
-    !payload_dst
-    !prefix_status
-    !prefix_dst
-    !frame_len_total
-    !frame_suffix_off
-    !frame
     !push_status
     !buffer_free_status
     !writer_free_status
+    !frame
+    !frame_len_total
     !frame_ptr
     !frame_len
     !writer_status
@@ -2578,6 +2567,47 @@ L_WARN_END_OBJECT:
     !thread_ptr
     !thread_len
     return 0
+
+@ffi_wrapper build_concat_owned(&left_ptr: ptr, left_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    joined_str = call @sa_string_concat(left_ptr, left_len, right_ptr, right_len)
+    joined_ptr = call @sa_fmt_buffer_data(joined_str)
+    joined_len = call @sa_fmt_buffer_len(joined_str)
+    out_ptr = alloc joined_len
+    out_copy = call @sa_bytes_copy(&out_ptr, &joined_ptr, joined_len)
+    joined_free = call @sa_fmt_buffer_free(^joined_str)
+    store out_len+0, joined_len as u64
+    !joined_free
+    !out_copy
+    !joined_len
+    !joined_ptr
+    !left_ptr
+    !left_len
+    !right_ptr
+    !right_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper build_concat3_owned(&left_ptr: ptr, left_len: u64, &mid_ptr: ptr, mid_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    left_mid_len_slot = stack_alloc 8
+    left_mid = call @build_concat_owned(&left_ptr, left_len, &mid_ptr, mid_len, &left_mid_len_slot)
+    left_mid_len = load left_mid_len_slot+0 as u64
+    final_len_slot = stack_alloc 8
+    out_ptr = call @build_concat_owned(&left_mid, left_mid_len, &right_ptr, right_len, &final_len_slot)
+    final_len = load final_len_slot+0 as u64
+    store out_len+0, final_len as u64
+    !final_len
+    !left_mid
+    !left_mid_len
+    !left_ptr
+    !left_len
+    !mid_ptr
+    !mid_len
+    !right_ptr
+    !right_len
+    !out_len
+    return out_ptr
 
 @ffi_wrapper state_notify_pop(&state: ptr, &out_frame: ptr, out_cap: u64, &out_len: ptr) -> u32:
 L_NPOP_ENTRY:

@@ -237,17 +237,11 @@
 @const J_PLUGIN_READ_D = utf8:"}}}"
 @const J_PLUGIN_UNINSTALL_A = utf8:"{\"uninstalled\":true,\"pluginName\":"
 @const J_PLUGIN_UNINSTALL_B = utf8:"}"
-@const J_PLUGIN_SHARE_SAVE_A = utf8:"{\"remotePluginId\":\"remote_"
-@const J_PLUGIN_SHARE_SAVE_B = utf8:"\",\"shareUrl\":\"http://"
-@const J_PLUGIN_SHARE_SAVE_C = utf8:":"
-@const J_PLUGIN_SHARE_SAVE_D = utf8:"/share\",\"discoverability\":\"UNLISTED\"}"
 @const J_PLUGIN_SHARE_UPDATE_A = utf8:"{\"discoverability\":\"UNLISTED\",\"principals\":"
 @const J_PLUGIN_SHARE_UPDATE_B = utf8:"}"
 @const J_PLUGIN_SHARE_CHECKOUT_A = utf8:"{\"checkedOut\":true,\"marketplaceName\":"
 @const J_PLUGIN_SHARE_CHECKOUT_B = utf8:",\"pluginName\":"
 @const J_PLUGIN_SHARE_CHECKOUT_C = utf8:"}"
-@const J_PLUGIN_SHARE_DELETE_A = utf8:"{\"deleted\":true,\"remotePluginId\":"
-@const J_PLUGIN_SHARE_DELETE_B = utf8:"}"
 @const J_MARKETPLACE_ADD_A = utf8:"{\"alreadyAdded\":false,\"installedRoot\":"
 @const J_MARKETPLACE_ADD_B = utf8:",\"marketplaceName\":"
 @const J_MARKETPLACE_ADD_C = utf8:"}"
@@ -1301,17 +1295,11 @@
 #def J_PLUGIN_READ_D_LEN = 3
 #def J_PLUGIN_UNINSTALL_A_LEN = 33
 #def J_PLUGIN_UNINSTALL_B_LEN = 1
-#def J_PLUGIN_SHARE_SAVE_A_LEN = 26
-#def J_PLUGIN_SHARE_SAVE_B_LEN = 21
-#def J_PLUGIN_SHARE_SAVE_C_LEN = 1
-#def J_PLUGIN_SHARE_SAVE_D_LEN = 37
 #def J_PLUGIN_SHARE_UPDATE_A_LEN = 43
 #def J_PLUGIN_SHARE_UPDATE_B_LEN = 1
 #def J_PLUGIN_SHARE_CHECKOUT_A_LEN = 37
 #def J_PLUGIN_SHARE_CHECKOUT_B_LEN = 14
 #def J_PLUGIN_SHARE_CHECKOUT_C_LEN = 1
-#def J_PLUGIN_SHARE_DELETE_A_LEN = 33
-#def J_PLUGIN_SHARE_DELETE_B_LEN = 1
 #def J_MARKETPLACE_ADD_A_LEN = 38
 #def J_MARKETPLACE_ADD_B_LEN = 19
 #def J_MARKETPLACE_ADD_C_LEN = 1
@@ -2480,21 +2468,15 @@ L_ENTRY:
 
 @ffi_wrapper build_proxy_url(&base_ptr: ptr, base_len: u64, &suffix_ptr: ptr, suffix_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    joined_str = call @sa_string_concat(base_ptr, base_len, suffix_ptr, suffix_len)
-    joined_ptr = call @sa_fmt_buffer_data(joined_str)
-    joined_len = call @sa_fmt_buffer_len(joined_str)
-    out_ptr = alloc joined_len
-    out_copy = call @sa_bytes_copy(&out_ptr, &joined_ptr, joined_len)
-    joined_free = call @sa_fmt_buffer_free(^joined_str)
+    joined_len_slot = stack_alloc 8
+    out_ptr = call @build_concat_owned(&base_ptr, base_len, &suffix_ptr, suffix_len, &joined_len_slot)
+    joined_len = load joined_len_slot+0 as u64
     store out_len+0, joined_len as u64
-    !joined_free
-    !out_copy
-    !joined_len
-    !joined_ptr
     !base_ptr
     !base_len
     !suffix_ptr
     !suffix_len
+    !joined_len
     !out_len
     return out_ptr
 
@@ -14775,12 +14757,9 @@ L_ENTRY:
     thread_len = load thread_len_slot+0 as u64
     command_ptr = load command_ptr_slot+0 as ptr
     command_len = load command_len_slot+0 as u64
-    warning_text_len = add J_SHELL_WARNING_PREFIX_LEN, command_len
-    warning_text = alloc warning_text_len
-    warning_prefix_dst = ptr_add warning_text, 0
-    warning_prefix_copy = call @state_copy_bytes(&warning_prefix_dst, &J_SHELL_WARNING_PREFIX, J_SHELL_WARNING_PREFIX_LEN)
-    warning_command_dst = ptr_add warning_text, J_SHELL_WARNING_PREFIX_LEN
-    warning_command_copy = call @state_copy_bytes(&warning_command_dst, &command_ptr, command_len)
+    warning_text_len_slot = stack_alloc 8
+    warning_text = call @build_concat_owned(&J_SHELL_WARNING_PREFIX, J_SHELL_WARNING_PREFIX_LEN, &command_ptr, command_len, &warning_text_len_slot)
+    warning_text_len = load warning_text_len_slot+0 as u64
     emit_status = call @state_emit_warning(&state_ptr, &warning_text, warning_text_len, &thread_ptr, thread_len)
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
@@ -14798,10 +14777,6 @@ L_ENTRY:
     !begin_status
     !writer_status
     !emit_status
-    !warning_command_copy
-    !warning_command_dst
-    !warning_prefix_copy
-    !warning_prefix_dst
     !warning_text
     !warning_text_len
     !thread_status
