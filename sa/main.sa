@@ -2026,39 +2026,37 @@ L_JW_LOG_BUILD:
     part_c_len = add part_b_len, LOG_PREVIEW_LEN_A_LEN
     part_d_len = add part_c_len, len_text_len
     preview_len = add part_d_len, LOG_PREVIEW_LEN_B_LEN
-    preview = alloc preview_len
-    dst0 = ptr_add preview, 0
-    copy_prefix = call @sa_bytes_copy(&dst0, &token_ptr, prefix_len2)
-    !copy_prefix
-    !dst0
-    dst1 = ptr_add preview, prefix_len2
-    copy_ellipsis = call @sa_bytes_copy(&dst1, &LOG_PREVIEW_ELLIPSIS, LOG_PREVIEW_ELLIPSIS_LEN)
-    !copy_ellipsis
-    !dst1
     suffix_start = sub token_len, suffix_len2
     suffix_ptr = ptr_add token_ptr, suffix_start
-    dst2 = ptr_add preview, part_a_len
-    copy_suffix = call @sa_bytes_copy(&dst2, &suffix_ptr, suffix_len2)
-    !copy_suffix
-    !dst2
-    dst3 = ptr_add preview, part_b_len
-    copy_len_a = call @sa_bytes_copy(&dst3, &LOG_PREVIEW_LEN_A, LOG_PREVIEW_LEN_A_LEN)
-    !copy_len_a
-    !dst3
-    dst4 = ptr_add preview, part_c_len
-    copy_len_text = call @sa_bytes_copy(&dst4, &len_buf, len_text_len)
-    !copy_len_text
-    !dst4
-    dst5 = ptr_add preview, part_d_len
-    copy_len_b = call @sa_bytes_copy(&dst5, &LOG_PREVIEW_LEN_B, LOG_PREVIEW_LEN_B_LEN)
-    !copy_len_b
-    !dst5
-    field_preview = call @sa_json_writer_field_string(writer, &key, key_len, &preview, preview_len)
+    preview1_len_slot = stack_alloc 8
+    preview1 = call @build_concat_owned(&token_ptr, prefix_len2, &LOG_PREVIEW_ELLIPSIS, LOG_PREVIEW_ELLIPSIS_LEN, &preview1_len_slot)
+    preview1_len = load preview1_len_slot+0 as u64
+    preview2_len_slot = stack_alloc 8
+    preview2 = call @build_concat_owned(&preview1, preview1_len, &suffix_ptr, suffix_len2, &preview2_len_slot)
+    preview2_len = load preview2_len_slot+0 as u64
+    preview3_len_slot = stack_alloc 8
+    preview3 = call @build_concat_owned(&preview2, preview2_len, &LOG_PREVIEW_LEN_A, LOG_PREVIEW_LEN_A_LEN, &preview3_len_slot)
+    preview3_len = load preview3_len_slot+0 as u64
+    preview4_len_slot = stack_alloc 8
+    preview4 = call @build_concat_owned(&preview3, preview3_len, &len_buf, len_text_len, &preview4_len_slot)
+    preview4_len = load preview4_len_slot+0 as u64
+    preview_len_slot = stack_alloc 8
+    preview = call @build_concat_owned(&preview4, preview4_len, &LOG_PREVIEW_LEN_B, LOG_PREVIEW_LEN_B_LEN, &preview_len_slot)
+    preview_len2 = load preview_len_slot+0 as u64
+    field_preview = call @sa_json_writer_field_string(writer, &key, key_len, &preview, preview_len2)
     !field_preview
     !suffix_ptr
     !suffix_start
     !preview
-    !preview_len
+    !preview_len2
+    !preview4
+    !preview4_len
+    !preview3
+    !preview3_len
+    !preview2
+    !preview2_len
+    !preview1
+    !preview1_len
     !part_d_len
     !part_c_len
     !part_b_len
@@ -9000,14 +8998,9 @@ L_JW_RESP_TOOL_WRITE:
     !name_is_string
     name_ptr = call @sa_json_string_ptr(name_node)
     name_len = call @sa_json_string_len(name_node)
-    full_name_len = add prefix_len, name_len
-    full_name = alloc full_name_len
-    prefix_copy = call @sa_bytes_copy(&full_name, &prefix, prefix_len)
-    !prefix_copy
-    name_dst = ptr_add full_name, prefix_len
-    name_copy = call @sa_bytes_copy(&name_dst, &name_ptr, name_len)
-    !name_copy
-    !name_dst
+    full_name_len_slot = stack_alloc 8
+    full_name = call @build_concat_owned(&prefix, prefix_len, &name_ptr, name_len, &full_name_len_slot)
+    full_name_len = load full_name_len_slot+0 as u64
     begin_status = call @sa_json_writer_begin_object(writer)
     type_status = call @sa_json_writer_field_string(writer, &FB_KEY_TYPE, FB_KEY_TYPE_LEN, &FB_TYPE_FUNCTION, FB_TYPE_FUNCTION_LEN)
     name_field_status = call @sa_json_writer_field_string(writer, &FB_KEY_NAME, FB_KEY_NAME_LEN, &full_name, full_name_len)
@@ -9572,14 +9565,9 @@ L_JW_CHAT_TOOL_WRITE:
     !name_is_string
     name_ptr = call @sa_json_string_ptr(name_node)
     name_len = call @sa_json_string_len(name_node)
-    full_name_len = add prefix_len, name_len
-    full_name = alloc full_name_len
-    prefix_copy = call @sa_bytes_copy(&full_name, &prefix, prefix_len)
-    !prefix_copy
-    name_dst = ptr_add full_name, prefix_len
-    name_copy = call @sa_bytes_copy(&name_dst, &name_ptr, name_len)
-    !name_copy
-    !name_dst
+    full_name_len_slot = stack_alloc 8
+    full_name = call @build_concat_owned(&prefix, prefix_len, &name_ptr, name_len, &full_name_len_slot)
+    full_name_len = load full_name_len_slot+0 as u64
     begin_status = call @sa_json_writer_begin_object(writer)
     type_status = call @sa_json_writer_field_string(writer, &FB_KEY_TYPE, FB_KEY_TYPE_LEN, &FB_TYPE_FUNCTION, FB_TYPE_FUNCTION_LEN)
     fn_field_status = call @sa_json_writer_object_field(writer, &FB_KEY_FUNCTION, FB_KEY_FUNCTION_LEN)
@@ -14019,11 +14007,9 @@ L_ENTRY:
     uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
     uuid_ptr = load uuid_ptr_slot+0 as ptr
     uuid_len = load uuid_len_slot+0 as u64
-    remote_len = add STRING_REMOTE_PREFIX_LEN, uuid_len
-    remote_ptr = alloc remote_len
-    remote_uuid_dst = ptr_add remote_ptr, STRING_REMOTE_PREFIX_LEN
-    remote_prefix_copy = call @sa_bytes_copy(&remote_ptr, &STRING_REMOTE_PREFIX, STRING_REMOTE_PREFIX_LEN)
-    remote_uuid_copy = call @sa_bytes_copy(&remote_uuid_dst, &uuid_ptr, uuid_len)
+    remote_len_slot = stack_alloc 8
+    remote_ptr = call @build_concat_owned(&STRING_REMOTE_PREFIX, STRING_REMOTE_PREFIX_LEN, &uuid_ptr, uuid_len, &remote_len_slot)
+    remote_len = load remote_len_slot+0 as u64
     port_buf = stack_alloc ID_BUF_SIZE
     port_len_slot = stack_alloc 8
     port_fmt_status = call @sa_fmt_u64_into(port_u64, 10, port_buf, ID_BUF_SIZE, &port_len_slot)
@@ -14053,9 +14039,6 @@ L_ENTRY:
     !port_len
     !port_fmt_status
     !port_u64
-    !remote_uuid_copy
-    !remote_prefix_copy
-    !remote_uuid_dst
     !remote_ptr
     !remote_len
     !uuid_status
@@ -14389,11 +14372,9 @@ L_ENTRY:
     family_len = load family_len_slot+0 as u64
     os_ptr = load os_ptr_slot+0 as ptr
     os_len = load os_len_slot+0 as u64
-    ua_len = add STRING_USER_AGENT_PREFIX_LEN, version_len
-    ua_ptr = alloc ua_len
-    ua_version_dst = ptr_add ua_ptr, STRING_USER_AGENT_PREFIX_LEN
-    ua_prefix_copy = call @sa_bytes_copy(&ua_ptr, &STRING_USER_AGENT_PREFIX, STRING_USER_AGENT_PREFIX_LEN)
-    ua_version_copy = call @sa_bytes_copy(&ua_version_dst, &version_ptr, version_len)
+    ua_len_slot = stack_alloc 8
+    ua_ptr = call @build_concat_owned(&STRING_USER_AGENT_PREFIX, STRING_USER_AGENT_PREFIX_LEN, &version_ptr, version_len, &ua_len_slot)
+    ua_len = load ua_len_slot+0 as u64
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
@@ -14419,9 +14400,6 @@ L_ENTRY:
     !ua_status
     !begin_status
     !writer_status
-    !ua_version_copy
-    !ua_prefix_copy
-    !ua_version_dst
     !ua_ptr
     !ua_len
     !version_status
@@ -14930,11 +14908,9 @@ L_ENTRY:
     uuid_status = call @sa_deno_plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
     uuid_ptr = load uuid_ptr_slot+0 as ptr
     uuid_len = load uuid_len_slot+0 as u64
-    token_len = add STRING_ATTEST_PREFIX_LEN, uuid_len
-    token_ptr = alloc token_len
-    token_uuid_dst = ptr_add token_ptr, STRING_ATTEST_PREFIX_LEN
-    token_prefix_copy = call @sa_bytes_copy(&token_ptr, &STRING_ATTEST_PREFIX, STRING_ATTEST_PREFIX_LEN)
-    token_uuid_copy = call @sa_bytes_copy(&token_uuid_dst, &uuid_ptr, uuid_len)
+    token_len_slot = stack_alloc 8
+    token_ptr = call @build_concat_owned(&STRING_ATTEST_PREFIX, STRING_ATTEST_PREFIX_LEN, &uuid_ptr, uuid_len, &token_len_slot)
+    token_len = load token_len_slot+0 as u64
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
@@ -14948,9 +14924,6 @@ L_ENTRY:
     !token_status
     !begin_status
     !writer_status
-    !token_uuid_copy
-    !token_prefix_copy
-    !token_uuid_dst
     !token_ptr
     !token_len
     !uuid_status
@@ -15074,16 +15047,12 @@ L_ENTRY:
     cwd_status = call @sa_deno_plugin_cwd(&cwd_ptr_slot, &cwd_len_slot)
     cwd_ptr = load cwd_ptr_slot+0 as ptr
     cwd_len = load cwd_len_slot+0 as u64
-    agents_path_len = add cwd_len, STRING_AGENTS_PATH_SUFFIX_LEN
-    agents_path = alloc agents_path_len
-    agents_suffix_dst = ptr_add agents_path, cwd_len
-    agents_cwd_copy = call @sa_bytes_copy(&agents_path, &cwd_ptr, cwd_len)
-    agents_suffix_copy = call @sa_bytes_copy(&agents_suffix_dst, &STRING_AGENTS_PATH_SUFFIX, STRING_AGENTS_PATH_SUFFIX_LEN)
-    env_path_len = add cwd_len, STRING_ENV_PATH_SUFFIX_LEN
-    env_path = alloc env_path_len
-    env_suffix_dst = ptr_add env_path, cwd_len
-    env_cwd_copy = call @sa_bytes_copy(&env_path, &cwd_ptr, cwd_len)
-    env_suffix_copy = call @sa_bytes_copy(&env_suffix_dst, &STRING_ENV_PATH_SUFFIX, STRING_ENV_PATH_SUFFIX_LEN)
+    agents_path_len_slot = stack_alloc 8
+    agents_path = call @build_concat_owned(&cwd_ptr, cwd_len, &STRING_AGENTS_PATH_SUFFIX, STRING_AGENTS_PATH_SUFFIX_LEN, &agents_path_len_slot)
+    agents_path_len = load agents_path_len_slot+0 as u64
+    env_path_len_slot = stack_alloc 8
+    env_path = call @build_concat_owned(&cwd_ptr, cwd_len, &STRING_ENV_PATH_SUFFIX, STRING_ENV_PATH_SUFFIX_LEN, &env_path_len_slot)
+    env_path_len = load env_path_len_slot+0 as u64
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
@@ -15141,14 +15110,8 @@ L_ENTRY:
     !items_field_status
     !begin_status
     !writer_status
-    !env_suffix_copy
-    !env_cwd_copy
-    !env_suffix_dst
     !env_path
     !env_path_len
-    !agents_suffix_copy
-    !agents_cwd_copy
-    !agents_suffix_dst
     !agents_path
     !agents_path_len
     !cwd_status
