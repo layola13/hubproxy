@@ -261,6 +261,51 @@ L_ENTRY:
     !out_len
     return out_ptr
 
+@ffi_wrapper build_concat4_owned(&a_ptr: ptr, a_len: u64, &b_ptr: ptr, b_len: u64, &c_ptr: ptr, c_len: u64, &d_ptr: ptr, d_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    ab_len_slot = stack_alloc 8
+    ab = call @build_concat_owned(&a_ptr, a_len, &b_ptr, b_len, &ab_len_slot)
+    ab_len = load ab_len_slot+0 as u64
+    cd_len_slot = stack_alloc 8
+    cd = call @build_concat_owned(&c_ptr, c_len, &d_ptr, d_len, &cd_len_slot)
+    cd_len = load cd_len_slot+0 as u64
+    out_ptr = call @build_concat_owned(&ab, ab_len, &cd, cd_len, &out_len)
+    !cd
+    !cd_len
+    !ab
+    !ab_len
+    !a_ptr
+    !a_len
+    !b_ptr
+    !b_len
+    !c_ptr
+    !c_len
+    !d_ptr
+    !d_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper build_concat5_owned(&a_ptr: ptr, a_len: u64, &b_ptr: ptr, b_len: u64, &c_ptr: ptr, c_len: u64, &d_ptr: ptr, d_len: u64, &e_ptr: ptr, e_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    abcd_len_slot = stack_alloc 8
+    abcd = call @build_concat4_owned(&a_ptr, a_len, &b_ptr, b_len, &c_ptr, c_len, &d_ptr, d_len, &abcd_len_slot)
+    abcd_len = load abcd_len_slot+0 as u64
+    out_ptr = call @build_concat_owned(&abcd, abcd_len, &e_ptr, e_len, &out_len)
+    !abcd
+    !abcd_len
+    !a_ptr
+    !a_len
+    !b_ptr
+    !b_len
+    !c_ptr
+    !c_len
+    !d_ptr
+    !d_len
+    !e_ptr
+    !e_len
+    !out_len
+    return out_ptr
+
 @ffi_wrapper bytes_to_owned(&src: ptr, src_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
     out_ptr = alloc src_len

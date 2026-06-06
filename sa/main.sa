@@ -1539,46 +1539,22 @@ L_JW_LOG_BUILD:
     fmt_status = call @sa_fmt_u64_into(token_len, 10, len_buf, 32, &len_out_slot)
     !fmt_status
     len_text_len = load len_out_slot+0 as u64
-    part_a_len = add prefix_len2, LOG_PREVIEW_ELLIPSIS_LEN
-    part_b_len = add part_a_len, suffix_len2
-    part_c_len = add part_b_len, LOG_PREVIEW_LEN_A_LEN
-    part_d_len = add part_c_len, len_text_len
-    preview_len = add part_d_len, LOG_PREVIEW_LEN_B_LEN
     suffix_start = sub token_len, suffix_len2
     suffix_ptr = ptr_add token_ptr, suffix_start
-    preview1_len_slot = stack_alloc 8
-    preview1 = call @build_concat_owned(&token_ptr, prefix_len2, &LOG_PREVIEW_ELLIPSIS, LOG_PREVIEW_ELLIPSIS_LEN, &preview1_len_slot)
-    preview1_len = load preview1_len_slot+0 as u64
-    preview2_len_slot = stack_alloc 8
-    preview2 = call @build_concat_owned(&preview1, preview1_len, &suffix_ptr, suffix_len2, &preview2_len_slot)
-    preview2_len = load preview2_len_slot+0 as u64
-    preview3_len_slot = stack_alloc 8
-    preview3 = call @build_concat_owned(&preview2, preview2_len, &LOG_PREVIEW_LEN_A, LOG_PREVIEW_LEN_A_LEN, &preview3_len_slot)
-    preview3_len = load preview3_len_slot+0 as u64
-    preview4_len_slot = stack_alloc 8
-    preview4 = call @build_concat_owned(&preview3, preview3_len, &len_buf, len_text_len, &preview4_len_slot)
-    preview4_len = load preview4_len_slot+0 as u64
     preview_len_slot = stack_alloc 8
-    preview = call @build_concat_owned(&preview4, preview4_len, &LOG_PREVIEW_LEN_B, LOG_PREVIEW_LEN_B_LEN, &preview_len_slot)
+    preview = call @build_concat5_owned(&token_ptr, prefix_len2, &LOG_PREVIEW_ELLIPSIS, LOG_PREVIEW_ELLIPSIS_LEN, &suffix_ptr, suffix_len2, &LOG_PREVIEW_LEN_A, LOG_PREVIEW_LEN_A_LEN, &len_buf, len_text_len, &preview_len_slot)
     preview_len2 = load preview_len_slot+0 as u64
-    field_preview = call @sa_json_writer_field_string(writer, &key, key_len, &preview, preview_len2)
+    preview_full_len_slot = stack_alloc 8
+    preview_final = call @build_concat_owned(&preview, preview_len2, &LOG_PREVIEW_LEN_B, LOG_PREVIEW_LEN_B_LEN, &preview_full_len_slot)
+    preview_full_len = load preview_full_len_slot+0 as u64
+    field_preview = call @sa_json_writer_field_string(writer, &key, key_len, &preview_final, preview_full_len)
     !field_preview
+    !preview_final
+    !preview_full_len
     !suffix_ptr
     !suffix_start
     !preview
     !preview_len2
-    !preview4
-    !preview4_len
-    !preview3
-    !preview3_len
-    !preview2
-    !preview2_len
-    !preview1
-    !preview1_len
-    !part_d_len
-    !part_c_len
-    !part_b_len
-    !part_a_len
     !len_text_len
     !suffix_len2
     !prefix_len2
@@ -2052,24 +2028,9 @@ L_ENTRY:
     port_len_slot = stack_alloc 8
     port_fmt_status = call @sa_fmt_u64_into(port_u64, 10, port_buf, ID_BUF_SIZE, &port_len_slot)
     port_len = load port_len_slot+0 as u64
-    part1_len_slot = stack_alloc 8
-    part1 = call @build_concat_owned(&STRING_HTTP_PREFIX, STRING_HTTP_PREFIX_LEN, &host_ptr, host_len, &part1_len_slot)
-    part1_len = load part1_len_slot+0 as u64
-    part2_len_slot = stack_alloc 8
-    part2 = call @build_concat_owned(&part1, part1_len, &CHAT_PROXY_COLON, CHAT_PROXY_COLON_LEN, &part2_len_slot)
-    part2_len = load part2_len_slot+0 as u64
-    part3_len_slot = stack_alloc 8
-    part3 = call @build_concat_owned(&part2, part2_len, &port_buf, port_len, &part3_len_slot)
-    part3_len = load part3_len_slot+0 as u64
-    final_ptr = call @build_concat_owned(&part3, part3_len, &suffix_ptr, suffix_len, &out_len)
-    !part3_len
-    !part2_len
-    !part1_len
+    final_ptr = call @build_concat5_owned(&STRING_HTTP_PREFIX, STRING_HTTP_PREFIX_LEN, &host_ptr, host_len, &CHAT_PROXY_COLON, CHAT_PROXY_COLON_LEN, &port_buf, port_len, &suffix_ptr, suffix_len, &out_len)
     !port_fmt_status
     !port_len
-    !part3
-    !part2
-    !part1
     !host_ptr
     !host_len
     !port_u64
