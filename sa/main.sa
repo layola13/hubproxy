@@ -1205,22 +1205,8 @@
 @const EV_REMOTE_STATUS = utf8:"remoteControl/status/changed"
 @const EV_MCP_STARTUP = utf8:"mcpServer/startupStatus/updated"
 @const EV_SERVER_RESOLVED = utf8:"serverRequest/resolved"
-@const J_EVT_THREAD_STR_A = utf8:"{\"threadId\":"
-@const J_EVT_STR_CLOSE = utf8:"}"
-@const J_EVT_TOOL_TURN_B = utf8:",\"turnId\":"
-@const J_EVT_TOOL_ITEM_B = utf8:",\"itemId\":"
-@const J_EVT_TOOL_MSG_B = utf8:",\"message\":"
-@const J_EVT_USER_INPUT_Q = utf8:",\"questions\":[{\"id\":\"default\",\"header\":\"Input\",\"question\":\"Provide input\",\"isOther\":true,\"isSecret\":false,\"options\":[{\"label\":\"Continue\",\"description\":\"Provide a value and continue.\"}]}]}"
-@const J_EVT_ELICIT_SERVER_B = utf8:",\"serverName\":"
-@const J_EVT_ELICIT_REQ_A = utf8:",\"request\":{\"type\":\"form\",\"id\":\""
-@const J_EVT_ELICIT_REQ_B = utf8:"\",\"requestedSchema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{},\"required\":[]},\"instructions\":\"Provide a value to continue.\"}}"
-@const J_EVT_RT_STARTED_B1 = utf8:",\"version\":\"v2\",\"realtimeSessionId\":\""
-@const J_EVT_RT_STARTED_B2 = utf8:"\"}"
 @const J_EVT_RT_DELTA_B2 = utf8:",\"delta\":"
 @const J_EVT_RT_DONE_B2 = utf8:",\"text\":"
-@const J_EVT_FUZZY_A = utf8:"{\"sessionId\":"
-@const J_EVT_FUZZY_B = utf8:",\"query\":"
-@const J_EVT_FUZZY_C = utf8:",\"files\":[]}"
 @const EVENT_WORKER_VT = vtable { call = @event_stream_worker }
 
 #def J_ID_KEY_LEN = 5
@@ -1546,22 +1532,8 @@
 #def EV_REMOTE_STATUS_LEN = 28
 #def EV_MCP_STARTUP_LEN = 31
 #def EV_SERVER_RESOLVED_LEN = 22
-#def J_EVT_THREAD_STR_A_LEN = 12
-#def J_EVT_STR_CLOSE_LEN = 1
-#def J_EVT_TOOL_TURN_B_LEN = 10
-#def J_EVT_TOOL_ITEM_B_LEN = 10
-#def J_EVT_TOOL_MSG_B_LEN = 11
-#def J_EVT_USER_INPUT_Q_LEN = 187
-#def J_EVT_ELICIT_SERVER_B_LEN = 14
-#def J_EVT_ELICIT_REQ_A_LEN = 32
-#def J_EVT_ELICIT_REQ_B_LEN = 172
-#def J_EVT_RT_STARTED_B1_LEN = 37
-#def J_EVT_RT_STARTED_B2_LEN = 2
 #def J_EVT_RT_DELTA_B2_LEN = 9
 #def J_EVT_RT_DONE_B2_LEN = 8
-#def J_EVT_FUZZY_A_LEN = 13
-#def J_EVT_FUZZY_B_LEN = 9
-#def J_EVT_FUZZY_C_LEN = 12
 
 #def CMD_ARGV_MAX = 4
 #def CMD_ARGV_BUF_SIZE = 64
@@ -4527,7 +4499,7 @@ L_NOTIFY_CONST_PARAMS_FINISH:
     !params_len
     return 0
 
-@ffi_wrapper notify_thread_string_suffix(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64, &suffix_ptr: ptr, suffix_len: u64) -> u32:
+@ffi_wrapper notify_thread_string(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
@@ -4545,8 +4517,6 @@ L_ENTRY:
     !event_len
     !body
     !body_len
-    !suffix_ptr
-    !suffix_len
     return 0
 
 @ffi_wrapper notify_realtime_started(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
@@ -17343,7 +17313,7 @@ L_RPC_TRY_REALTIME_STOP:
 
 L_RPC_REALTIME_STOP:
     !m_rt_stop_ok
-    call @notify_thread_string_suffix(&state_ptr, &EV_RT_CLOSED, EV_RT_CLOSED_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_STR_CLOSE, J_EVT_STR_CLOSE_LEN)
+    call @notify_thread_string(&state_ptr, &EV_RT_CLOSED, EV_RT_CLOSED_LEN, &rpc_body_ptr, rpc_body_len)
     call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 3)
     jmp L_RPC_DONE
 
