@@ -1,5 +1,7 @@
 // strings.sa — Byte-level string utilities for SA
 @import "strings.sai"
+@import "sa_std/fmt.sai"
+@import "sa_std/string.sai"
 
 // sa_bytes_eq(a_ptr, a_len, b_ptr, b_len) -> u8
 // Returns 1 if byte sequences are equal, 0 otherwise.
@@ -216,6 +218,47 @@ L_CPY_DONE:
     !dst
     !src
     return len
+
+@ffi_wrapper build_concat_owned(&left_ptr: ptr, left_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    joined_str = call @sa_string_concat(left_ptr, left_len, right_ptr, right_len)
+    joined_ptr = call @sa_fmt_buffer_data(joined_str)
+    joined_len = call @sa_fmt_buffer_len(joined_str)
+    out_ptr = alloc joined_len
+    out_copy = call @sa_bytes_copy(&out_ptr, &joined_ptr, joined_len)
+    joined_free = call @sa_fmt_buffer_free(^joined_str)
+    store out_len+0, joined_len as u64
+    !joined_free
+    !out_copy
+    !joined_len
+    !joined_ptr
+    !left_ptr
+    !left_len
+    !right_ptr
+    !right_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper build_concat3_owned(&left_ptr: ptr, left_len: u64, &mid_ptr: ptr, mid_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    left_mid_len_slot = stack_alloc 8
+    left_mid = call @build_concat_owned(&left_ptr, left_len, &mid_ptr, mid_len, &left_mid_len_slot)
+    left_mid_len = load left_mid_len_slot+0 as u64
+    final_len_slot = stack_alloc 8
+    out_ptr = call @build_concat_owned(&left_mid, left_mid_len, &right_ptr, right_len, &final_len_slot)
+    final_len = load final_len_slot+0 as u64
+    store out_len+0, final_len as u64
+    !final_len
+    !left_mid
+    !left_mid_len
+    !left_ptr
+    !left_len
+    !mid_ptr
+    !mid_len
+    !right_ptr
+    !right_len
+    !out_len
+    return out_ptr
 
 // sa_bytes_to_u64(buf_ptr, buf_len) -> i64
 // Parses an unsigned decimal integer from ASCII bytes.

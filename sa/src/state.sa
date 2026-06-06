@@ -2568,47 +2568,6 @@ L_WARN_END_OBJECT:
     !thread_len
     return 0
 
-@ffi_wrapper build_concat_owned(&left_ptr: ptr, left_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
-L_ENTRY:
-    joined_str = call @sa_string_concat(left_ptr, left_len, right_ptr, right_len)
-    joined_ptr = call @sa_fmt_buffer_data(joined_str)
-    joined_len = call @sa_fmt_buffer_len(joined_str)
-    out_ptr = alloc joined_len
-    out_copy = call @sa_bytes_copy(&out_ptr, &joined_ptr, joined_len)
-    joined_free = call @sa_fmt_buffer_free(^joined_str)
-    store out_len+0, joined_len as u64
-    !joined_free
-    !out_copy
-    !joined_len
-    !joined_ptr
-    !left_ptr
-    !left_len
-    !right_ptr
-    !right_len
-    !out_len
-    return out_ptr
-
-@ffi_wrapper build_concat3_owned(&left_ptr: ptr, left_len: u64, &mid_ptr: ptr, mid_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
-L_ENTRY:
-    left_mid_len_slot = stack_alloc 8
-    left_mid = call @build_concat_owned(&left_ptr, left_len, &mid_ptr, mid_len, &left_mid_len_slot)
-    left_mid_len = load left_mid_len_slot+0 as u64
-    final_len_slot = stack_alloc 8
-    out_ptr = call @build_concat_owned(&left_mid, left_mid_len, &right_ptr, right_len, &final_len_slot)
-    final_len = load final_len_slot+0 as u64
-    store out_len+0, final_len as u64
-    !final_len
-    !left_mid
-    !left_mid_len
-    !left_ptr
-    !left_len
-    !mid_ptr
-    !mid_len
-    !right_ptr
-    !right_len
-    !out_len
-    return out_ptr
-
 @ffi_wrapper state_notify_pop(&state: ptr, &out_frame: ptr, out_cap: u64, &out_len: ptr) -> u32:
 L_NPOP_ENTRY:
     head = atomic_load state+ST_NOTIFY_HEAD as u64 acquire
