@@ -194,8 +194,6 @@
 @const J_GOAL_STATUS_BUDGET_LIMITED = utf8:"budgetLimited"
 @const J_GOAL_STATUS_COMPLETE = utf8:"complete"
 @const J_ACCOUNT_DEFAULT_EMAIL = utf8:"user@example.com"
-@const J_FEEDBACK_A = utf8:"{\"threadId\":"
-@const J_FEEDBACK_B = utf8:"}"
 @const J_CONFIG_WRITE_A = utf8:"{\"filePath\":"
 @const J_CONFIG_WRITE_B = utf8:",\"status\":\"ok\",\"version\":\"1\"}"
 @const J_CONFIG_READ_A = utf8:"{\"config\":{\"host\":"
@@ -274,16 +272,10 @@
 @const J_INJECT_A = utf8:"{\"threadId\":\""
 @const J_INJECT_B = utf8:"\",\"injectedCount\":"
 @const J_INJECT_C = utf8:"}"
-@const J_COMPACT_A = utf8:"{\"compacted\":true,\"threadId\":"
-@const J_COMPACT_B = utf8:"}"
 @const J_SHELL_A = utf8:"{\"queued\":true,\"threadId\":"
 @const J_SHELL_B = utf8:",\"command\":"
 @const J_SHELL_C = utf8:"}"
 @const J_SHELL_WARNING_PREFIX = utf8:"shell command queued: "
-@const J_APPROVE_A = utf8:"{\"approved\":true,\"threadId\":"
-@const J_APPROVE_B = utf8:"}"
-@const J_CLEAN_A = utf8:"{\"cleaned\":true,\"threadId\":"
-@const J_CLEAN_B = utf8:"}"
 @const J_MEMORY_MODE_A = utf8:"{\"threadId\":"
 @const J_MEMORY_MODE_B = utf8:",\"memoryMode\":"
 @const J_MEMORY_MODE_C = utf8:"}"
@@ -295,12 +287,6 @@
 @const J_REALTIME_START_C = utf8:",\"itemsView\":\"full\",\"startedAt\":"
 @const J_REALTIME_START_D = utf8:",\"completedAt\":"
 @const J_REALTIME_START_E = utf8:",\"durationMs\":0,\"error\":null}}"
-@const J_REALTIME_AUDIO_A = utf8:"{\"appended\":true,\"threadId\":"
-@const J_REALTIME_AUDIO_B = utf8:",\"kind\":\"audio\"}"
-@const J_REALTIME_TEXT_A = utf8:"{\"appended\":true,\"threadId\":"
-@const J_REALTIME_TEXT_B = utf8:",\"kind\":\"text\"}"
-@const J_REALTIME_STOP_A = utf8:"{\"stopped\":true,\"threadId\":"
-@const J_REALTIME_STOP_B = utf8:"}"
 @const J_MCP_RELOAD_A = utf8:"{\"name\":"
 @const J_MCP_RELOAD_B = utf8:",\"reloaded\":true}"
 @const J_MCP_STATUS_A = utf8:"{\"data\":[{\"name\":"
@@ -1272,8 +1258,6 @@
 #def J_GOAL_STATUS_BUDGET_LIMITED_LEN = 13
 #def J_GOAL_STATUS_COMPLETE_LEN = 8
 #def J_ACCOUNT_DEFAULT_EMAIL_LEN = 16
-#def J_FEEDBACK_A_LEN = 12
-#def J_FEEDBACK_B_LEN = 1
 #def J_CONFIG_WRITE_A_LEN = 12
 #def J_CONFIG_WRITE_B_LEN = 29
 #def J_CONFIG_READ_A_LEN = 18
@@ -1352,16 +1336,10 @@
 #def J_INJECT_A_LEN = 13
 #def J_INJECT_B_LEN = 18
 #def J_INJECT_C_LEN = 1
-#def J_COMPACT_A_LEN = 29
-#def J_COMPACT_B_LEN = 1
 #def J_SHELL_A_LEN = 26
 #def J_SHELL_B_LEN = 11
 #def J_SHELL_C_LEN = 1
 #def J_SHELL_WARNING_PREFIX_LEN = 22
-#def J_APPROVE_A_LEN = 28
-#def J_APPROVE_B_LEN = 1
-#def J_CLEAN_A_LEN = 27
-#def J_CLEAN_B_LEN = 1
 #def J_MEMORY_MODE_A_LEN = 12
 #def J_MEMORY_MODE_B_LEN = 14
 #def J_MEMORY_MODE_C_LEN = 1
@@ -1373,12 +1351,6 @@
 #def J_REALTIME_START_C_LEN = 32
 #def J_REALTIME_START_D_LEN = 15
 #def J_REALTIME_START_E_LEN = 30
-#def J_REALTIME_AUDIO_A_LEN = 28
-#def J_REALTIME_AUDIO_B_LEN = 16
-#def J_REALTIME_TEXT_A_LEN = 28
-#def J_REALTIME_TEXT_B_LEN = 15
-#def J_REALTIME_STOP_A_LEN = 27
-#def J_REALTIME_STOP_B_LEN = 1
 #def J_MCP_RELOAD_A_LEN = 8
 #def J_MCP_RELOAD_B_LEN = 17
 #def J_MCP_STATUS_A_LEN = 17
@@ -14703,17 +14675,11 @@ L_INJECT_NOT_FOUND:
     !req
     return 0
 
-@ffi_wrapper send_rpc_thread_simple_id(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64, &prefix: ptr, prefix_len: u64, &suffix: ptr, suffix_len: u64) -> u32:
+@ffi_wrapper send_rpc_thread_simple_id(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64, kind: u8) -> u32:
 L_ENTRY:
-    compact_match = call @sa_bytes_eq(&prefix, prefix_len, &J_COMPACT_A, J_COMPACT_A_LEN)
-    is_compact = eq compact_match, 1
-    !compact_match
-    approve_match = call @sa_bytes_eq(&prefix, prefix_len, &J_APPROVE_A, J_APPROVE_A_LEN)
-    is_approve = eq approve_match, 1
-    !approve_match
-    clean_match = call @sa_bytes_eq(&prefix, prefix_len, &J_CLEAN_A, J_CLEAN_A_LEN)
-    is_clean = eq clean_match, 1
-    !clean_match
+    is_compact = eq kind, 1
+    is_approve = eq kind, 2
+    is_clean = eq kind, 3
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
@@ -14735,10 +14701,7 @@ L_THREAD_SIMPLE_COMPACT:
     !is_clean
     !body
     !body_len
-    !prefix
-    !prefix_len
-    !suffix
-    !suffix_len
+    !kind
     !req
     return 0
 
@@ -14760,10 +14723,7 @@ L_THREAD_SIMPLE_APPROVE:
     !is_clean
     !body
     !body_len
-    !prefix
-    !prefix_len
-    !suffix
-    !suffix_len
+    !kind
     !req
     return 0
 
@@ -14784,10 +14744,7 @@ L_THREAD_SIMPLE_CLEAN:
     !writer_status
     !body
     !body_len
-    !prefix
-    !prefix_len
-    !suffix
-    !suffix_len
+    !kind
     !req
     return 0
 
@@ -14802,10 +14759,7 @@ L_THREAD_SIMPLE_FEEDBACK:
     !writer_status
     !body
     !body_len
-    !prefix
-    !prefix_len
-    !suffix
-    !suffix_len
+    !kind
     !req
     return 0
 
@@ -15475,18 +15429,14 @@ L_ENTRY:
     !req
     return 0
 
-@ffi_wrapper send_rpc_realtime_thread(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64, &prefix: ptr, prefix_len: u64, &suffix: ptr, suffix_len: u64) -> u32:
+@ffi_wrapper send_rpc_realtime_thread(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64, kind: u8) -> u32:
 L_ENTRY:
-    stop_match = call @sa_bytes_eq(&prefix, prefix_len, &J_REALTIME_STOP_A, J_REALTIME_STOP_A_LEN)
-    is_stop = eq stop_match, 1
-    !stop_match
+    is_stop = eq kind, 3
     br is_stop -> L_REALTIME_THREAD_STOP, L_REALTIME_THREAD_APPEND
 
 L_REALTIME_THREAD_APPEND:
     !is_stop
-    audio_match = call @sa_bytes_eq(&prefix, prefix_len, &J_REALTIME_AUDIO_A, J_REALTIME_AUDIO_A_LEN)
-    is_audio = eq audio_match, 1
-    !audio_match
+    is_audio = eq kind, 1
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
@@ -15508,10 +15458,7 @@ L_REALTIME_THREAD_AUDIO:
     !writer_status
     !body
     !body_len
-    !prefix
-    !prefix_len
-    !suffix
-    !suffix_len
+    !kind
     !req
     return 0
 
@@ -15528,10 +15475,7 @@ L_REALTIME_THREAD_TEXT:
     !writer_status
     !body
     !body_len
-    !prefix
-    !prefix_len
-    !suffix
-    !suffix_len
+    !kind
     !req
     return 0
 
@@ -15552,10 +15496,7 @@ L_REALTIME_THREAD_STOP:
     !writer_status_stop
     !body
     !body_len
-    !prefix
-    !prefix_len
-    !suffix
-    !suffix_len
+    !kind
     !req
     return 0
 
@@ -16442,7 +16383,7 @@ L_RPC_TRY_THR_COMPACT_START:
 
 L_RPC_THR_COMPACT_START:
     !m_compact_ok
-    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &J_COMPACT_A, J_COMPACT_A_LEN, &J_COMPACT_B, J_COMPACT_B_LEN)
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 1)
     jmp L_RPC_DONE
 
 L_RPC_TRY_THR_SHELL_COMMAND:
@@ -16466,7 +16407,7 @@ L_RPC_TRY_THR_APPROVE_GUARDIAN:
 
 L_RPC_THR_APPROVE_GUARDIAN:
     !m_guardian_ok
-    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &J_APPROVE_A, J_APPROVE_A_LEN, &J_APPROVE_B, J_APPROVE_B_LEN)
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 2)
     jmp L_RPC_DONE
 
 L_RPC_TRY_THR_BG_CLEAN:
@@ -16478,7 +16419,7 @@ L_RPC_TRY_THR_BG_CLEAN:
 
 L_RPC_THR_BG_CLEAN:
     !m_bgclean_ok
-    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &J_CLEAN_A, J_CLEAN_A_LEN, &J_CLEAN_B, J_CLEAN_B_LEN)
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 3)
     jmp L_RPC_DONE
 
 L_RPC_TRY_THR_MEMORY_MODE_SET:
@@ -17346,7 +17287,7 @@ L_RPC_TRY_FEEDBACK_UPLOAD_FINAL:
 
 L_RPC_FEEDBACK_UPLOAD:
     !m_feedback_ok
-    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &J_FEEDBACK_A, J_FEEDBACK_A_LEN, &J_FEEDBACK_B, J_FEEDBACK_B_LEN)
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 0)
     jmp L_RPC_DONE
 
 L_RPC_TRY_CONFIG_VALUE_WRITE:
@@ -17434,7 +17375,7 @@ L_RPC_REALTIME_APPEND_AUDIO:
     !m_rt_audio_ok
     call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_RT_AUDIO_A, J_EVT_RT_AUDIO_A_LEN, &J_AUDIO_KEY, J_AUDIO_KEY_LEN, &J_EVT_RT_AUDIO_B2, J_EVT_RT_AUDIO_B2_LEN)
     call @notify_rt_item_value(&state_ptr, &EV_RT_AUDIO_DELTA, EV_RT_AUDIO_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_RT_AUDIO_DELTA_A, J_EVT_RT_AUDIO_DELTA_A_LEN, &J_AUDIO_KEY, J_AUDIO_KEY_LEN, &J_EVT_RT_AUDIO_DELTA_C, J_EVT_RT_AUDIO_DELTA_C_LEN)
-    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &J_REALTIME_AUDIO_A, J_REALTIME_AUDIO_A_LEN, &J_REALTIME_AUDIO_B, J_REALTIME_AUDIO_B_LEN)
+    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 1)
     jmp L_RPC_DONE
 
 L_RPC_TRY_REALTIME_APPEND_TEXT:
@@ -17449,7 +17390,7 @@ L_RPC_REALTIME_APPEND_TEXT:
     call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_RT_TEXT_A, J_EVT_RT_TEXT_A_LEN, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_TEXT_B2, J_EVT_RT_TEXT_B2_LEN)
     call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DELTA, EV_RT_TRANSCRIPT_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DELTA_B2, J_EVT_RT_DELTA_B2_LEN, &J_EVT_RT_DELTA_C, J_EVT_RT_DELTA_C_LEN)
     call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DONE, EV_RT_TRANSCRIPT_DONE_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DONE_B2, J_EVT_RT_DONE_B2_LEN, &J_EVT_RT_DONE_C, J_EVT_RT_DONE_C_LEN)
-    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &J_REALTIME_TEXT_A, J_REALTIME_TEXT_A_LEN, &J_REALTIME_TEXT_B, J_REALTIME_TEXT_B_LEN)
+    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 2)
     jmp L_RPC_DONE
 
 L_RPC_TRY_REALTIME_STOP:
@@ -17462,7 +17403,7 @@ L_RPC_TRY_REALTIME_STOP:
 L_RPC_REALTIME_STOP:
     !m_rt_stop_ok
     call @notify_thread_string_suffix(&state_ptr, &EV_RT_CLOSED, EV_RT_CLOSED_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_STR_CLOSE, J_EVT_STR_CLOSE_LEN)
-    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &J_REALTIME_STOP_A, J_REALTIME_STOP_A_LEN, &J_REALTIME_STOP_B, J_REALTIME_STOP_B_LEN)
+    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 3)
     jmp L_RPC_DONE
 
 L_RPC_TRY_REALTIME_VOICES_FINAL:
