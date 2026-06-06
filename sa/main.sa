@@ -2096,16 +2096,9 @@ L_AUTH_LOG_BUILD:
     !has_log
     mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
     !mkdir_status
-    file_len = add log_dir_len, LOG_FILE_AUTH_SUFFIX_LEN
-    file_path = alloc file_len
-    file_dst = ptr_add file_path, 0
-    copy_dir = call @sa_bytes_copy(&file_dst, &log_dir_ptr, log_dir_len)
-    !copy_dir
-    !file_dst
-    file_suffix_dst = ptr_add file_path, log_dir_len
-    copy_suffix = call @sa_bytes_copy(&file_suffix_dst, &LOG_FILE_AUTH_SUFFIX, LOG_FILE_AUTH_SUFFIX_LEN)
-    !copy_suffix
-    !file_suffix_dst
+    file_len_slot = stack_alloc 8
+    file_path = call @build_proxy_url(&log_dir_ptr, log_dir_len, &LOG_FILE_AUTH_SUFFIX, LOG_FILE_AUTH_SUFFIX_LEN, &file_len_slot)
+    file_len = load file_len_slot+0 as u64
     writer_slot = stack_alloc 8
     buffer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
@@ -2223,16 +2216,9 @@ L_REQ_LOG_BUILD:
     !has_log
     mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
     !mkdir_status
-    file_len = add log_dir_len, LOG_FILE_REQ_SUFFIX_LEN
-    file_path = alloc file_len
-    file_dst = ptr_add file_path, 0
-    copy_dir = call @sa_bytes_copy(&file_dst, &log_dir_ptr, log_dir_len)
-    !copy_dir
-    !file_dst
-    file_suffix_dst = ptr_add file_path, log_dir_len
-    copy_suffix = call @sa_bytes_copy(&file_suffix_dst, &LOG_FILE_REQ_SUFFIX, LOG_FILE_REQ_SUFFIX_LEN)
-    !copy_suffix
-    !file_suffix_dst
+    file_len_slot = stack_alloc 8
+    file_path = call @build_proxy_url(&log_dir_ptr, log_dir_len, &LOG_FILE_REQ_SUFFIX, LOG_FILE_REQ_SUFFIX_LEN, &file_len_slot)
+    file_len = load file_len_slot+0 as u64
 
     writer_slot = stack_alloc 8
     buffer_slot = stack_alloc 8
@@ -2524,24 +2510,41 @@ L_ENTRY:
 
 @ffi_wrapper build_proxy_url(&base_ptr: ptr, base_len: u64, &suffix_ptr: ptr, suffix_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    total_len = add base_len, suffix_len
-    buf = alloc total_len
-    base_dst = ptr_add buf, 0
-    base_copy = call @sa_bytes_copy(&base_dst, &base_ptr, base_len)
-    !base_copy
-    !base_dst
-    suffix_dst = ptr_add buf, base_len
-    suffix_copy = call @sa_bytes_copy(&suffix_dst, &suffix_ptr, suffix_len)
-    !suffix_copy
-    !suffix_dst
-    store out_len+0, total_len as u64
-    !total_len
+    joined_str = call @sa_string_concat(base_ptr, base_len, suffix_ptr, suffix_len)
+    joined_ptr = call @sa_fmt_buffer_data(joined_str)
+    joined_len = call @sa_fmt_buffer_len(joined_str)
+    out_ptr = alloc joined_len
+    out_copy = call @sa_bytes_copy(&out_ptr, &joined_ptr, joined_len)
+    joined_free = call @sa_fmt_buffer_free(^joined_str)
+    store out_len+0, joined_len as u64
+    !joined_free
+    !out_copy
+    !joined_len
+    !joined_ptr
     !base_ptr
     !base_len
     !suffix_ptr
     !suffix_len
     !out_len
-    return buf
+    return out_ptr
+
+@ffi_wrapper build_bearer_auth_header(&token_ptr: ptr, token_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    joined_str = call @sa_string_concat(&BEARER_PREFIX, BEARER_PREFIX_LEN, token_ptr, token_len)
+    joined_ptr = call @sa_fmt_buffer_data(joined_str)
+    joined_len = call @sa_fmt_buffer_len(joined_str)
+    out_ptr = alloc joined_len
+    out_copy = call @sa_bytes_copy(&out_ptr, &joined_ptr, joined_len)
+    joined_free = call @sa_fmt_buffer_free(^joined_str)
+    store out_len+0, joined_len as u64
+    !joined_free
+    !out_copy
+    !joined_len
+    !joined_ptr
+    !token_ptr
+    !token_len
+    !out_len
+    return out_ptr
 
 @ffi_wrapper http_response_read_all(resp: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
 L_ENTRY:
@@ -18219,16 +18222,9 @@ L_CHAT_BODY_OK:
     upstream_len = load upstream_len_slot+0 as u64
     api_key_ptr = load cfg_ptr+CFG_KEY_PTR as ptr
     api_key_len = load cfg_ptr+CFG_KEY_LEN as u64
-    up_auth_buf = stack_alloc UP_AUTH_BUF_SIZE
-    up_auth_dst = ptr_add up_auth_buf, 0
-    up_auth_prefix = call @sa_bytes_copy(&up_auth_dst, &BEARER_PREFIX, BEARER_PREFIX_LEN)
-    !up_auth_prefix
-    !up_auth_dst
-    up_auth_key_dst = ptr_add up_auth_buf, BEARER_PREFIX_LEN
-    up_auth_key_copy = call @sa_bytes_copy(&up_auth_key_dst, &api_key_ptr, api_key_len)
-    !up_auth_key_copy
-    !up_auth_key_dst
-    up_auth_len = add api_key_len, BEARER_PREFIX_LEN
+    up_auth_len_slot = stack_alloc 8
+    up_auth_buf = call @build_bearer_auth_header(&api_key_ptr, api_key_len, &up_auth_len_slot)
+    up_auth_len = load up_auth_len_slot+0 as u64
 
     // Create outbound HTTP client (TLS=1)
     client_slot = stack_alloc 8
@@ -18545,16 +18541,9 @@ L_RESP_HAVE_PROXY_BODY:
     r_base_len = load cfg_ptr+CFG_RBASE_LEN as u64
     r_api_key_ptr = load cfg_ptr+CFG_KEY_PTR as ptr
     r_api_key_len = load cfg_ptr+CFG_KEY_LEN as u64
-    r_up_auth_buf = stack_alloc UP_AUTH_BUF_SIZE
-    r_up_auth_dst = ptr_add r_up_auth_buf, 0
-    r_up_auth_prefix = call @sa_bytes_copy(&r_up_auth_dst, &BEARER_PREFIX, BEARER_PREFIX_LEN)
-    !r_up_auth_prefix
-    !r_up_auth_dst
-    r_up_auth_key_dst = ptr_add r_up_auth_buf, BEARER_PREFIX_LEN
-    r_up_auth_key_copy = call @sa_bytes_copy(&r_up_auth_key_dst, &r_api_key_ptr, r_api_key_len)
-    !r_up_auth_key_copy
-    !r_up_auth_key_dst
-    r_up_auth_len = add r_api_key_len, BEARER_PREFIX_LEN
+    r_up_auth_len_slot = stack_alloc 8
+    r_up_auth_buf = call @build_bearer_auth_header(&r_api_key_ptr, r_api_key_len, &r_up_auth_len_slot)
+    r_up_auth_len = load r_up_auth_len_slot+0 as u64
     r_has_base = ugt r_base_len, 0
     br r_has_base -> L_RESP_HAS_BASE_URL, L_RESP_NO_BASE_FALLBACK
 
@@ -19134,16 +19123,9 @@ L_PROXY_MODELS:
     m_chat_len = load m_url_len_slot+0 as u64
     m_api_key_ptr = load cfg_ptr+CFG_KEY_PTR as ptr
     m_api_key_len = load cfg_ptr+CFG_KEY_LEN as u64
-    m_up_auth_buf = stack_alloc UP_AUTH_BUF_SIZE
-    m_up_auth_dst = ptr_add m_up_auth_buf, 0
-    m_up_auth_prefix = call @sa_bytes_copy(&m_up_auth_dst, &BEARER_PREFIX, BEARER_PREFIX_LEN)
-    !m_up_auth_prefix
-    !m_up_auth_dst
-    m_up_auth_key_dst = ptr_add m_up_auth_buf, BEARER_PREFIX_LEN
-    m_up_auth_key_copy = call @sa_bytes_copy(&m_up_auth_key_dst, &m_api_key_ptr, m_api_key_len)
-    !m_up_auth_key_copy
-    !m_up_auth_key_dst
-    m_up_auth_len = add m_api_key_len, BEARER_PREFIX_LEN
+    m_up_auth_len_slot = stack_alloc 8
+    m_up_auth_buf = call @build_bearer_auth_header(&m_api_key_ptr, m_api_key_len, &m_up_auth_len_slot)
+    m_up_auth_len = load m_up_auth_len_slot+0 as u64
 
     m_client_slot = stack_alloc 8
     m_client_status = call @sa_http_client_new(1, &m_client_slot)
