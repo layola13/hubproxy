@@ -261,14 +261,22 @@ L_ENTRY:
     !out_len
     return out_ptr
 
+@ffi_wrapper bytes_to_owned(&src: ptr, src_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out_ptr = alloc src_len
+    copied = call @sa_bytes_copy(&out_ptr, &src, src_len)
+    store out_len+0, src_len as u64
+    !copied
+    !src
+    !src_len
+    !out_len
+    return out_ptr
+
 @ffi_wrapper json_buffer_to_owned(buffer: ptr, &out_len: ptr) -> ^ptr:
 L_ENTRY:
     data_ptr = call @sa_json_buffer_data(&buffer)
     data_len = call @sa_json_buffer_len(&buffer)
-    out_ptr = alloc data_len
-    copied = call @sa_bytes_copy(&out_ptr, &data_ptr, data_len)
-    store out_len+0, data_len as u64
-    !copied
+    out_ptr = call @bytes_to_owned(&data_ptr, data_len, &out_len)
     !data_ptr
     !data_len
     !buffer

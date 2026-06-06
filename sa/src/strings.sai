@@ -7,5 +7,6 @@
 @extern sa_bytes_copy(&dst: ptr, &src: ptr, len: u64) -> u64
 @extern build_concat_owned(&left_ptr: ptr, left_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr
 @extern build_concat3_owned(&left_ptr: ptr, left_len: u64, &mid_ptr: ptr, mid_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr
+@extern bytes_to_owned(&src: ptr, src_len: u64, &out_len: ptr) -> ^ptr
 @extern json_buffer_to_owned(buffer: ptr, &out_len: ptr) -> ^ptr
 @extern sa_bytes_to_u64(&buf: ptr, buf_len: u64) -> i64

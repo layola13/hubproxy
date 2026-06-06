@@ -148,12 +148,14 @@ L_TCR_SLOT:
     store slot+THR_ACTIVE, 1 as u8
     store slot+THR_STATUS, 0 as u8
     store slot+THR_NAME_SET, 0 as u8
-    model_owned = alloc model_len
-    model_copied = call @sa_bytes_copy(&model_owned, &model_ptr, model_len)
+    model_len_slot = stack_alloc 8
+    model_owned = call @bytes_to_owned(&model_ptr, model_len, &model_len_slot)
+    model_copied = load model_len_slot+0 as u64
     store slot+THR_MODEL_PTR, model_owned as ptr
     store slot+THR_MODEL_LEN, model_copied as u64
-    dir_owned = alloc dir_len
-    dir_copied = call @sa_bytes_copy(&dir_owned, &dir_ptr, dir_len)
+    dir_len_slot = stack_alloc 8
+    dir_owned = call @bytes_to_owned(&dir_ptr, dir_len, &dir_len_slot)
+    dir_copied = load dir_len_slot+0 as u64
     store slot+THR_DIR_PTR, dir_owned as ptr
     store slot+THR_DIR_LEN, dir_copied as u64
     store slot+THR_CREATED, now_u as u64
@@ -161,8 +163,9 @@ L_TCR_SLOT:
     store slot+THR_PREVIEW_LEN, 0 as u64
     store slot+THR_NAME_LEN, 0 as u64
     store slot+THR_FORKED_FROM_ID, 0 as u64
-    provider_owned = alloc DEFAULT_PROVIDER_OPENAI_LEN
-    provider_copied = call @sa_bytes_copy(&provider_owned, &DEFAULT_PROVIDER_OPENAI, DEFAULT_PROVIDER_OPENAI_LEN)
+    provider_len_slot = stack_alloc 8
+    provider_owned = call @bytes_to_owned(&DEFAULT_PROVIDER_OPENAI, DEFAULT_PROVIDER_OPENAI_LEN, &provider_len_slot)
+    provider_copied = load provider_len_slot+0 as u64
     store slot+THR_PROVIDER_PTR, provider_owned as ptr
     store slot+THR_PROVIDER_LEN, provider_copied as u64
     store slot+THR_EPHEMERAL, 1 as u8
@@ -565,8 +568,9 @@ L_STG_FREE_OLD:
 L_STG_COPY:
     !has_old
     !old_ptr
-    git_owned = alloc git_len
-    git_copied = call @sa_bytes_copy(&git_owned, &git_ptr, git_len)
+    git_len_slot = stack_alloc 8
+    git_owned = call @bytes_to_owned(&git_ptr, git_len, &git_len_slot)
+    git_copied = load git_len_slot+0 as u64
     store slot+THR_GIT_PTR, git_owned as ptr
     store slot+THR_GIT_LEN, git_copied as u64
     store slot+THR_GIT_SET, 1 as u8
@@ -692,8 +696,9 @@ L_ENTRY:
 
 L_STPROV_SLOT:
     !missing
-    provider_owned = alloc provider_len
-    provider_copied = call @sa_bytes_copy(&provider_owned, &provider_ptr, provider_len)
+    provider_len_slot2 = stack_alloc 8
+    provider_owned = call @bytes_to_owned(&provider_ptr, provider_len, &provider_len_slot2)
+    provider_copied = load provider_len_slot2+0 as u64
     store slot+THR_PROVIDER_PTR, provider_owned as ptr
     store slot+THR_PROVIDER_LEN, provider_copied as u64
     !provider_owned

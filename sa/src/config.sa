@@ -127,9 +127,8 @@ L_ENV_LOG_FOUND:
 
 L_ENV_LOG_COPY:
     !log_env_empty
-    log_owned = alloc log_env_len
-    log_copy = call @sa_bytes_copy(&log_owned, &log_env_ptr, log_env_len)
-    !log_copy
+    log_len_slot = stack_alloc 8
+    log_owned = call @bytes_to_owned(&log_env_ptr, log_env_len, &log_len_slot)
     log_store = call @cfg_store_str(&cfg, CFG_LOG_PTR, &log_owned, log_env_len)
     !log_store
     log_free = call @sa_env_buffer_free(^log_env)

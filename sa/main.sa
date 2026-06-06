@@ -6117,9 +6117,7 @@ L_STR_COPY_EMPTY:
 
 L_STR_COPY_NONEMPTY:
     !is_empty
-    out2 = alloc value_len
-    copy_status = call @sa_bytes_copy(&out2, &value_ptr, value_len)
-    !copy_status
+    out2 = call @bytes_to_owned(&value_ptr, value_len, &out_len)
     store out_ptr+0, out2 as ptr
     store out_len+0, value_len as u64
     free_params2 = call @sa_json_free(^params_node)
@@ -7474,9 +7472,7 @@ L_CTX_MODE_ONLY_FINISH:
 
 L_CTX_ORIGINAL:
     !has_mode
-    out = alloc body_len
-    copy_status = call @sa_bytes_copy(&out, &body, body_len)
-    !copy_status
+    out = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -8108,9 +8104,7 @@ L_RESP_JSON_STD_COPY:
     !norm_ok
     norm_ptr = load norm_ptr_slot+0 as ptr
     norm_len = load norm_len_slot+0 as u64
-    out_std = alloc norm_len
-    copy_status = call @sa_bytes_copy(&out_std, &norm_ptr, norm_len)
-    !copy_status
+    out_std = call @bytes_to_owned(&norm_ptr, norm_len, &out_len)
     free_status = call @sa_deno_plugin_free_buffer(norm_ptr, norm_len)
     !free_status
     store out_len+0, norm_len as u64
@@ -8125,9 +8119,7 @@ L_RESP_JSON_STD_COPY:
 L_RESP_JSON_STD_COPY_ORIGINAL:
     !norm_ok
     !norm_status
-    out_copy = alloc body_len
-    copy_status2 = call @sa_bytes_copy(&out_copy, &body, body_len)
-    !copy_status2
+    out_copy = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -8146,9 +8138,7 @@ L_CHAT_JSON_STD_COPY:
     !std_json_ok
     std_json_ptr = load std_json_ptr_slot+0 as ptr
     std_json_len = load std_json_len_slot+0 as u64
-    out_std_json = alloc std_json_len
-    std_json_copy_status = call @sa_bytes_copy(&out_std_json, &std_json_ptr, std_json_len)
-    !std_json_copy_status
+    out_std_json = call @bytes_to_owned(&std_json_ptr, std_json_len, &out_len)
     std_json_free_status = call @sa_deno_plugin_free_buffer(std_json_ptr, std_json_len)
     !std_json_free_status
     store out_len+0, std_json_len as u64
@@ -8165,9 +8155,7 @@ L_CHAT_JSON_STD_COPY:
 L_CHAT_JSON_STD_COPY_ORIGINAL:
     !std_json_ok
     !std_json_status
-    out_std_json_orig = alloc body_len
-    std_json_copy_orig_status = call @sa_bytes_copy(&out_std_json_orig, &body, body_len)
-    !std_json_copy_orig_status
+    out_std_json_orig = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -8195,9 +8183,7 @@ L_NATIVE_HAVE_NORM:
 L_NATIVE_COPY_ORIGINAL:
     !norm_ok
     !norm_status
-    out_orig = alloc body_len
-    copy_orig_status = call @sa_bytes_copy(&out_orig, &body, body_len)
-    !copy_orig_status
+    out_orig = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -8222,9 +8208,7 @@ L_NATIVE_CONT_REWRITE:
     !p5_status
     p5_ptr = call @rpc_builder_data(&pass5)
     p5_len = call @rpc_builder_len(&pass5)
-    out2 = alloc p5_len
-    copy_status2 = call @sa_bytes_copy(&out2, &p5_ptr, p5_len)
-    !copy_status2
+    out2 = call @bytes_to_owned(&p5_ptr, p5_len, &out_len)
     store out_len+0, p5_len as u64
     !p5_ptr
     !p5_len
@@ -8253,9 +8237,7 @@ L_NATIVE_CONT_COPY_NO_ALLOW:
     jmp L_NATIVE_CONT_COPY
 
 L_NATIVE_CONT_COPY:
-    out = alloc norm_len
-    copy_status = call @sa_bytes_copy(&out, &norm_ptr, norm_len)
-    !copy_status
+    out = call @bytes_to_owned(&norm_ptr, norm_len, &out_len)
     store out_len+0, norm_len as u64
     norm_free_status = call @sa_deno_plugin_free_buffer(norm_ptr, norm_len)
     !norm_free_status
@@ -8281,9 +8263,7 @@ L_CHAT_SSE_STD_COPY:
     !std_sse_ok
     std_sse_ptr = load std_sse_ptr_slot+0 as ptr
     std_sse_len = load std_sse_len_slot+0 as u64
-    out_std = alloc std_sse_len
-    std_copy_status = call @sa_bytes_copy(&out_std, &std_sse_ptr, std_sse_len)
-    !std_copy_status
+    out_std = call @bytes_to_owned(&std_sse_ptr, std_sse_len, &out_len)
     std_free_status = call @sa_deno_plugin_free_buffer(std_sse_ptr, std_sse_len)
     !std_free_status
     store out_len+0, std_sse_len as u64
@@ -8300,9 +8280,7 @@ L_CHAT_SSE_STD_COPY:
 L_CHAT_SSE_STD_COPY_ORIGINAL:
     !std_sse_ok
     !std_sse_status
-    out_std_orig = alloc body_len
-    std_copy_orig_status = call @sa_bytes_copy(&out_std_orig, &body, body_len)
-    !std_copy_orig_status
+    out_std_orig = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -10032,9 +10010,7 @@ L_RESP_PROXY_ROOT_BAD_KIND:
     root_free_bad = call @sa_json_free(^root)
     !root_free_bad
     !is_gemini
-    out_bad = alloc body_len
-    bad_copy_status = call @sa_bytes_copy(&out_bad, &body, body_len)
-    !bad_copy_status
+    out_bad = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -10044,9 +10020,7 @@ L_RESP_PROXY_ROOT_BAD_KIND:
 L_RESP_PROXY_COPY_ORIGINAL_NO_ROOT:
     !has_root
     !root
-    out_orig = alloc body_len
-    orig_copy_status = call @sa_bytes_copy(&out_orig, &body, body_len)
-    !orig_copy_status
+    out_orig = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !is_gemini
     !body
@@ -10220,9 +10194,7 @@ L_CHAT_PROXY_ROOT_BAD:
     !count_status
     !begin_status
     !writer_status
-    out_bad = alloc body_len
-    bad_copy_status = call @sa_bytes_copy(&out_bad, &body, body_len)
-    !bad_copy_status
+    out_bad = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -10233,9 +10205,7 @@ L_CHAT_PROXY_ROOT_BAD_KIND:
     !root_is_object
     root_free_bad_kind = call @sa_json_free(^root)
     !root_free_bad_kind
-    out_bad_kind = alloc body_len
-    bad_kind_copy_status = call @sa_bytes_copy(&out_bad_kind, &body, body_len)
-    !bad_kind_copy_status
+    out_bad_kind = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -10245,9 +10215,7 @@ L_CHAT_PROXY_ROOT_BAD_KIND:
 L_CHAT_PROXY_COPY_ORIGINAL:
     !has_root
     !root
-    out_orig = alloc body_len
-    orig_copy_status = call @sa_bytes_copy(&out_orig, &body, body_len)
-    !orig_copy_status
+    out_orig = call @bytes_to_owned(&body, body_len, &out_len)
     store out_len+0, body_len as u64
     !body
     !body_len
@@ -10267,9 +10235,7 @@ L_CHAT_FB_STD_COPY:
     !std_fb_ok
     std_fb_ptr = load std_fb_ptr_slot+0 as ptr
     std_fb_len = load std_fb_len_slot+0 as u64
-    out_std_fb = alloc std_fb_len
-    std_fb_copy_status = call @sa_bytes_copy(&out_std_fb, &std_fb_ptr, std_fb_len)
-    !std_fb_copy_status
+    out_std_fb = call @bytes_to_owned(&std_fb_ptr, std_fb_len, &out_len)
     std_fb_free_status = call @sa_deno_plugin_free_buffer(std_fb_ptr, std_fb_len)
     !std_fb_free_status
     store out_len+0, std_fb_len as u64
@@ -17893,9 +17859,7 @@ L_RESP_BODY_OK:
     r_proxy_norm_status = call @sa_deno_plugin_responses_request_normalize(&r_proxy_pre_ptr, r_proxy_pre_len, &r_proxy_norm_ptr_slot, &r_proxy_norm_len_slot)
     r_proxy_norm_ptr = load r_proxy_norm_ptr_slot+0 as ptr
     r_proxy_norm_len = load r_proxy_norm_len_slot+0 as u64
-    r_proxy_body_ptr = alloc r_proxy_norm_len
-    r_proxy_copy_status = call @sa_bytes_copy(&r_proxy_body_ptr, &r_proxy_norm_ptr, r_proxy_norm_len)
-    !r_proxy_copy_status
+    r_proxy_body_ptr = call @bytes_to_owned(&r_proxy_norm_ptr, r_proxy_norm_len, &r_proxy_body_len_slot)
     store r_proxy_body_len_slot+0, r_proxy_norm_len as u64
     r_proxy_body_len = load r_proxy_body_len_slot+0 as u64
     r_proxy_norm_free = call @sa_deno_plugin_free_buffer(r_proxy_norm_ptr, r_proxy_norm_len)
