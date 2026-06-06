@@ -200,20 +200,8 @@
 @const J_ENVIRONMENT_ID_KEY = utf8:"\"environmentId\":\""
 @const J_SHELL_WARNING_PREFIX = utf8:"shell command queued: "
 @const FB_KEY_VALUE = utf8:"value"
-@const CHAT_FB_TOOL_A = utf8:"{\"type\":\"function\",\"function\":{\"name\":"
-@const CHAT_FB_TOOL_DESC_A = utf8:",\"description\":"
-@const CHAT_FB_TOOL_PARAMS_A = utf8:",\"parameters\":"
-@const CHAT_FB_TOOL_STRICT_TRUE = utf8:",\"strict\":true"
-@const CHAT_FB_TOOL_STRICT_FALSE = utf8:",\"strict\":false"
-@const CHAT_FB_TOOL_CLOSE = utf8:"}}"
-@const RESP_TOOL_A = utf8:"{\"type\":\"function\",\"name\":"
-@const RESP_TOOL_CLOSE = utf8:"}"
-@const CHAT_FB_COMMA = utf8:","
 @const CHAT_FB_ARRAY_CLOSE = utf8:"]"
-@const CHAT_PROXY_OBJECT_OPEN = utf8:"{"
-@const CHAT_PROXY_OBJECT_CLOSE = utf8:"}"
 @const CHAT_PROXY_COLON = utf8:":"
-@const CHAT_PROXY_ARRAY_OPEN = utf8:"["
 @const DEFAULT_LOCAL = utf8:"local"
 @const DEFAULT_INSTALLATION = utf8:"local-installation"
 @const DEFAULT_PLAN_PLUS = utf8:"plus"
@@ -1097,20 +1085,8 @@
 #def J_ENVIRONMENT_ID_KEY_LEN = 17
 #def J_SHELL_WARNING_PREFIX_LEN = 22
 #def FB_KEY_VALUE_LEN = 5
-#def CHAT_FB_TOOL_A_LEN = 38
-#def CHAT_FB_TOOL_DESC_A_LEN = 15
-#def CHAT_FB_TOOL_PARAMS_A_LEN = 14
-#def CHAT_FB_TOOL_STRICT_TRUE_LEN = 14
-#def CHAT_FB_TOOL_STRICT_FALSE_LEN = 15
-#def CHAT_FB_TOOL_CLOSE_LEN = 2
-#def RESP_TOOL_A_LEN = 26
-#def RESP_TOOL_CLOSE_LEN = 1
-#def CHAT_FB_COMMA_LEN = 1
 #def CHAT_FB_ARRAY_CLOSE_LEN = 1
-#def CHAT_PROXY_OBJECT_OPEN_LEN = 1
-#def CHAT_PROXY_OBJECT_CLOSE_LEN = 1
 #def CHAT_PROXY_COLON_LEN = 1
-#def CHAT_PROXY_ARRAY_OPEN_LEN = 1
 #def DEFAULT_LOCAL_LEN = 5
 #def DEFAULT_INSTALLATION_LEN = 18
 #def DEFAULT_PLAN_PLUS_LEN = 4
@@ -1504,78 +1480,6 @@ L_ENTRY:
     !ct_s
     !s
     call @sa_http_server_resp_free(^resp)
-    return 0
-
-@ffi_wrapper log_append_token_preview(&buf: ptr, &token_ptr: ptr, token_len: u64) -> u32:
-L_ENTRY:
-    no_token = eq token_len, 0
-    br no_token -> L_LOG_TOKEN_NONE, L_LOG_TOKEN_PREP
-
-L_LOG_TOKEN_NONE:
-    !no_token
-    call @rpc_builder_append(&buf, &LOG_PREVIEW_NONE, LOG_PREVIEW_NONE_LEN)
-    !buf
-    !token_ptr
-    !token_len
-    return 0
-
-L_LOG_TOKEN_PREP:
-    !no_token
-    prefix_len = add token_len, 0
-    prefix_big = ugt prefix_len, 3
-    br prefix_big -> L_LOG_PREFIX_THREE, L_LOG_PREFIX_KEEP
-
-L_LOG_PREFIX_THREE:
-    !prefix_big
-    !prefix_len
-    prefix_len2 = add 3, 0
-    jmp L_LOG_TOKEN_APPEND_PREFIX
-
-L_LOG_PREFIX_KEEP:
-    !prefix_big
-    prefix_len2 = add prefix_len, 0
-    !prefix_len
-    jmp L_LOG_TOKEN_APPEND_PREFIX
-
-L_LOG_TOKEN_APPEND_PREFIX:
-    call @rpc_builder_append(&buf, &token_ptr, prefix_len2)
-    call @rpc_builder_append(&buf, &LOG_PREVIEW_ELLIPSIS, LOG_PREVIEW_ELLIPSIS_LEN)
-    suffix_len = add token_len, 0
-    suffix_big = ugt suffix_len, 3
-    br suffix_big -> L_LOG_SUFFIX_THREE, L_LOG_SUFFIX_KEEP
-
-L_LOG_SUFFIX_THREE:
-    !suffix_big
-    !suffix_len
-    suffix_len2 = add 3, 0
-    jmp L_LOG_TOKEN_APPEND_SUFFIX
-
-L_LOG_SUFFIX_KEEP:
-    !suffix_big
-    suffix_len2 = add suffix_len, 0
-    !suffix_len
-    jmp L_LOG_TOKEN_APPEND_SUFFIX
-
-L_LOG_TOKEN_APPEND_SUFFIX:
-    suffix_start = sub token_len, suffix_len2
-    suffix_ptr = ptr_add token_ptr, suffix_start
-    call @rpc_builder_append(&buf, &suffix_ptr, suffix_len2)
-    call @rpc_builder_append(&buf, &LOG_PREVIEW_LEN_A, LOG_PREVIEW_LEN_A_LEN)
-    len_buf = stack_alloc 32
-    len_out_slot = stack_alloc 8
-    fmt_status = call @sa_fmt_u64_into(token_len, 10, len_buf, 32, &len_out_slot)
-    len_text_len = load len_out_slot+0 as u64
-    !fmt_status
-    call @rpc_builder_append(&buf, &len_buf, len_text_len)
-    call @rpc_builder_append(&buf, &LOG_PREVIEW_LEN_B, LOG_PREVIEW_LEN_B_LEN)
-    !len_text_len
-    !suffix_ptr
-    !suffix_start
-    !suffix_len2
-    !prefix_len2
-    !buf
-    !token_ptr
-    !token_len
     return 0
 
 @ffi_wrapper json_writer_field_token_preview(writer: ptr, &key: ptr, key_len: u64, &token_ptr: ptr, token_len: u64) -> u32:
