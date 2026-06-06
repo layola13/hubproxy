@@ -1341,7 +1341,7 @@ L_TRB_DONE:
     !state
     return 0
 
-@ffi_wrapper state_goal_set(&state: ptr, thread_id: u64, budget: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
+@ffi_wrapper state_goal_set(&state: ptr, thread_id: u64, status: u8, budget_null: u8, budget: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
 L_ENTRY:
     count = load state+ST_GOAL_COUNT as u64
     i_ptr = stack_alloc 8
@@ -1368,7 +1368,8 @@ L_GS_UPDATE:
     obj_dst = ptr_add slot, GOAL_OBJ
     copied = call @sa_bytes_copy(&obj_dst, &obj_ptr, copy_len)
     store slot+GOAL_ACTIVE, 1 as u8
-    store slot+GOAL_STATUS, 0 as u8
+    store slot+GOAL_STATUS, status as u8
+    store slot+GOAL_BUDGET_NULL, budget_null as u8
     store slot+GOAL_BUDGET, budget as u64
     store slot+GOAL_OBJ_LEN, copied as u64
     !copied
@@ -1381,6 +1382,8 @@ L_GS_UPDATE:
     !done
     !count
     !thread_id
+    !status
+    !budget_null
     !budget
     !obj_ptr
     !obj_len
@@ -1422,7 +1425,8 @@ L_GS_SLOT:
     slot = ptr_add state, slot_abs
     store slot+GOAL_THR_ID, thread_id as u64
     store slot+GOAL_ACTIVE, 1 as u8
-    store slot+GOAL_STATUS, 0 as u8
+    store slot+GOAL_STATUS, status as u8
+    store slot+GOAL_BUDGET_NULL, budget_null as u8
     store slot+GOAL_BUDGET, budget as u64
     store slot+GOAL_USED, 0 as u64
     copy_len2 = call @state_clamp_len(obj_len, GOAL_OBJ_CAP)
@@ -1442,13 +1446,15 @@ L_GS_SLOT:
     !slot_off
     !count
     !thread_id
+    !status
+    !budget_null
     !budget
     !obj_ptr
     !obj_len
     !state
     return 0
 
-@ffi_wrapper state_goal_get_full(&state: ptr, thread_id: u64, &out_budget: ptr, &out_used: ptr, &out_obj_ptr: ptr, &out_obj_len: ptr) -> i32:
+@ffi_wrapper state_goal_get_full(&state: ptr, thread_id: u64, &out_status: ptr, &out_budget_null: ptr, &out_budget: ptr, &out_used: ptr, &out_obj_ptr: ptr, &out_obj_len: ptr) -> i32:
 L_ENTRY:
     count = load state+ST_GOAL_COUNT as u64
     i_ptr = stack_alloc 8
@@ -1477,14 +1483,20 @@ L_GGF_BODY:
 
 L_GGF_FOUND:
     !want
+    status = load slot+GOAL_STATUS as u8
+    budget_null = load slot+GOAL_BUDGET_NULL as u8
     budget = load slot+GOAL_BUDGET as u64
     used = load slot+GOAL_USED as u64
     obj_len = load slot+GOAL_OBJ_LEN as u64
     obj_ptr = ptr_add slot, GOAL_OBJ
+    store out_status+0, status as u8
+    store out_budget_null+0, budget_null as u8
     store out_budget+0, budget as u64
     store out_used+0, used as u64
     store out_obj_ptr+0, obj_ptr as ptr
     store out_obj_len+0, obj_len as u64
+    !status
+    !budget_null
     !budget
     !used
     !obj_len
@@ -1497,6 +1509,8 @@ L_GGF_FOUND:
     !count
     !thread_id
     !state
+    !out_status
+    !out_budget_null
     !out_budget
     !out_used
     !out_obj_ptr
@@ -1521,6 +1535,8 @@ L_GGF_NOT_FOUND:
     !count
     !thread_id
     !state
+    !out_status
+    !out_budget_null
     !out_budget
     !out_used
     !out_obj_ptr

@@ -187,6 +187,8 @@
 @const J_NULL_ID = utf8:"null"
 @const J_RPC_SUFFIX = utf8:"}"
 @const J_ERR_NOT_FOUND = utf8:"{\"code\":-32601,\"message\":\"method not found\"}"
+@const J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED = utf8:"{\"code\":-32601,\"message\":\"unsupported method: mcpServer/resource/list\"}"
+@const J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED = utf8:"{\"code\":-32601,\"message\":\"unsupported method: mcpServer/resource/templates\"}"
 @const J_ERR_THREAD_NOT_FOUND = utf8:"{\"code\":-32000,\"message\":\"thread not found\"}"
 @const J_ERR_TURN_NOT_FOUND = utf8:"{\"code\":-32000,\"message\":\"turn not found\"}"
 @const J_ERR_INVALID_PARAMS = utf8:"{\"code\":-32602,\"message\":\"invalid params\"}"
@@ -252,11 +254,18 @@
 @const J_STEER_A = utf8:"{\"turnId\":\""
 @const J_GOAL_OBJ_A = utf8:"{\"threadId\":\""
 @const J_GOAL_OBJ_B = utf8:"\",\"objective\":"
-@const J_GOAL_OBJ_B2 = utf8:",\"status\":\"active\",\"tokenBudget\":"
+@const J_GOAL_OBJ_STATUS_A = utf8:",\"status\":\""
+@const J_GOAL_OBJ_STATUS_B = utf8:"\",\"tokenBudget\":"
 @const J_GOAL_OBJ_C = utf8:",\"tokensUsed\":"
 @const J_GOAL_OBJ_D1 = utf8:",\"timeUsedSeconds\":0,\"createdAt\":"
 @const J_GOAL_OBJ_D2 = utf8:",\"updatedAt\":"
 @const J_GOAL_OBJ_D3 = utf8:"}"
+@const J_GOAL_STATUS_ACTIVE = utf8:"active"
+@const J_GOAL_STATUS_PAUSED = utf8:"paused"
+@const J_GOAL_STATUS_BLOCKED = utf8:"blocked"
+@const J_GOAL_STATUS_USAGE_LIMITED = utf8:"usageLimited"
+@const J_GOAL_STATUS_BUDGET_LIMITED = utf8:"budgetLimited"
+@const J_GOAL_STATUS_COMPLETE = utf8:"complete"
 @const J_GOAL_RESULT_A = utf8:"{\"goal\":"
 @const J_GOAL_NULL = utf8:"{\"goal\":null}"
 @const J_GOAL_CLEAR_TRUE = utf8:"{\"cleared\":true,\"notification\":{\"method\":\"thread/goal/cleared\",\"params\":{\"threadId\":\""
@@ -641,6 +650,7 @@
 @const J_NUM_TURNS_KEY = utf8:"\"numTurns\":\""
 @const J_NUM_TURNS_NUM_KEY = utf8:"\"numTurns\":"
 @const J_OBJECTIVE_KEY = utf8:"\"objective\":\""
+@const J_STATUS_KEY = utf8:"\"status\":\""
 @const J_TOKEN_BUDGET_KEY = utf8:"\"tokenBudget\":"
 @const J_COMMA = utf8:","
 @const J_QUOTE = utf8:"\""
@@ -737,6 +747,8 @@
 #def J_NULL_ID_LEN = 4
 #def J_RPC_SUFFIX_LEN = 1
 #def J_ERR_NOT_FOUND_LEN = 44
+#def J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED_LEN = 71
+#def J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED_LEN = 76
 #def J_ERR_THREAD_NOT_FOUND_LEN = 44
 #def J_ERR_TURN_NOT_FOUND_LEN = 42
 #def J_ERR_INVALID_PARAMS_LEN = 42
@@ -798,11 +810,18 @@
 #def J_STEER_A_LEN = 11
 #def J_GOAL_OBJ_A_LEN = 13
 #def J_GOAL_OBJ_B_LEN = 14
-#def J_GOAL_OBJ_B2_LEN = 33
+#def J_GOAL_OBJ_STATUS_A_LEN = 11
+#def J_GOAL_OBJ_STATUS_B_LEN = 16
 #def J_GOAL_OBJ_C_LEN = 14
 #def J_GOAL_OBJ_D1_LEN = 33
 #def J_GOAL_OBJ_D2_LEN = 13
 #def J_GOAL_OBJ_D3_LEN = 1
+#def J_GOAL_STATUS_ACTIVE_LEN = 6
+#def J_GOAL_STATUS_PAUSED_LEN = 6
+#def J_GOAL_STATUS_BLOCKED_LEN = 7
+#def J_GOAL_STATUS_USAGE_LIMITED_LEN = 12
+#def J_GOAL_STATUS_BUDGET_LIMITED_LEN = 13
+#def J_GOAL_STATUS_COMPLETE_LEN = 8
 #def J_GOAL_RESULT_A_LEN = 8
 #def J_GOAL_NULL_LEN = 13
 #def J_GOAL_CLEAR_TRUE_LEN = 85
@@ -1124,7 +1143,9 @@
 #def J_NUM_TURNS_KEY_LEN = 12
 #def J_NUM_TURNS_NUM_KEY_LEN = 11
 #def J_OBJECTIVE_KEY_LEN = 13
+#def J_STATUS_KEY_LEN = 10
 #def J_TOKEN_BUDGET_KEY_LEN = 14
+#def GOAL_BUDGET_NULL_SENTINEL = 18446744073709551615
 #def J_COMMA_LEN = 1
 #def J_QUOTE_LEN = 1
 #def J_EVT_THREAD_PARAMS_A_LEN = 10
@@ -1302,6 +1323,8 @@
 @const RPC_M_CONFIG_MCP_RELOAD = utf8:"\"config/mcpServer/reload\""
 @const RPC_M_MCP_STATUS_LIST = utf8:"\"mcpServerStatus/list\""
 @const RPC_M_MCP_RESOURCE_READ = utf8:"\"mcpServer/resource/read\""
+@const RPC_M_MCP_RESOURCE_LIST = utf8:"\"mcpServer/resource/list\""
+@const RPC_M_MCP_RESOURCE_TEMPLATES = utf8:"\"mcpServer/resource/templates\""
 @const RPC_M_MCP_TOOL_RUN = utf8:"\"mcpServer/tool/call\""
 @const RPC_M_WINDOWS_SETUP_START = utf8:"\"windowsSandbox/setupStart\""
 @const RPC_M_REMOTE_ENABLE = utf8:"\"remoteControl/enable\""
@@ -1419,6 +1442,8 @@
 #def RPC_M_CONFIG_MCP_RELOAD_LEN = 25
 #def RPC_M_MCP_STATUS_LIST_LEN = 22
 #def RPC_M_MCP_RESOURCE_READ_LEN = 25
+#def RPC_M_MCP_RESOURCE_LIST_LEN = 25
+#def RPC_M_MCP_RESOURCE_TEMPLATES_LEN = 30
 #def RPC_M_MCP_TOOL_RUN_LEN = 21
 #def RPC_M_WINDOWS_SETUP_START_LEN = 27
 #def RPC_M_REMOTE_ENABLE_LEN = 22
@@ -1986,6 +2011,56 @@ L_ENTRY:
     !suffix_len
     !out_len
     return buf
+
+@ffi_wrapper http_response_read_all(resp: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    reader_slot = stack_alloc 8
+    status = call @sa_http_client_resp_body_reader(resp, &reader_slot)
+    reader = load reader_slot+0 as ptr
+    body_buf = alloc FS_MAX_READ_BYTES
+    chunk_buf = stack_alloc SSE_BUF_SIZE
+    read_len_slot = stack_alloc 8
+    offset_slot = stack_alloc 8
+    store offset_slot+0, 0 as u64
+    !status
+    jmp L_READ_LOOP
+
+L_READ_LOOP:
+    read_status = call @sa_http_client_resp_read_chunk(reader, &chunk_buf, SSE_BUF_SIZE, &read_len_slot)
+    read_len = load read_len_slot+0 as u64
+    done = eq read_len, 0
+    br done -> L_READ_DONE, L_READ_APPEND
+
+L_READ_APPEND:
+    !done
+    offset = load offset_slot+0 as u64
+    dst = ptr_add body_buf, offset
+    copied = call @sa_bytes_copy(&dst, &chunk_buf, read_len)
+    next_offset = add offset, copied
+    store offset_slot+0, next_offset as u64
+    !next_offset
+    !copied
+    !dst
+    !offset
+    !read_status
+    !read_len
+    jmp L_READ_LOOP
+
+L_READ_DONE:
+    !done
+    !read_status
+    final_len = load offset_slot+0 as u64
+    store out_ptr+0, body_buf as ptr
+    store out_len+0, final_len as u64
+    free_status = call @sa_http_client_body_reader_free(^reader)
+    !free_status
+    !final_len
+    !body_buf
+    !read_len
+    !resp
+    !out_ptr
+    !out_len
+    return 0
 
 @ffi_wrapper rpc_builder_append_u64(&buf: ptr, value: u64) -> u32:
 L_ENTRY:
@@ -2612,6 +2687,209 @@ L_ENTRY:
     !buf
     return 0
 
+@ffi_wrapper rpc_builder_append_goal_status(&buf: ptr, status: u8) -> u32:
+L_ENTRY:
+    is_paused = eq status, 1
+    br is_paused -> L_GOAL_STATUS_PAUSED, L_GOAL_STATUS_BLOCKED_CHECK
+
+L_GOAL_STATUS_PAUSED:
+    !is_paused
+    call @rpc_builder_append(&buf, &J_GOAL_STATUS_PAUSED, J_GOAL_STATUS_PAUSED_LEN)
+    !buf
+    !status
+    return 0
+
+L_GOAL_STATUS_BLOCKED_CHECK:
+    !is_paused
+    is_blocked = eq status, 2
+    br is_blocked -> L_GOAL_STATUS_BLOCKED, L_GOAL_STATUS_USAGE_CHECK
+
+L_GOAL_STATUS_BLOCKED:
+    !is_blocked
+    call @rpc_builder_append(&buf, &J_GOAL_STATUS_BLOCKED, J_GOAL_STATUS_BLOCKED_LEN)
+    !buf
+    !status
+    return 0
+
+L_GOAL_STATUS_USAGE_CHECK:
+    !is_blocked
+    is_usage = eq status, 3
+    br is_usage -> L_GOAL_STATUS_USAGE, L_GOAL_STATUS_BUDGET_CHECK
+
+L_GOAL_STATUS_USAGE:
+    !is_usage
+    call @rpc_builder_append(&buf, &J_GOAL_STATUS_USAGE_LIMITED, J_GOAL_STATUS_USAGE_LIMITED_LEN)
+    !buf
+    !status
+    return 0
+
+L_GOAL_STATUS_BUDGET_CHECK:
+    !is_usage
+    is_budget = eq status, 4
+    br is_budget -> L_GOAL_STATUS_BUDGET, L_GOAL_STATUS_COMPLETE_CHECK
+
+L_GOAL_STATUS_BUDGET:
+    !is_budget
+    call @rpc_builder_append(&buf, &J_GOAL_STATUS_BUDGET_LIMITED, J_GOAL_STATUS_BUDGET_LIMITED_LEN)
+    !buf
+    !status
+    return 0
+
+L_GOAL_STATUS_COMPLETE_CHECK:
+    !is_budget
+    is_complete = eq status, 5
+    br is_complete -> L_GOAL_STATUS_COMPLETE, L_GOAL_STATUS_ACTIVE
+
+L_GOAL_STATUS_COMPLETE:
+    !is_complete
+    call @rpc_builder_append(&buf, &J_GOAL_STATUS_COMPLETE, J_GOAL_STATUS_COMPLETE_LEN)
+    !buf
+    !status
+    return 0
+
+L_GOAL_STATUS_ACTIVE:
+    !is_complete
+    call @rpc_builder_append(&buf, &J_GOAL_STATUS_ACTIVE, J_GOAL_STATUS_ACTIVE_LEN)
+    !buf
+    !status
+    return 0
+
+@ffi_wrapper rpc_builder_append_goal_budget(&buf: ptr, budget_null: u8, budget: u64) -> u32:
+L_ENTRY:
+    is_null = eq budget_null, 1
+    br is_null -> L_GOAL_BUDGET_NULL, L_GOAL_BUDGET_NUMBER
+
+L_GOAL_BUDGET_NULL:
+    !is_null
+    call @rpc_builder_append(&buf, &J_NULL, J_NULL_LEN)
+    !buf
+    !budget_null
+    !budget
+    return 0
+
+L_GOAL_BUDGET_NUMBER:
+    !is_null
+    call @rpc_builder_append_u64(&buf, budget)
+    !buf
+    !budget_null
+    !budget
+    return 0
+
+@ffi_wrapper rpc_goal_status_from_body(&body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    status_ptr_slot = stack_alloc 8
+    status_len_slot = stack_alloc 8
+    status_found = call @rpc_extract_string_after(&body, body_len, &J_STATUS_KEY, J_STATUS_KEY_LEN, &status_ptr_slot, &status_len_slot)
+    has_status = eq status_found, 1
+    !status_found
+    br has_status -> L_GOAL_STATUS_PARSE, L_GOAL_STATUS_PARSE_DEFAULT
+
+L_GOAL_STATUS_PARSE:
+    !has_status
+    status_ptr = load status_ptr_slot+0 as ptr
+    status_len = load status_len_slot+0 as u64
+    active_raw = call @sa_bytes_eq(&status_ptr, status_len, &J_GOAL_STATUS_ACTIVE, J_GOAL_STATUS_ACTIVE_LEN)
+    is_active = eq active_raw, 1
+    !active_raw
+    br is_active -> L_GOAL_STATUS_RET_ACTIVE, L_GOAL_STATUS_PARSE_PAUSED
+
+L_GOAL_STATUS_RET_ACTIVE:
+    !is_active
+    !status_ptr
+    !status_len
+    !body
+    !body_len
+    return 0
+
+L_GOAL_STATUS_PARSE_PAUSED:
+    !is_active
+    paused_raw = call @sa_bytes_eq(&status_ptr, status_len, &J_GOAL_STATUS_PAUSED, J_GOAL_STATUS_PAUSED_LEN)
+    is_paused2 = eq paused_raw, 1
+    !paused_raw
+    br is_paused2 -> L_GOAL_STATUS_RET_PAUSED, L_GOAL_STATUS_PARSE_BLOCKED
+
+L_GOAL_STATUS_RET_PAUSED:
+    !is_paused2
+    !status_ptr
+    !status_len
+    !body
+    !body_len
+    return 1
+
+L_GOAL_STATUS_PARSE_BLOCKED:
+    !is_paused2
+    blocked_raw = call @sa_bytes_eq(&status_ptr, status_len, &J_GOAL_STATUS_BLOCKED, J_GOAL_STATUS_BLOCKED_LEN)
+    is_blocked2 = eq blocked_raw, 1
+    !blocked_raw
+    br is_blocked2 -> L_GOAL_STATUS_RET_BLOCKED, L_GOAL_STATUS_PARSE_USAGE
+
+L_GOAL_STATUS_RET_BLOCKED:
+    !is_blocked2
+    !status_ptr
+    !status_len
+    !body
+    !body_len
+    return 2
+
+L_GOAL_STATUS_PARSE_USAGE:
+    !is_blocked2
+    usage_raw = call @sa_bytes_eq(&status_ptr, status_len, &J_GOAL_STATUS_USAGE_LIMITED, J_GOAL_STATUS_USAGE_LIMITED_LEN)
+    is_usage2 = eq usage_raw, 1
+    !usage_raw
+    br is_usage2 -> L_GOAL_STATUS_RET_USAGE, L_GOAL_STATUS_PARSE_BUDGET
+
+L_GOAL_STATUS_RET_USAGE:
+    !is_usage2
+    !status_ptr
+    !status_len
+    !body
+    !body_len
+    return 3
+
+L_GOAL_STATUS_PARSE_BUDGET:
+    !is_usage2
+    budget_raw = call @sa_bytes_eq(&status_ptr, status_len, &J_GOAL_STATUS_BUDGET_LIMITED, J_GOAL_STATUS_BUDGET_LIMITED_LEN)
+    is_budget2 = eq budget_raw, 1
+    !budget_raw
+    br is_budget2 -> L_GOAL_STATUS_RET_BUDGET, L_GOAL_STATUS_PARSE_COMPLETE
+
+L_GOAL_STATUS_RET_BUDGET:
+    !is_budget2
+    !status_ptr
+    !status_len
+    !body
+    !body_len
+    return 4
+
+L_GOAL_STATUS_PARSE_COMPLETE:
+    !is_budget2
+    complete_raw = call @sa_bytes_eq(&status_ptr, status_len, &J_GOAL_STATUS_COMPLETE, J_GOAL_STATUS_COMPLETE_LEN)
+    is_complete2 = eq complete_raw, 1
+    !complete_raw
+    br is_complete2 -> L_GOAL_STATUS_RET_COMPLETE, L_GOAL_STATUS_RET_UNKNOWN
+
+L_GOAL_STATUS_RET_COMPLETE:
+    !is_complete2
+    !status_ptr
+    !status_len
+    !body
+    !body_len
+    return 5
+
+L_GOAL_STATUS_RET_UNKNOWN:
+    !is_complete2
+    !status_ptr
+    !status_len
+    !body
+    !body_len
+    return 0
+
+L_GOAL_STATUS_PARSE_DEFAULT:
+    !has_status
+    !body
+    !body_len
+    return 0
+
 @ffi_wrapper notify_frame_begin(&buf: ptr, &event_ptr: ptr, event_len: u64) -> u32:
 L_ENTRY:
     call @rpc_builder_append(&buf, &SSE_EVENT_PREFIX, SSE_EVENT_PREFIX_LEN)
@@ -2720,7 +2998,7 @@ L_ENTRY:
     !state_ptr
     return 0
 
-@ffi_wrapper notify_goal_updated(&state_ptr: ptr, thread_id: u64, budget: u64, used: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
+@ffi_wrapper notify_goal_updated(&state_ptr: ptr, thread_id: u64, status: u8, budget_null: u8, budget: u64, used: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
 L_ENTRY:
     frame = call @rpc_builder_new()
     call @notify_frame_begin(&frame, &EV_GOAL_UPDATED, EV_GOAL_UPDATED_LEN)
@@ -2731,8 +3009,10 @@ L_ENTRY:
     call @rpc_builder_append_u64(&frame, thread_id)
     call @rpc_builder_append(&frame, &J_GOAL_OBJ_B, J_GOAL_OBJ_B_LEN)
     call @rpc_builder_append_json_string(&frame, &obj_ptr, obj_len)
-    call @rpc_builder_append(&frame, &J_GOAL_OBJ_B2, J_GOAL_OBJ_B2_LEN)
-    call @rpc_builder_append_u64(&frame, budget)
+    call @rpc_builder_append(&frame, &J_GOAL_OBJ_STATUS_A, J_GOAL_OBJ_STATUS_A_LEN)
+    call @rpc_builder_append_goal_status(&frame, status)
+    call @rpc_builder_append(&frame, &J_GOAL_OBJ_STATUS_B, J_GOAL_OBJ_STATUS_B_LEN)
+    call @rpc_builder_append_goal_budget(&frame, budget_null, budget)
     call @rpc_builder_append(&frame, &J_GOAL_OBJ_C, J_GOAL_OBJ_C_LEN)
     call @rpc_builder_append_u64(&frame, used)
     call @rpc_builder_append_goal_tail(&frame)
@@ -2740,6 +3020,8 @@ L_ENTRY:
     call @rpc_builder_append(&frame, &SSE_FRAME_END, SSE_FRAME_END_LEN)
     call @notify_push_frame(&state_ptr, ^frame)
     !thread_id
+    !status
+    !budget_null
     !budget
     !used
     !obj_ptr
@@ -4251,6 +4533,46 @@ L_HAS_NO:
     return 0
 
 @ffi_wrapper body_collaboration_mode(&body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    mode_slot = stack_alloc 4
+    infer_status = call @sa_deno_plugin_infer_collaboration_mode(&body, body_len, &mode_slot)
+    infer_ok = eq infer_status, 0
+    br infer_ok -> L_BODY_MODE_INFER_OK, L_BODY_MODE_FALLBACK_STATUS
+
+L_BODY_MODE_INFER_OK:
+    !infer_ok
+    mode32 = load mode_slot+0 as u32
+    has_mode = ne mode32, 0
+    br has_mode -> L_BODY_MODE_INFER_RETURN, L_BODY_MODE_FALLBACK_MODE
+
+L_BODY_MODE_INFER_RETURN:
+    !has_mode
+    store mode_slot+0, mode32 as u8
+    mode8 = load mode_slot+0 as u8
+    !mode32
+    !infer_status
+    !body
+    !body_len
+    return mode8
+
+L_BODY_MODE_FALLBACK_MODE:
+    !has_mode
+    !mode32
+    !infer_status
+    fallback_mode = call @body_collaboration_mode_fallback(&body, body_len)
+    !body
+    !body_len
+    return fallback_mode
+
+L_BODY_MODE_FALLBACK_STATUS:
+    !infer_ok
+    !infer_status
+    fallback_mode2 = call @body_collaboration_mode_fallback(&body, body_len)
+    !body
+    !body_len
+    return fallback_mode2
+
+@ffi_wrapper body_collaboration_mode_fallback(&body: ptr, body_len: u64) -> u8:
 L_ENTRY:
     mode_code = call @bytes_has(&body, body_len, &BODY_MODE_CODE, BODY_MODE_CODE_LEN)
     kind_code = call @bytes_has(&body, body_len, &BODY_KIND_CODE, BODY_KIND_CODE_LEN)
@@ -10199,7 +10521,7 @@ L_TINT_NOT_FOUND:
     !req
     return 0
 
-@ffi_wrapper send_rpc_goal_obj(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, thread_id: u64, budget: u64, used: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
+@ffi_wrapper send_rpc_goal_obj(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, thread_id: u64, status: u8, budget_null: u8, budget: u64, used: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
 L_ENTRY:
     result = call @rpc_builder_new()
     call @rpc_builder_append(&result, &J_GOAL_RESULT_A, J_GOAL_RESULT_A_LEN)
@@ -10207,8 +10529,10 @@ L_ENTRY:
     call @rpc_builder_append_thread_id_inner(&result, &state_ptr, thread_id)
     call @rpc_builder_append(&result, &J_GOAL_OBJ_B, J_GOAL_OBJ_B_LEN)
     call @rpc_builder_append_json_string(&result, &obj_ptr, obj_len)
-    call @rpc_builder_append(&result, &J_GOAL_OBJ_B2, J_GOAL_OBJ_B2_LEN)
-    call @rpc_builder_append_u64(&result, budget)
+    call @rpc_builder_append(&result, &J_GOAL_OBJ_STATUS_A, J_GOAL_OBJ_STATUS_A_LEN)
+    call @rpc_builder_append_goal_status(&result, status)
+    call @rpc_builder_append(&result, &J_GOAL_OBJ_STATUS_B, J_GOAL_OBJ_STATUS_B_LEN)
+    call @rpc_builder_append_goal_budget(&result, budget_null, budget)
     call @rpc_builder_append(&result, &J_GOAL_OBJ_C, J_GOAL_OBJ_C_LEN)
     call @rpc_builder_append_u64(&result, used)
     call @rpc_builder_append_goal_tail(&result)
@@ -10216,6 +10540,8 @@ L_ENTRY:
     call @send_wrapped_builder_response_with_id(&req, &id_ptr, id_len, ^result)
     !thread_id
     !state_ptr
+    !status
+    !budget_null
     !budget
     !used
     !obj_ptr
@@ -12419,7 +12745,9 @@ L_RPC_TRY_GOAL_SET:
 L_RPC_GOAL_SET:
     !m_gs_ok
     gs_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 0)
-    gs_budget = call @rpc_extract_u64_number_after(&rpc_body_ptr, rpc_body_len, &J_TOKEN_BUDGET_KEY, J_TOKEN_BUDGET_KEY_LEN, 0)
+    gs_goal_status = call @rpc_goal_status_from_body(&rpc_body_ptr, rpc_body_len)
+    gs_budget = call @rpc_extract_u64_number_after(&rpc_body_ptr, rpc_body_len, &J_TOKEN_BUDGET_KEY, J_TOKEN_BUDGET_KEY_LEN, GOAL_BUDGET_NULL_SENTINEL)
+    gs_budget_null = eq gs_budget, GOAL_BUDGET_NULL_SENTINEL
     gs_obj_ptr_slot = stack_alloc 8
     gs_obj_len_slot = stack_alloc 8
     gs_obj_status = call @rpc_extract_string_after(&rpc_body_ptr, rpc_body_len, &J_OBJECTIVE_KEY, J_OBJECTIVE_KEY_LEN, &gs_obj_ptr_slot, &gs_obj_len_slot)
@@ -12431,23 +12759,27 @@ L_RPC_GOAL_SET_WITH_OBJ:
     !gs_has_obj
     gs_obj_ptr = load gs_obj_ptr_slot+0 as ptr
     gs_obj_len = load gs_obj_len_slot+0 as u64
-    gs_status = call @state_goal_set(&state_ptr, gs_thread_id, gs_budget, &gs_obj_ptr, gs_obj_len)
-    !gs_status
-    call @notify_goal_updated(&state_ptr, gs_thread_id, gs_budget, 0, &gs_obj_ptr, gs_obj_len)
-    call @send_rpc_goal_obj(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, gs_thread_id, gs_budget, 0, &gs_obj_ptr, gs_obj_len)
+    gs_set_status = call @state_goal_set(&state_ptr, gs_thread_id, gs_goal_status, gs_budget_null, gs_budget, &gs_obj_ptr, gs_obj_len)
+    !gs_set_status
+    call @notify_goal_updated(&state_ptr, gs_thread_id, gs_goal_status, gs_budget_null, gs_budget, 0, &gs_obj_ptr, gs_obj_len)
+    call @send_rpc_goal_obj(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, gs_thread_id, gs_goal_status, gs_budget_null, gs_budget, 0, &gs_obj_ptr, gs_obj_len)
     !gs_obj_ptr
     !gs_obj_len
     !gs_thread_id
+    !gs_goal_status
+    !gs_budget_null
     !gs_budget
     jmp L_RPC_DONE
 
 L_RPC_GOAL_SET_EMPTY_OBJ:
     !gs_has_obj
-    gs_status2 = call @state_goal_set(&state_ptr, gs_thread_id, gs_budget, &EMPTY_TEXT, 0)
-    !gs_status2
-    call @notify_goal_updated(&state_ptr, gs_thread_id, gs_budget, 0, &EMPTY_TEXT, 0)
-    call @send_rpc_goal_obj(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, gs_thread_id, gs_budget, 0, &EMPTY_TEXT, 0)
+    gs_set_status2 = call @state_goal_set(&state_ptr, gs_thread_id, gs_goal_status, gs_budget_null, gs_budget, &EMPTY_TEXT, 0)
+    !gs_set_status2
+    call @notify_goal_updated(&state_ptr, gs_thread_id, gs_goal_status, gs_budget_null, gs_budget, 0, &EMPTY_TEXT, 0)
+    call @send_rpc_goal_obj(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, gs_thread_id, gs_goal_status, gs_budget_null, gs_budget, 0, &EMPTY_TEXT, 0)
     !gs_thread_id
+    !gs_goal_status
+    !gs_budget_null
     !gs_budget
     jmp L_RPC_DONE
 
@@ -12461,24 +12793,30 @@ L_RPC_TRY_GOAL_GET:
 L_RPC_GOAL_GET:
     !m_gg_ok
     gg_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 0)
+    goal_status_slot = stack_alloc 1
+    budget_null_slot = stack_alloc 1
     budget_slot = stack_alloc 8
     used_slot = stack_alloc 8
     obj_ptr_slot = stack_alloc 8
     obj_len_slot = stack_alloc 8
-    gg_status = call @state_goal_get_full(&state_ptr, gg_thread_id, &budget_slot, &used_slot, &obj_ptr_slot, &obj_len_slot)
+    gg_status = call @state_goal_get_full(&state_ptr, gg_thread_id, &goal_status_slot, &budget_null_slot, &budget_slot, &used_slot, &obj_ptr_slot, &obj_len_slot)
     goal_found = eq gg_status, 0
     !gg_status
     br goal_found -> L_RPC_GOAL_GET_FOUND, L_RPC_GOAL_GET_NONE
 
 L_RPC_GOAL_GET_FOUND:
     !goal_found
+    goal_status = load goal_status_slot+0 as u8
+    budget_null = load budget_null_slot+0 as u8
     budget = load budget_slot+0 as u64
     used = load used_slot+0 as u64
     obj_ptr = load obj_ptr_slot+0 as ptr
     obj_len = load obj_len_slot+0 as u64
-    call @send_rpc_goal_obj(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, gg_thread_id, budget, used, &obj_ptr, obj_len)
+    call @send_rpc_goal_obj(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, gg_thread_id, goal_status, budget_null, budget, used, &obj_ptr, obj_len)
     !obj_ptr
     !obj_len
+    !goal_status
+    !budget_null
     !budget
     !used
     !gg_thread_id
@@ -13243,15 +13581,39 @@ L_RPC_TRY_MCP_RESOURCE_READ:
     m_mcp_res_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_RESOURCE_READ, RPC_M_MCP_RESOURCE_READ_LEN)
     m_mcp_res_ok = sge m_mcp_res_idx, 0
     !m_mcp_res_idx
-    br m_mcp_res_ok -> L_RPC_MCP_RESOURCE_READ, L_RPC_TRY_FUZZY_SESSION_START
+    br m_mcp_res_ok -> L_RPC_MCP_RESOURCE_READ, L_RPC_TRY_MCP_RESOURCE_LIST
 
 L_RPC_MCP_RESOURCE_READ:
     !m_mcp_res_ok
     call @send_rpc_mcp_resource_read(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
     jmp L_RPC_DONE
 
-L_RPC_TRY_FUZZY_SESSION_START:
+L_RPC_TRY_MCP_RESOURCE_LIST:
     !m_mcp_res_ok
+    m_mcp_res_list_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_RESOURCE_LIST, RPC_M_MCP_RESOURCE_LIST_LEN)
+    m_mcp_res_list_ok = sge m_mcp_res_list_idx, 0
+    !m_mcp_res_list_idx
+    br m_mcp_res_list_ok -> L_RPC_MCP_RESOURCE_LIST_UNSUPPORTED, L_RPC_TRY_MCP_RESOURCE_TEMPLATES
+
+L_RPC_MCP_RESOURCE_LIST_UNSUPPORTED:
+    !m_mcp_res_list_ok
+    call @send_error_with_id(&req, 404, &rpc_id_ptr, rpc_id_len, &J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED, J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_RESOURCE_TEMPLATES:
+    !m_mcp_res_list_ok
+    m_mcp_res_templates_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_RESOURCE_TEMPLATES, RPC_M_MCP_RESOURCE_TEMPLATES_LEN)
+    m_mcp_res_templates_ok = sge m_mcp_res_templates_idx, 0
+    !m_mcp_res_templates_idx
+    br m_mcp_res_templates_ok -> L_RPC_MCP_RESOURCE_TEMPLATES_UNSUPPORTED, L_RPC_TRY_FUZZY_SESSION_START
+
+L_RPC_MCP_RESOURCE_TEMPLATES_UNSUPPORTED:
+    !m_mcp_res_templates_ok
+    call @send_error_with_id(&req, 404, &rpc_id_ptr, rpc_id_len, &J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED, J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FUZZY_SESSION_START:
+    !m_mcp_res_templates_ok
     m_mcp_tool_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_TOOL_RUN, RPC_M_MCP_TOOL_RUN_LEN)
     m_mcp_tool_ok = sge m_mcp_tool_idx, 0
     !m_mcp_tool_idx
@@ -13596,7 +13958,7 @@ L_RPC_PROCESS_RESIZE:
 
 L_RPC_UNKNOWN:
     !m_proc_resize_ok
-    call @send_error_with_id(&req, 200, &rpc_id_ptr, rpc_id_len, &J_ERR_NOT_FOUND, J_ERR_NOT_FOUND_LEN)
+    call @send_error_with_id(&req, 404, &rpc_id_ptr, rpc_id_len, &J_ERR_NOT_FOUND, J_ERR_NOT_FOUND_LEN)
     jmp L_RPC_DONE
 
 L_RPC_DONE:
@@ -13962,24 +14324,21 @@ L_CHAT_NON_SSE_DEFAULT:
     !ct_ptr
     !ct_len
     chat_body_len_slot = stack_alloc 8
-    chat_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    chat_reader_slot = stack_alloc 8
-    chat_body_status = call @sa_http_client_resp_body_reader(out_resp, &chat_reader_slot)
-    chat_reader = load chat_reader_slot+0 as ptr
-    chat_read_status = call @sa_http_client_resp_read_chunk(chat_reader, &chat_body_buf, RPC_JSON_BUF_SIZE, &chat_body_len_slot)
+    chat_body_ptr_slot = stack_alloc 8
+    chat_body_status = call @http_response_read_all(out_resp, &chat_body_ptr_slot, &chat_body_len_slot)
+    chat_body_ptr = load chat_body_ptr_slot+0 as ptr
     chat_body_len = load chat_body_len_slot+0 as u64
     chat_resp_slot = stack_alloc 8
     chat_resp_status = call @sa_http_server_resp_new(req, up_status, &chat_resp_slot)
     chat_resp = load chat_resp_slot+0 as ptr
     chat_set_ct = call @sa_http_server_resp_set_content_type(chat_resp, &MIME_JSON, MIME_JSON_LEN)
-    chat_send_back = call @sa_http_server_resp_send(chat_resp, &chat_body_buf, chat_body_len)
-    call @sa_http_client_body_reader_free(^chat_reader)
+    chat_send_back = call @sa_http_server_resp_send(chat_resp, &chat_body_ptr, chat_body_len)
     call @sa_http_server_resp_free(^chat_resp)
     call @sa_http_client_resp_free(^out_resp)
     call @sa_http_client_req_free(^out_req)
     call @sa_http_client_free(^client)
     !chat_body_status
-    !chat_read_status
+    !chat_body_ptr
     !chat_body_len
     !chat_resp_status
     !chat_set_ct
@@ -14005,24 +14364,21 @@ L_CHAT_NON_SSE_HEADER:
     !ct_is_sse
     !ct_idx
     chat_h_body_len_slot = stack_alloc 8
-    chat_h_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    chat_h_reader_slot = stack_alloc 8
-    chat_h_body_status = call @sa_http_client_resp_body_reader(out_resp, &chat_h_reader_slot)
-    chat_h_reader = load chat_h_reader_slot+0 as ptr
-    chat_h_read_status = call @sa_http_client_resp_read_chunk(chat_h_reader, &chat_h_body_buf, RPC_JSON_BUF_SIZE, &chat_h_body_len_slot)
+    chat_h_body_ptr_slot = stack_alloc 8
+    chat_h_body_status = call @http_response_read_all(out_resp, &chat_h_body_ptr_slot, &chat_h_body_len_slot)
+    chat_h_body_ptr = load chat_h_body_ptr_slot+0 as ptr
     chat_h_body_len = load chat_h_body_len_slot+0 as u64
     chat_h_resp_slot = stack_alloc 8
     chat_h_resp_status = call @sa_http_server_resp_new(req, up_status, &chat_h_resp_slot)
     chat_h_resp = load chat_h_resp_slot+0 as ptr
     chat_h_set_ct = call @sa_http_server_resp_set_content_type(chat_h_resp, &ct_ptr, ct_len)
-    chat_h_send_back = call @sa_http_server_resp_send(chat_h_resp, &chat_h_body_buf, chat_h_body_len)
-    call @sa_http_client_body_reader_free(^chat_h_reader)
+    chat_h_send_back = call @sa_http_server_resp_send(chat_h_resp, &chat_h_body_ptr, chat_h_body_len)
     call @sa_http_server_resp_free(^chat_h_resp)
     call @sa_http_client_resp_free(^out_resp)
     call @sa_http_client_req_free(^out_req)
     call @sa_http_client_free(^client)
     !chat_h_body_status
-    !chat_h_read_status
+    !chat_h_body_ptr
     !chat_h_body_len
     !chat_h_resp_status
     !chat_h_set_ct
@@ -14348,11 +14704,9 @@ L_RESP_CHAT_FB_UNSAFE_GEMINI_ORIGINAL:
     r_unsafe_ct_len = load r_unsafe_ct_len_slot+0 as u64
     !r_unsafe_ct_status
     r_unsafe_body_len_slot = stack_alloc 8
-    r_unsafe_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    r_unsafe_reader_slot = stack_alloc 8
-    r_unsafe_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_unsafe_reader_slot)
-    r_unsafe_reader = load r_unsafe_reader_slot+0 as ptr
-    r_unsafe_read_status = call @sa_http_client_resp_read_chunk(r_unsafe_reader, &r_unsafe_body_buf, RPC_JSON_BUF_SIZE, &r_unsafe_body_len_slot)
+    r_unsafe_body_ptr_slot = stack_alloc 8
+    r_unsafe_body_status = call @http_response_read_all(r_out_resp, &r_unsafe_body_ptr_slot, &r_unsafe_body_len_slot)
+    r_unsafe_body_ptr = load r_unsafe_body_ptr_slot+0 as ptr
     r_unsafe_body_len = load r_unsafe_body_len_slot+0 as u64
     r_unsafe_resp_slot = stack_alloc 8
     r_unsafe_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_unsafe_resp_slot)
@@ -14373,8 +14727,7 @@ L_RESP_UNSAFE_ORIG_SET_DEFAULT_CT:
     jmp L_RESP_UNSAFE_ORIG_SEND_BACK
 
 L_RESP_UNSAFE_ORIG_SEND_BACK:
-    r_unsafe_send_back = call @sa_http_server_resp_send(r_unsafe_resp, &r_unsafe_body_buf, r_unsafe_body_len)
-    call @sa_http_client_body_reader_free(^r_unsafe_reader)
+    r_unsafe_send_back = call @sa_http_server_resp_send(r_unsafe_resp, &r_unsafe_body_ptr, r_unsafe_body_len)
     call @sa_http_server_resp_free(^r_unsafe_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
@@ -14382,7 +14735,7 @@ L_RESP_UNSAFE_ORIG_SEND_BACK:
     !r_unsafe_send_back
     !r_unsafe_resp_status
     !r_unsafe_body_status
-    !r_unsafe_read_status
+    !r_unsafe_body_ptr
     !r_unsafe_body_len
     !r_unsafe_ct_ptr
     !r_unsafe_ct_len
@@ -14428,11 +14781,9 @@ L_RESP_CHAT_FB_ORIGINAL:
     r_orig_ct_len = load r_orig_ct_len_slot+0 as u64
     !r_orig_ct_status
     r_orig_body_len_slot = stack_alloc 8
-    r_orig_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    r_orig_reader_slot = stack_alloc 8
-    r_orig_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_orig_reader_slot)
-    r_orig_reader = load r_orig_reader_slot+0 as ptr
-    r_orig_read_status = call @sa_http_client_resp_read_chunk(r_orig_reader, &r_orig_body_buf, RPC_JSON_BUF_SIZE, &r_orig_body_len_slot)
+    r_orig_body_ptr_slot = stack_alloc 8
+    r_orig_body_status = call @http_response_read_all(r_out_resp, &r_orig_body_ptr_slot, &r_orig_body_len_slot)
+    r_orig_body_ptr = load r_orig_body_ptr_slot+0 as ptr
     r_orig_body_len = load r_orig_body_len_slot+0 as u64
     r_orig_resp_slot = stack_alloc 8
     r_orig_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_orig_resp_slot)
@@ -14453,8 +14804,7 @@ L_RESP_ORIG_SET_DEFAULT_CT:
     jmp L_RESP_ORIG_SEND_BACK
 
 L_RESP_ORIG_SEND_BACK:
-    r_orig_send_back = call @sa_http_server_resp_send(r_orig_resp, &r_orig_body_buf, r_orig_body_len)
-    call @sa_http_client_body_reader_free(^r_orig_reader)
+    r_orig_send_back = call @sa_http_server_resp_send(r_orig_resp, &r_orig_body_ptr, r_orig_body_len)
     call @sa_http_server_resp_free(^r_orig_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
@@ -14462,7 +14812,7 @@ L_RESP_ORIG_SEND_BACK:
     !r_orig_send_back
     !r_orig_resp_status
     !r_orig_body_status
-    !r_orig_read_status
+    !r_orig_body_ptr
     !r_orig_body_len
     !r_orig_ct_ptr
     !r_orig_ct_len
@@ -14524,11 +14874,9 @@ L_RESP_CHAT_FB_SEND_PREP:
     r_fb_ct_len = load r_fb_ct_len_slot+0 as u64
     !r_fb_ct_status
     r_fb_body_len_slot = stack_alloc 8
-    r_fb_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    r_fb_reader_slot = stack_alloc 8
-    r_fb_body_status = call @sa_http_client_resp_body_reader(r_fb_resp, &r_fb_reader_slot)
-    r_fb_reader = load r_fb_reader_slot+0 as ptr
-    r_fb_read_status = call @sa_http_client_resp_read_chunk(r_fb_reader, &r_fb_body_buf, RPC_JSON_BUF_SIZE, &r_fb_body_len_slot)
+    r_fb_body_ptr_slot = stack_alloc 8
+    r_fb_body_status = call @http_response_read_all(r_fb_resp, &r_fb_body_ptr_slot, &r_fb_body_len_slot)
+    r_fb_body_ptr = load r_fb_body_ptr_slot+0 as ptr
     r_fb_body_len = load r_fb_body_len_slot+0 as u64
     r_fb_out_slot = stack_alloc 8
     r_fb_out_status = call @sa_http_server_resp_new(req, r_fb_status, &r_fb_out_slot)
@@ -14563,11 +14911,10 @@ L_RESP_CHAT_FB_SEND_SSE_BACK:
     r_fb_ctx_len_slot = stack_alloc 8
     r_fb_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_fb_ctx_len_slot)
     r_fb_ctx_len = load r_fb_ctx_len_slot+0 as u64
-    r_fb_sse_body = call @chat_fallback_sse_to_responses_body(&r_fb_body_buf, r_fb_body_len, &r_fb_ctx_body, r_fb_ctx_len, &r_fb_sse_len_slot)
+    r_fb_sse_body = call @chat_fallback_sse_to_responses_body(&r_fb_body_ptr, r_fb_body_len, &r_fb_ctx_body, r_fb_ctx_len, &r_fb_sse_len_slot)
     r_fb_sse_len = load r_fb_sse_len_slot+0 as u64
     r_fb_sse_send_back = call @sa_http_server_resp_send(r_fb_out, &r_fb_sse_body, r_fb_sse_len)
     call @sa_http_server_resp_free(^r_fb_out)
-    call @sa_http_client_body_reader_free(^r_fb_reader)
     call @sa_http_client_resp_free(^r_fb_resp)
     call @sa_http_client_req_free(^r_fb_req)
     call @sa_http_client_free(^r_fb_client)
@@ -14578,7 +14925,7 @@ L_RESP_CHAT_FB_SEND_SSE_BACK:
     !r_fb_ctx_len
     !r_fb_out_status
     !r_fb_body_status
-    !r_fb_read_status
+    !r_fb_body_ptr
     !r_fb_body_len
     !r_fb_status
     !r_fb_send_status
@@ -14609,18 +14956,17 @@ L_RESP_CHAT_FB_SEND_BACK:
     r_fb_json_ctx_len_slot = stack_alloc 8
     r_fb_json_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_fb_json_ctx_len_slot)
     r_fb_json_ctx_len = load r_fb_json_ctx_len_slot+0 as u64
-    r_fb_json_norm_body = call @normalize_chat_fallback_json_body(&r_fb_body_buf, r_fb_body_len, &r_fb_json_ctx_body, r_fb_json_ctx_len, &r_fb_json_norm_len_slot)
+    r_fb_json_norm_body = call @normalize_chat_fallback_json_body(&r_fb_body_ptr, r_fb_body_len, &r_fb_json_ctx_body, r_fb_json_ctx_len, &r_fb_json_norm_len_slot)
     r_fb_json_norm_len = load r_fb_json_norm_len_slot+0 as u64
     r_fb_send_back = call @sa_http_server_resp_send(r_fb_out, &r_fb_json_norm_body, r_fb_json_norm_len)
     call @sa_http_server_resp_free(^r_fb_out)
-    call @sa_http_client_body_reader_free(^r_fb_reader)
     call @sa_http_client_resp_free(^r_fb_resp)
     call @sa_http_client_req_free(^r_fb_req)
     call @sa_http_client_free(^r_fb_client)
     !r_fb_send_back
     !r_fb_out_status
     !r_fb_body_status
-    !r_fb_read_status
+    !r_fb_body_ptr
     !r_fb_body_len
     !r_fb_json_norm_body
     !r_fb_json_norm_len
@@ -14673,28 +15019,25 @@ L_RESP_NON_SSE_DEFAULT:
     !r_ct_has_len
     !r_ct_ptr
     !r_ct_len
-    r_plain_reader_slot = stack_alloc 8
     r_plain_body_len_slot = stack_alloc 8
-    r_plain_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    r_plain_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_plain_reader_slot)
-    r_plain_reader = load r_plain_reader_slot+0 as ptr
-    r_plain_read_status = call @sa_http_client_resp_read_chunk(r_plain_reader, &r_plain_body_buf, RPC_JSON_BUF_SIZE, &r_plain_body_len_slot)
+    r_plain_body_ptr_slot = stack_alloc 8
+    r_plain_body_status = call @http_response_read_all(r_out_resp, &r_plain_body_ptr_slot, &r_plain_body_len_slot)
+    r_plain_body_ptr = load r_plain_body_ptr_slot+0 as ptr
     r_plain_body_len = load r_plain_body_len_slot+0 as u64
     r_plain_norm_len_slot = stack_alloc 8
-    r_plain_norm_body = call @normalize_responses_client_json_body(&r_plain_body_buf, r_plain_body_len, &r_plain_norm_len_slot)
+    r_plain_norm_body = call @normalize_responses_client_json_body(&r_plain_body_ptr, r_plain_body_len, &r_plain_norm_len_slot)
     r_plain_norm_len = load r_plain_norm_len_slot+0 as u64
     r_plain_resp_slot = stack_alloc 8
     r_plain_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_plain_resp_slot)
     r_plain_resp = load r_plain_resp_slot+0 as ptr
     r_plain_set_ct = call @sa_http_server_resp_set_content_type(r_plain_resp, &MIME_JSON, MIME_JSON_LEN)
     r_plain_send_back = call @sa_http_server_resp_send(r_plain_resp, &r_plain_norm_body, r_plain_norm_len)
-    call @sa_http_client_body_reader_free(^r_plain_reader)
     call @sa_http_server_resp_free(^r_plain_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
     call @sa_http_client_free(^r_client)
     !r_plain_body_status
-    !r_plain_read_status
+    !r_plain_body_ptr
     !r_plain_body_len
     !r_plain_norm_body
     !r_plain_norm_len
@@ -14721,28 +15064,25 @@ L_RESP_NON_SSE_DEFAULT:
 L_RESP_NON_SSE_HEADER:
     !r_ct_is_sse
     !r_ct_idx
-    r_h_reader_slot = stack_alloc 8
     r_h_body_len_slot = stack_alloc 8
-    r_h_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    r_h_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_h_reader_slot)
-    r_h_reader = load r_h_reader_slot+0 as ptr
-    r_h_read_status = call @sa_http_client_resp_read_chunk(r_h_reader, &r_h_body_buf, RPC_JSON_BUF_SIZE, &r_h_body_len_slot)
+    r_h_body_ptr_slot = stack_alloc 8
+    r_h_body_status = call @http_response_read_all(r_out_resp, &r_h_body_ptr_slot, &r_h_body_len_slot)
+    r_h_body_ptr = load r_h_body_ptr_slot+0 as ptr
     r_h_body_len = load r_h_body_len_slot+0 as u64
     r_h_norm_len_slot = stack_alloc 8
-    r_h_norm_body = call @normalize_responses_client_json_body(&r_h_body_buf, r_h_body_len, &r_h_norm_len_slot)
+    r_h_norm_body = call @normalize_responses_client_json_body(&r_h_body_ptr, r_h_body_len, &r_h_norm_len_slot)
     r_h_norm_len = load r_h_norm_len_slot+0 as u64
     r_h_resp_slot = stack_alloc 8
     r_h_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_h_resp_slot)
     r_h_resp = load r_h_resp_slot+0 as ptr
     r_h_set_ct = call @sa_http_server_resp_set_content_type(r_h_resp, &r_ct_ptr, r_ct_len)
     r_h_send_back = call @sa_http_server_resp_send(r_h_resp, &r_h_norm_body, r_h_norm_len)
-    call @sa_http_client_body_reader_free(^r_h_reader)
     call @sa_http_server_resp_free(^r_h_resp)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
     call @sa_http_client_free(^r_client)
     !r_h_body_status
-    !r_h_read_status
+    !r_h_body_ptr
     !r_h_body_len
     !r_h_norm_body
     !r_h_norm_len
@@ -14779,17 +15119,15 @@ L_RESP_STREAM_START:
     !r_up_status
 
     r_sse_body_len_slot = stack_alloc 8
-    r_sse_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    r_sse_reader_slot = stack_alloc 8
-    r_sse_body_status = call @sa_http_client_resp_body_reader(r_out_resp, &r_sse_reader_slot)
-    r_sse_reader = load r_sse_reader_slot+0 as ptr
-    r_sse_read_status = call @sa_http_client_resp_read_chunk(r_sse_reader, &r_sse_body_buf, RPC_JSON_BUF_SIZE, &r_sse_body_len_slot)
+    r_sse_body_ptr_slot = stack_alloc 8
+    r_sse_body_status = call @http_response_read_all(r_out_resp, &r_sse_body_ptr_slot, &r_sse_body_len_slot)
+    r_sse_body_ptr = load r_sse_body_ptr_slot+0 as ptr
     r_sse_body_len = load r_sse_body_len_slot+0 as u64
     r_norm_len_slot = stack_alloc 8
     r_ctx_len_slot = stack_alloc 8
     r_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_ctx_len_slot)
     r_ctx_len = load r_ctx_len_slot+0 as u64
-    r_norm_body = call @normalize_responses_client_sse_body(&r_sse_body_buf, r_sse_body_len, &r_ctx_body, r_ctx_len, &r_norm_len_slot)
+    r_norm_body = call @normalize_responses_client_sse_body(&r_sse_body_ptr, r_sse_body_len, &r_ctx_body, r_ctx_len, &r_norm_len_slot)
     r_norm_len = load r_norm_len_slot+0 as u64
     r_write_status = call @sa_http_server_resp_stream_write(r_stream, &r_norm_body, r_norm_len)
     r_flush_status = call @sa_http_server_resp_stream_flush(r_stream)
@@ -14797,7 +15135,6 @@ L_RESP_STREAM_START:
     !r_flush_status
     r_end_status = call @sa_http_server_resp_stream_end(r_stream)
     !r_end_status
-    call @sa_http_client_body_reader_free(^r_sse_reader)
     call @sa_http_client_resp_free(^r_out_resp)
     call @sa_http_client_req_free(^r_out_req)
     call @sa_http_client_free(^r_client)
@@ -14807,7 +15144,7 @@ L_RESP_STREAM_START:
     !r_ctx_body
     !r_ctx_len
     !r_sse_body_status
-    !r_sse_read_status
+    !r_sse_body_ptr
     !r_sse_body_len
     !r_proxy_body_ptr
     !r_proxy_body_len
@@ -14878,11 +15215,9 @@ L_PROXY_MODELS:
     m_ct_len = load m_ct_len_slot+0 as u64
     !m_ct_status
     m_body_len_slot = stack_alloc 8
-    m_body_buf = stack_alloc RPC_JSON_BUF_SIZE
-    m_reader_slot = stack_alloc 8
-    m_body_status = call @sa_http_client_resp_body_reader(m_resp, &m_reader_slot)
-    m_reader = load m_reader_slot+0 as ptr
-    m_read_status = call @sa_http_client_resp_read_chunk(m_reader, &m_body_buf, RPC_JSON_BUF_SIZE, &m_body_len_slot)
+    m_body_ptr_slot = stack_alloc 8
+    m_body_status = call @http_response_read_all(m_resp, &m_body_ptr_slot, &m_body_len_slot)
+    m_body_ptr = load m_body_ptr_slot+0 as ptr
     m_body_len = load m_body_len_slot+0 as u64
 
     m_out_resp_slot = stack_alloc 8
@@ -14904,16 +15239,15 @@ L_MODELS_SEND_DEFAULT_CT:
     jmp L_MODELS_SEND_BODY
 
 L_MODELS_SEND_BODY:
-    m_send_back = call @sa_http_server_resp_send(m_out_resp, &m_body_buf, m_body_len)
+    m_send_back = call @sa_http_server_resp_send(m_out_resp, &m_body_ptr, m_body_len)
     !m_send_back
     !m_out_status
     !m_body_status
-    !m_read_status
+    !m_body_ptr
     !m_body_len
     !m_ct_ptr
     !m_ct_len
 
-    call @sa_http_client_body_reader_free(^m_reader)
     call @sa_http_server_resp_free(^m_out_resp)
     call @sa_http_client_resp_free(^m_resp)
     call @sa_http_client_req_free(^m_req)

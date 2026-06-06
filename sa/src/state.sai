@@ -45,7 +45,8 @@
 #def GOAL_SLOT_SIZE  = 176
 #def GOAL_THR_ID     = +0     // u64 thread number
 #def GOAL_ACTIVE     = +8     // u8: 1=active, 0=free
-#def GOAL_STATUS     = +9     // u8: 0=active, 1=complete, 2=budgetLimited
+#def GOAL_STATUS     = +9     // u8: 0=active, 1=paused, 2=blocked, 3=usageLimited, 4=budgetLimited, 5=complete
+#def GOAL_BUDGET_NULL = +10   // u8: 1=tokenBudget null/missing, 0=number
 #def GOAL_BUDGET     = +16    // u64 token budget (0 = unlimited)
 #def GOAL_USED       = +24    // u64 tokens consumed
 #def GOAL_OBJ_LEN    = +32    // u64 objective length
@@ -126,9 +127,9 @@
 @extern state_turn_interrupt(&state: ptr, thread_id: u64, turn_id: u64) -> u32
 @extern state_turn_list(&state: ptr, thread_id: u64, &out_ids: ptr, &out_count: ptr) -> u32
 @extern state_turn_rollback(&state: ptr, thread_id: u64, remove_count: u64) -> u32
-@extern state_goal_set(&state: ptr, thread_id: u64, budget: u64, &obj_ptr: ptr, obj_len: u64) -> u32
+@extern state_goal_set(&state: ptr, thread_id: u64, status: u8, budget_null: u8, budget: u64, &obj_ptr: ptr, obj_len: u64) -> u32
 @extern state_goal_get(&state: ptr, thread_id: u64, &out_budget: ptr, &out_used: ptr) -> i32
-@extern state_goal_get_full(&state: ptr, thread_id: u64, &out_budget: ptr, &out_used: ptr, &out_obj_ptr: ptr, &out_obj_len: ptr) -> i32
+@extern state_goal_get_full(&state: ptr, thread_id: u64, &out_status: ptr, &out_budget_null: ptr, &out_budget: ptr, &out_used: ptr, &out_obj_ptr: ptr, &out_obj_len: ptr) -> i32
 @extern state_goal_clear(&state: ptr, thread_id: u64) -> u32
 @extern state_goal_add_tokens(&state: ptr, thread_id: u64, tokens: u64) -> u32
 @extern state_process_put(&state: ptr, &handle_ptr: ptr, handle_len: u64) -> u32

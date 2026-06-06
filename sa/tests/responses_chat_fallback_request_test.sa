@@ -30,6 +30,13 @@
 @const NEEDLE_LEAK_TEXT = utf8:"leak text"
 @const NEEDLE_STORE_KEY = utf8:"\"store\""
 @const NEEDLE_INPUT_KEY = utf8:"\"input\""
+@const RESP_HISTORY_MCP_BODY = utf8:"{\"model\":\"models/mimo-v2.5-pro\",\"stream\":false,\"input\":[{\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"read_mcp_resource\",\"arguments\":\"{\\\"server\\\":\\\"Code Index\\\",\\\"uri\\\":\\\"file:///tmp/one\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call-2\",\"name\":\"read_mcp_resource\",\"arguments\":\"{\\\"server\\\":\\\"mcp__mcp_code_index___\\\",\\\"uri\\\":\\\"file:///tmp/two\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call-3\",\"name\":\"read_mcp_resource\",\"arguments\":\"{\\\"server\\\":\\\"Custom Tool\\\",\\\"uri\\\":\\\"file:///tmp/three\\\"}\"}]}"
+@const NEEDLE_HIST_TOOL_NAME = utf8:"\"name\":\"read_mcp_resource\""
+@const NEEDLE_HIST_CODE_SERVER = utf8:"mcp__code_index__"
+@const NEEDLE_HIST_CUSTOM_SERVER = utf8:"mcp__custom_tool__"
+@const NEEDLE_HIST_RAW_CODE = utf8:"Code Index"
+@const NEEDLE_HIST_RAW_DOUBLE = utf8:"mcp__mcp_code_index___"
+@const NEEDLE_HIST_RAW_CUSTOM = utf8:"Custom Tool"
 
 #def RESP_ARRAY_BODY_LEN = 558
 #def DEFAULT_MODEL_LEN = 14
@@ -59,6 +66,13 @@
 #def NEEDLE_LEAK_TEXT_LEN = 9
 #def NEEDLE_STORE_KEY_LEN = 7
 #def NEEDLE_INPUT_KEY_LEN = 7
+#def RESP_HISTORY_MCP_BODY_LEN = 495
+#def NEEDLE_HIST_TOOL_NAME_LEN = 26
+#def NEEDLE_HIST_CODE_SERVER_LEN = 17
+#def NEEDLE_HIST_CUSTOM_SERVER_LEN = 18
+#def NEEDLE_HIST_RAW_CODE_LEN = 10
+#def NEEDLE_HIST_RAW_DOUBLE_LEN = 22
+#def NEEDLE_HIST_RAW_CUSTOM_LEN = 11
 
 @assert_contract(ok: u8, code: i32):
 L_ENTRY:
@@ -302,6 +316,70 @@ L_ENTRY:
     !has_msg_added
     !reason_done_idx
     !has_reason_done
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "responses chat fallback normalizes MCP server arguments in tool history"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_chat_fallback_request(&RESP_HISTORY_MCP_BODY, RESP_HISTORY_MCP_BODY_LEN, &DEFAULT_MODEL, DEFAULT_MODEL_LEN, 0, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 430)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 431)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 432)
+
+    tool_idx = call @sa_bytes_find(&data, len, &NEEDLE_HIST_TOOL_NAME, NEEDLE_HIST_TOOL_NAME_LEN)
+    has_tool = sge tool_idx, 0
+    call @assert_contract(has_tool, 433)
+
+    code_idx = call @sa_bytes_find(&data, len, &NEEDLE_HIST_CODE_SERVER, NEEDLE_HIST_CODE_SERVER_LEN)
+    has_code = sge code_idx, 0
+    call @assert_contract(has_code, 434)
+
+    custom_idx = call @sa_bytes_find(&data, len, &NEEDLE_HIST_CUSTOM_SERVER, NEEDLE_HIST_CUSTOM_SERVER_LEN)
+    has_custom = sge custom_idx, 0
+    call @assert_contract(has_custom, 435)
+
+    raw_code_idx = call @sa_bytes_find(&data, len, &NEEDLE_HIST_RAW_CODE, NEEDLE_HIST_RAW_CODE_LEN)
+    no_raw_code = slt raw_code_idx, 0
+    call @assert_contract(no_raw_code, 436)
+
+    raw_double_idx = call @sa_bytes_find(&data, len, &NEEDLE_HIST_RAW_DOUBLE, NEEDLE_HIST_RAW_DOUBLE_LEN)
+    no_raw_double = slt raw_double_idx, 0
+    call @assert_contract(no_raw_double, 437)
+
+    raw_custom_idx = call @sa_bytes_find(&data, len, &NEEDLE_HIST_RAW_CUSTOM, NEEDLE_HIST_RAW_CUSTOM_LEN)
+    no_raw_custom = slt raw_custom_idx, 0
+    call @assert_contract(no_raw_custom, 438)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 439)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !raw_custom_idx
+    !no_raw_custom
+    !raw_double_idx
+    !no_raw_double
+    !raw_code_idx
+    !no_raw_code
+    !custom_idx
+    !has_custom
+    !code_idx
+    !has_code
+    !tool_idx
+    !has_tool
     !len
     !has_len
     !data
