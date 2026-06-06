@@ -220,17 +220,25 @@ L_CPY_DONE:
     !src
     return len
 
+@ffi_wrapper bytes_to_owned(&src: ptr, src_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out_ptr = alloc src_len
+    copied = call @sa_bytes_copy(&out_ptr, &src, src_len)
+    store out_len+0, src_len as u64
+    !copied
+    !src
+    !src_len
+    !out_len
+    return out_ptr
+
 @ffi_wrapper build_concat_owned(&left_ptr: ptr, left_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
     joined_str = call @sa_string_concat(left_ptr, left_len, right_ptr, right_len)
     joined_ptr = call @sa_fmt_buffer_data(joined_str)
     joined_len = call @sa_fmt_buffer_len(joined_str)
-    out_ptr = alloc joined_len
-    out_copy = call @sa_bytes_copy(&out_ptr, &joined_ptr, joined_len)
+    out_ptr = call @bytes_to_owned(&joined_ptr, joined_len, &out_len)
     joined_free = call @sa_fmt_buffer_free(^joined_str)
-    store out_len+0, joined_len as u64
     !joined_free
-    !out_copy
     !joined_len
     !joined_ptr
     !left_ptr
@@ -303,17 +311,6 @@ L_ENTRY:
     !d_len
     !e_ptr
     !e_len
-    !out_len
-    return out_ptr
-
-@ffi_wrapper bytes_to_owned(&src: ptr, src_len: u64, &out_len: ptr) -> ^ptr:
-L_ENTRY:
-    out_ptr = alloc src_len
-    copied = call @sa_bytes_copy(&out_ptr, &src, src_len)
-    store out_len+0, src_len as u64
-    !copied
-    !src
-    !src_len
     !out_len
     return out_ptr
 
