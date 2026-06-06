@@ -1216,17 +1216,8 @@
 @const J_EVT_ELICIT_REQ_B = utf8:"\",\"requestedSchema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\",\"properties\":{},\"required\":[]},\"instructions\":\"Provide a value to continue.\"}}"
 @const J_EVT_RT_STARTED_B1 = utf8:",\"version\":\"v2\",\"realtimeSessionId\":\""
 @const J_EVT_RT_STARTED_B2 = utf8:"\"}"
-@const J_EVT_RT_AUDIO_A = utf8:",\"item\":{\"type\":\"audio\",\"audio\":"
-@const J_EVT_RT_AUDIO_B2 = utf8:"}}"
-@const J_EVT_RT_TEXT_A = utf8:",\"item\":{\"type\":\"text\",\"text\":"
-@const J_EVT_RT_TEXT_B2 = utf8:"}}"
-@const J_EVT_RT_DELTA_A = utf8:",\"role\":"
 @const J_EVT_RT_DELTA_B2 = utf8:",\"delta\":"
-@const J_EVT_RT_DELTA_C = utf8:"}"
 @const J_EVT_RT_DONE_B2 = utf8:",\"text\":"
-@const J_EVT_RT_DONE_C = utf8:"}"
-@const J_EVT_RT_AUDIO_DELTA_A = utf8:",\"audio\":"
-@const J_EVT_RT_AUDIO_DELTA_C = utf8:"}"
 @const J_EVT_FUZZY_A = utf8:"{\"sessionId\":"
 @const J_EVT_FUZZY_B = utf8:",\"query\":"
 @const J_EVT_FUZZY_C = utf8:",\"files\":[]}"
@@ -1566,17 +1557,8 @@
 #def J_EVT_ELICIT_REQ_B_LEN = 172
 #def J_EVT_RT_STARTED_B1_LEN = 37
 #def J_EVT_RT_STARTED_B2_LEN = 2
-#def J_EVT_RT_AUDIO_A_LEN = 32
-#def J_EVT_RT_AUDIO_B2_LEN = 2
-#def J_EVT_RT_TEXT_A_LEN = 30
-#def J_EVT_RT_TEXT_B2_LEN = 2
-#def J_EVT_RT_DELTA_A_LEN = 8
 #def J_EVT_RT_DELTA_B2_LEN = 9
-#def J_EVT_RT_DELTA_C_LEN = 1
 #def J_EVT_RT_DONE_B2_LEN = 8
-#def J_EVT_RT_DONE_C_LEN = 1
-#def J_EVT_RT_AUDIO_DELTA_A_LEN = 9
-#def J_EVT_RT_AUDIO_DELTA_C_LEN = 1
 #def J_EVT_FUZZY_A_LEN = 13
 #def J_EVT_FUZZY_B_LEN = 9
 #def J_EVT_FUZZY_C_LEN = 12
@@ -4757,7 +4739,7 @@ L_ENTRY:
     !body_len
     return 0
 
-@ffi_wrapper notify_rt_item_value(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64, &prefix: ptr, prefix_len: u64, &key: ptr, key_len: u64, &suffix: ptr, suffix_len: u64) -> u32:
+@ffi_wrapper notify_rt_item_value(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64, &key: ptr, key_len: u64) -> u32:
 L_ENTRY:
     audio_delta_match = call @sa_bytes_eq(&event_ptr, event_len, &EV_RT_AUDIO_DELTA, EV_RT_AUDIO_DELTA_LEN)
     is_audio_delta = eq audio_delta_match, 1
@@ -4784,12 +4766,8 @@ L_NOTIFY_RT_AUDIO_DELTA:
     !event_len
     !body
     !body_len
-    !prefix
-    !prefix_len
     !key
     !key_len
-    !suffix
-    !suffix_len
     return 0
 
 L_NOTIFY_RT_ITEM:
@@ -4827,12 +4805,8 @@ L_NOTIFY_RT_ITEM_AUDIO:
     !event_len
     !body
     !body_len
-    !prefix
-    !prefix_len
     !key
     !key_len
-    !suffix
-    !suffix_len
     return 0
 
 L_NOTIFY_RT_ITEM_TEXT:
@@ -4856,15 +4830,11 @@ L_NOTIFY_RT_ITEM_TEXT:
     !event_len
     !body
     !body_len
-    !prefix
-    !prefix_len
     !key
     !key_len
-    !suffix
-    !suffix_len
     return 0
 
-@ffi_wrapper notify_rt_role_value(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64, &value_key: ptr, value_key_len: u64, &mid: ptr, mid_len: u64, &suffix: ptr, suffix_len: u64) -> u32:
+@ffi_wrapper notify_rt_role_value(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64, &value_key: ptr, value_key_len: u64, &mid: ptr, mid_len: u64) -> u32:
 L_ENTRY:
     delta_match = call @sa_bytes_eq(&mid, mid_len, &J_EVT_RT_DELTA_B2, J_EVT_RT_DELTA_B2_LEN)
     is_delta = eq delta_match, 1
@@ -4897,8 +4867,6 @@ L_NOTIFY_RT_ROLE_DELTA:
     !value_key_len
     !mid
     !mid_len
-    !suffix
-    !suffix_len
     return 0
 
 L_NOTIFY_RT_ROLE_TEXT:
@@ -4921,8 +4889,6 @@ L_NOTIFY_RT_ROLE_TEXT:
     !value_key_len
     !mid
     !mid_len
-    !suffix
-    !suffix_len
     return 0
 
 @ffi_wrapper notify_fuzzy_events(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
@@ -17348,8 +17314,8 @@ L_RPC_TRY_REALTIME_APPEND_AUDIO:
 
 L_RPC_REALTIME_APPEND_AUDIO:
     !m_rt_audio_ok
-    call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_RT_AUDIO_A, J_EVT_RT_AUDIO_A_LEN, &J_AUDIO_KEY, J_AUDIO_KEY_LEN, &J_EVT_RT_AUDIO_B2, J_EVT_RT_AUDIO_B2_LEN)
-    call @notify_rt_item_value(&state_ptr, &EV_RT_AUDIO_DELTA, EV_RT_AUDIO_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_RT_AUDIO_DELTA_A, J_EVT_RT_AUDIO_DELTA_A_LEN, &J_AUDIO_KEY, J_AUDIO_KEY_LEN, &J_EVT_RT_AUDIO_DELTA_C, J_EVT_RT_AUDIO_DELTA_C_LEN)
+    call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_AUDIO_KEY, J_AUDIO_KEY_LEN)
+    call @notify_rt_item_value(&state_ptr, &EV_RT_AUDIO_DELTA, EV_RT_AUDIO_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_AUDIO_KEY, J_AUDIO_KEY_LEN)
     call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 1)
     jmp L_RPC_DONE
 
@@ -17362,9 +17328,9 @@ L_RPC_TRY_REALTIME_APPEND_TEXT:
 
 L_RPC_REALTIME_APPEND_TEXT:
     !m_rt_text_ok
-    call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_EVT_RT_TEXT_A, J_EVT_RT_TEXT_A_LEN, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_TEXT_B2, J_EVT_RT_TEXT_B2_LEN)
-    call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DELTA, EV_RT_TRANSCRIPT_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DELTA_B2, J_EVT_RT_DELTA_B2_LEN, &J_EVT_RT_DELTA_C, J_EVT_RT_DELTA_C_LEN)
-    call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DONE, EV_RT_TRANSCRIPT_DONE_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DONE_B2, J_EVT_RT_DONE_B2_LEN, &J_EVT_RT_DONE_C, J_EVT_RT_DONE_C_LEN)
+    call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN)
+    call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DELTA, EV_RT_TRANSCRIPT_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DELTA_B2, J_EVT_RT_DELTA_B2_LEN)
+    call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DONE, EV_RT_TRANSCRIPT_DONE_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DONE_B2, J_EVT_RT_DONE_B2_LEN)
     call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 2)
     jmp L_RPC_DONE
 
