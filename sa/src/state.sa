@@ -3,6 +3,7 @@
 @import "sa_std/io/print.sai"
 @import "sa_std/encoding/json.sai"
 @import "sa_std/encoding/json.sal"
+@import "sa_std/time.sai"
 @import "strings.sa"
 
 @const LOG_STATE_INIT = utf8:"[state] initialized\n"
@@ -135,6 +136,8 @@ L_TCR_FULL:
 
 L_TCR_SLOT:
     !at_max
+    now_i = call @sa_time_unix_s()
+    now_u = bitcast now_i as u64
     slot_off = mul count, THR_SLOT_SIZE
     slot_abs = add slot_off, ST_THREADS
     slot = ptr_add state, slot_abs
@@ -151,7 +154,7 @@ L_TCR_SLOT:
     dir_copied = call @sa_bytes_copy(&dir_owned, &dir_ptr, dir_len)
     store slot+THR_DIR_PTR, dir_owned as ptr
     store slot+THR_DIR_LEN, dir_copied as u64
-    store slot+THR_CREATED, 1748300000 as u64
+    store slot+THR_CREATED, now_u as u64
     store slot+THR_ELICITATION, 0 as u64
     store slot+THR_PREVIEW_LEN, 0 as u64
     store slot+THR_NAME_LEN, 0 as u64
@@ -816,6 +819,8 @@ L_TC_FULL:
 L_TC_SLOT:
     !at_max
     id = call @state_next_id(&state)
+    now_i2 = call @sa_time_unix_s()
+    now_u2 = bitcast now_i2 as u64
     slot_off = mul count, TURN_SLOT_SIZE
     slot_abs = add slot_off, ST_TURNS
     slot = ptr_add state, slot_abs
@@ -825,7 +830,10 @@ L_TC_SLOT:
     store slot+TURN_ACTIVE, 1 as u8
     store slot+TURN_STATUS, 1 as u8
     store slot+TURN_MODE, 0 as u8
-    store slot+TURN_CREATED, 1748300000 as u64
+    store slot+TURN_CREATED, now_u2 as u64
+    store slot+TURN_UPDATED, now_u2 as u64
+    store slot+TURN_COMPLETED, 0 as u64
+    store slot+TURN_MODE_LEN, 0 as u64
     store slot+TURN_ITEMS_LEN, 0 as u64
     old_count = load state+ST_TURN_COUNT as u64
     new_count = add old_count, 1
@@ -923,6 +931,7 @@ L_ENTRY:
 L_TMODE_SET:
     !missing
     store slot+TURN_MODE, mode as u8
+    store slot+TURN_MODE_LEN, 0 as u64
     !slot
     !mode
     !thread_id
@@ -937,6 +946,60 @@ L_TMODE_NOT_FOUND:
     !thread_id
     !turn_id
     !state
+    return 1
+
+@ffi_wrapper state_turn_set_mode_text(&state: ptr, thread_id: u64, turn_id: u64, mode: u8, &mode_ptr: ptr, mode_len: u64) -> u32:
+L_ENTRY:
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    missing = eq slot, 0
+    br missing -> L_TMODE_TEXT_NOT_FOUND, L_TMODE_TEXT_SET
+
+L_TMODE_TEXT_SET:
+    !missing
+    store slot+TURN_MODE, mode as u8
+    copy_len = call @state_clamp_len(mode_len, TURN_MODE_CAP)
+    has_text = ugt copy_len, 0
+    br has_text -> L_TMODE_TEXT_COPY, L_TMODE_TEXT_EMPTY
+
+L_TMODE_TEXT_COPY:
+    !has_text
+    mode_dst = ptr_add slot, TURN_MODE_TEXT
+    copied = call @sa_bytes_copy(&mode_dst, &mode_ptr, copy_len)
+    store slot+TURN_MODE_LEN, copied as u64
+    !copied
+    !mode_dst
+    !copy_len
+    !slot
+    !mode
+    !thread_id
+    !turn_id
+    !state
+    !mode_ptr
+    !mode_len
+    return 0
+
+L_TMODE_TEXT_EMPTY:
+    !has_text
+    !copy_len
+    store slot+TURN_MODE_LEN, 0 as u64
+    !slot
+    !mode
+    !thread_id
+    !turn_id
+    !state
+    !mode_ptr
+    !mode_len
+    return 0
+
+L_TMODE_TEXT_NOT_FOUND:
+    !missing
+    !slot
+    !mode
+    !thread_id
+    !turn_id
+    !state
+    !mode_ptr
+    !mode_len
     return 1
 
 @ffi_wrapper state_turn_set_items(&state: ptr, thread_id: u64, turn_id: u64, &items_ptr: ptr, items_len: u64) -> u32:
@@ -986,6 +1049,11 @@ L_TAI_SLOT:
 
 L_TAI_NO_NEW:
     !new_has_payload
+    now_empty_i = call @sa_time_unix_s()
+    now_empty_u = bitcast now_empty_i as u64
+    store slot+TURN_UPDATED, now_empty_u as u64
+    !now_empty_u
+    !now_empty_i
     !existing_len
     !state
     !thread_id
@@ -1008,6 +1076,11 @@ L_TAI_SET:
     !existing_has_payload
     !existing_len
     set_status = call @state_turn_set_items(&state, thread_id, turn_id, &items_ptr, items_len)
+    now_set_i = call @sa_time_unix_s()
+    now_set_u = bitcast now_set_i as u64
+    store slot+TURN_UPDATED, now_set_u as u64
+    !now_set_u
+    !now_set_i
     !state
     !thread_id
     !turn_id
@@ -1043,6 +1116,8 @@ L_TAI_TRUNCATE:
 
 L_TAI_COPY:
     !overflow
+    now_append_i = call @sa_time_unix_s()
+    now_append_u = bitcast now_append_i as u64
     items_dst = ptr_add slot, TURN_ITEMS
     comma_dst = ptr_add items_dst, prefix_len
     store comma_dst+0, 44 as u8
@@ -1054,6 +1129,9 @@ L_TAI_COPY:
     store close_dst+0, 93 as u8
     final_len = add close_pos, 1
     store slot+TURN_ITEMS_LEN, final_len as u64
+    store slot+TURN_UPDATED, now_append_u as u64
+    !now_append_u
+    !now_append_i
     !final_len
     !close_dst
     !close_pos
@@ -1094,7 +1172,13 @@ L_ENTRY:
 
 L_TINT_SLOT:
     !missing
+    now_int_i = call @sa_time_unix_s()
+    now_int_u = bitcast now_int_i as u64
     store slot+TURN_STATUS, 2 as u8
+    store slot+TURN_UPDATED, now_int_u as u64
+    store slot+TURN_COMPLETED, now_int_u as u64
+    !now_int_u
+    !now_int_i
     !slot
     !thread_id
     !turn_id
@@ -1341,7 +1425,7 @@ L_TRB_DONE:
     !state
     return 0
 
-@ffi_wrapper state_goal_set(&state: ptr, thread_id: u64, status: u8, budget_null: u8, budget: u64, &obj_ptr: ptr, obj_len: u64) -> u32:
+@ffi_wrapper state_goal_set(&state: ptr, thread_id: u64, &key_ptr: ptr, key_len: u64, status: u8, &status_ptr: ptr, status_len: u64, budget_null: u8, budget: i64, &obj_ptr: ptr, obj_len: u64) -> u32:
 L_ENTRY:
     count = load state+ST_GOAL_COUNT as u64
     i_ptr = stack_alloc 8
@@ -1357,22 +1441,89 @@ L_GS_FIND_BODY:
     slot_off = mul i, GOAL_SLOT_SIZE
     slot_abs = add slot_off, ST_GOALS
     slot = ptr_add state, slot_abs
+    active = load slot+GOAL_ACTIVE as u8
+    is_active = eq active, 1
+    !active
+    br is_active -> L_GS_FIND_ACTIVE, L_GS_FIND_INACTIVE
+
+L_GS_FIND_ACTIVE:
+    !is_active
+    has_key = ugt key_len, 0
+    br has_key -> L_GS_FIND_KEY, L_GS_FIND_NUMERIC
+
+L_GS_FIND_INACTIVE:
+    !is_active
+    jmp L_GS_FIND_NEXT
+
+L_GS_FIND_KEY:
+    !has_key
+    slot_key_len = load slot+GOAL_KEY_LEN as u64
+    len_match = eq slot_key_len, key_len
+    br len_match -> L_GS_FIND_KEY_COMPARE, L_GS_FIND_KEY_NO
+
+L_GS_FIND_KEY_COMPARE:
+    !len_match
+    slot_key = ptr_add slot, GOAL_KEY
+    same = call @sa_bytes_eq(&slot_key, slot_key_len, &key_ptr, key_len)
+    !slot_key
+    !slot_key_len
+    br same -> L_GS_FIND_KEY_HIT, L_GS_FIND_NEXT_SAME
+
+L_GS_FIND_KEY_HIT:
+    !same
+    jmp L_GS_UPDATE
+
+L_GS_FIND_KEY_NO:
+    !len_match
+    !slot_key_len
+    jmp L_GS_FIND_NEXT
+
+L_GS_FIND_NEXT_SAME:
+    !same
+    jmp L_GS_FIND_NEXT
+
+L_GS_FIND_NUMERIC:
+    !has_key
     gid = load slot+GOAL_THR_ID as u64
     found = eq gid, thread_id
     !gid
-    br found -> L_GS_UPDATE, L_GS_FIND_NEXT
+    br found -> L_GS_FIND_NUMERIC_HIT, L_GS_FIND_NUMERIC_NEXT
+
+L_GS_FIND_NUMERIC_HIT:
+    !found
+    jmp L_GS_UPDATE
+
+L_GS_FIND_NUMERIC_NEXT:
+    !found
+    jmp L_GS_FIND_NEXT
 
 L_GS_UPDATE:
-    !found
+    now_i3 = call @sa_time_unix_s()
+    now_u3 = bitcast now_i3 as u64
     copy_len = call @state_clamp_len(obj_len, GOAL_OBJ_CAP)
     obj_dst = ptr_add slot, GOAL_OBJ
     copied = call @sa_bytes_copy(&obj_dst, &obj_ptr, copy_len)
+    key_copy_len = call @state_clamp_len(key_len, GOAL_KEY_CAP)
+    key_dst = ptr_add slot, GOAL_KEY
+    key_copied = call @sa_bytes_copy(&key_dst, &key_ptr, key_copy_len)
+    store slot+GOAL_KEY_LEN, key_copied as u64
     store slot+GOAL_ACTIVE, 1 as u8
     store slot+GOAL_STATUS, status as u8
+    status_copy_len = call @state_clamp_len(status_len, GOAL_STATUS_CAP)
+    status_dst = ptr_add slot, GOAL_STATUS_TEXT
+    status_copied = call @sa_bytes_copy(&status_dst, &status_ptr, status_copy_len)
+    store slot+GOAL_STATUS_LEN, status_copied as u64
     store slot+GOAL_BUDGET_NULL, budget_null as u8
-    store slot+GOAL_BUDGET, budget as u64
+    store slot+GOAL_BUDGET, budget as i64
+    store slot+GOAL_UPDATED, now_u3 as u64
     store slot+GOAL_OBJ_LEN, copied as u64
     !copied
+    !key_copied
+    !key_copy_len
+    !key_dst
+    !status_copied
+    !status_copy_len
+    !status_dst
     !copy_len
     !obj_dst
     !slot
@@ -1382,7 +1533,11 @@ L_GS_UPDATE:
     !done
     !count
     !thread_id
+    !key_ptr
+    !key_len
     !status
+    !status_ptr
+    !status_len
     !budget_null
     !budget
     !obj_ptr
@@ -1391,7 +1546,6 @@ L_GS_UPDATE:
     return 0
 
 L_GS_FIND_NEXT:
-    !found
     !slot
     !slot_abs
     !slot_off
@@ -1412,6 +1566,8 @@ L_GS_FULL:
     !at_max
     !count
     !thread_id
+    !key_ptr
+    !key_len
     !budget
     !obj_ptr
     !obj_len
@@ -1420,15 +1576,27 @@ L_GS_FULL:
 
 L_GS_SLOT:
     !at_max
+    now_i4 = call @sa_time_unix_s()
+    now_u4 = bitcast now_i4 as u64
     slot_off = mul count, GOAL_SLOT_SIZE
     slot_abs = add slot_off, ST_GOALS
     slot = ptr_add state, slot_abs
     store slot+GOAL_THR_ID, thread_id as u64
+    key_copy_len2 = call @state_clamp_len(key_len, GOAL_KEY_CAP)
+    key_dst2 = ptr_add slot, GOAL_KEY
+    key_copied2 = call @sa_bytes_copy(&key_dst2, &key_ptr, key_copy_len2)
+    store slot+GOAL_KEY_LEN, key_copied2 as u64
     store slot+GOAL_ACTIVE, 1 as u8
     store slot+GOAL_STATUS, status as u8
+    status_copy_len2 = call @state_clamp_len(status_len, GOAL_STATUS_CAP)
+    status_dst2 = ptr_add slot, GOAL_STATUS_TEXT
+    status_copied2 = call @sa_bytes_copy(&status_dst2, &status_ptr, status_copy_len2)
+    store slot+GOAL_STATUS_LEN, status_copied2 as u64
     store slot+GOAL_BUDGET_NULL, budget_null as u8
-    store slot+GOAL_BUDGET, budget as u64
+    store slot+GOAL_BUDGET, budget as i64
     store slot+GOAL_USED, 0 as u64
+    store slot+GOAL_CREATED, now_u4 as u64
+    store slot+GOAL_UPDATED, now_u4 as u64
     copy_len2 = call @state_clamp_len(obj_len, GOAL_OBJ_CAP)
     obj_dst2 = ptr_add slot, GOAL_OBJ
     copied2 = call @sa_bytes_copy(&obj_dst2, &obj_ptr, copy_len2)
@@ -1439,6 +1607,12 @@ L_GS_SLOT:
     !new_count
     !old_count
     !copied2
+    !key_copied2
+    !key_copy_len2
+    !key_dst2
+    !status_copied2
+    !status_copy_len2
+    !status_dst2
     !copy_len2
     !obj_dst2
     !slot
@@ -1446,7 +1620,11 @@ L_GS_SLOT:
     !slot_off
     !count
     !thread_id
+    !key_ptr
+    !key_len
     !status
+    !status_ptr
+    !status_len
     !budget_null
     !budget
     !obj_ptr
@@ -1454,7 +1632,7 @@ L_GS_SLOT:
     !state
     return 0
 
-@ffi_wrapper state_goal_get_full(&state: ptr, thread_id: u64, &out_status: ptr, &out_budget_null: ptr, &out_budget: ptr, &out_used: ptr, &out_obj_ptr: ptr, &out_obj_len: ptr) -> i32:
+@ffi_wrapper state_goal_get_full(&state: ptr, thread_id: u64, &key_ptr: ptr, key_len: u64, &out_status: ptr, &out_key_ptr: ptr, &out_key_len: ptr, &out_status_ptr: ptr, &out_status_len: ptr, &out_budget_null: ptr, &out_budget: ptr, &out_used: ptr, &out_created: ptr, &out_updated: ptr, &out_obj_ptr: ptr, &out_obj_len: ptr) -> i32:
 L_ENTRY:
     count = load state+ST_GOAL_COUNT as u64
     i_ptr = stack_alloc 8
@@ -1470,32 +1648,92 @@ L_GGF_BODY:
     slot_off = mul i, GOAL_SLOT_SIZE
     slot_abs = add slot_off, ST_GOALS
     slot = ptr_add state, slot_abs
-    gid = load slot+GOAL_THR_ID as u64
-    found = eq gid, thread_id
-    !gid
     active = load slot+GOAL_ACTIVE as u8
     is_active = eq active, 1
     !active
-    want = and found, is_active
-    !found
+    br is_active -> L_GGF_FIND_ACTIVE, L_GGF_FIND_INACTIVE
+
+L_GGF_FIND_ACTIVE:
     !is_active
-    br want -> L_GGF_FOUND, L_GGF_NEXT
+    has_key = ugt key_len, 0
+    br has_key -> L_GGF_FIND_KEY, L_GGF_FIND_NUMERIC
+
+L_GGF_FIND_INACTIVE:
+    !is_active
+    jmp L_GGF_NEXT
+
+L_GGF_FIND_KEY:
+    !has_key
+    slot_key_len = load slot+GOAL_KEY_LEN as u64
+    len_match = eq slot_key_len, key_len
+    br len_match -> L_GGF_FIND_KEY_COMPARE, L_GGF_FIND_KEY_NO
+
+L_GGF_FIND_KEY_COMPARE:
+    !len_match
+    slot_key = ptr_add slot, GOAL_KEY
+    same = call @sa_bytes_eq(&slot_key, slot_key_len, &key_ptr, key_len)
+    !slot_key
+    !slot_key_len
+    br same -> L_GGF_FIND_KEY_HIT, L_GGF_FIND_NEXT_SAME
+
+L_GGF_FIND_KEY_HIT:
+    !same
+    jmp L_GGF_FOUND
+
+L_GGF_FIND_KEY_NO:
+    !len_match
+    !slot_key_len
+    jmp L_GGF_NEXT
+
+L_GGF_FIND_NEXT_SAME:
+    !same
+    jmp L_GGF_NEXT
+
+L_GGF_FIND_NUMERIC:
+    !has_key
+    gid = load slot+GOAL_THR_ID as u64
+    found = eq gid, thread_id
+    !gid
+    br found -> L_GGF_FIND_NUMERIC_HIT, L_GGF_FIND_NUMERIC_NEXT
+
+L_GGF_FIND_NUMERIC_HIT:
+    !found
+    jmp L_GGF_FOUND
+
+L_GGF_FIND_NUMERIC_NEXT:
+    !found
+    jmp L_GGF_NEXT
 
 L_GGF_FOUND:
-    !want
     status = load slot+GOAL_STATUS as u8
+    stored_key_len = load slot+GOAL_KEY_LEN as u64
+    stored_key_ptr = ptr_add slot, GOAL_KEY
+    status_len = load slot+GOAL_STATUS_LEN as u64
+    status_ptr = ptr_add slot, GOAL_STATUS_TEXT
     budget_null = load slot+GOAL_BUDGET_NULL as u8
-    budget = load slot+GOAL_BUDGET as u64
+    budget = load slot+GOAL_BUDGET as i64
     used = load slot+GOAL_USED as u64
+    created = load slot+GOAL_CREATED as u64
+    updated = load slot+GOAL_UPDATED as u64
     obj_len = load slot+GOAL_OBJ_LEN as u64
     obj_ptr = ptr_add slot, GOAL_OBJ
     store out_status+0, status as u8
+    store out_key_ptr+0, stored_key_ptr as ptr
+    store out_key_len+0, stored_key_len as u64
+    store out_status_ptr+0, status_ptr as ptr
+    store out_status_len+0, status_len as u64
     store out_budget_null+0, budget_null as u8
-    store out_budget+0, budget as u64
+    store out_budget+0, budget as i64
     store out_used+0, used as u64
+    store out_created+0, created as u64
+    store out_updated+0, updated as u64
     store out_obj_ptr+0, obj_ptr as ptr
     store out_obj_len+0, obj_len as u64
     !status
+    !stored_key_len
+    !stored_key_ptr
+    !status_len
+    !status_ptr
     !budget_null
     !budget
     !used
@@ -1508,8 +1746,14 @@ L_GGF_FOUND:
     !done
     !count
     !thread_id
+    !key_ptr
+    !key_len
     !state
     !out_status
+    !out_key_ptr
+    !out_key_len
+    !out_status_ptr
+    !out_status_len
     !out_budget_null
     !out_budget
     !out_used
@@ -1518,7 +1762,6 @@ L_GGF_FOUND:
     return 0
 
 L_GGF_NEXT:
-    !want
     !slot
     !slot_abs
     !slot_off
@@ -1534,8 +1777,12 @@ L_GGF_NOT_FOUND:
     !i
     !count
     !thread_id
+    !key_ptr
+    !key_len
     !state
     !out_status
+    !out_key_ptr
+    !out_key_len
     !out_budget_null
     !out_budget
     !out_used
@@ -1572,9 +1819,9 @@ L_GG_BODY:
 
 L_GG_FOUND:
     !want
-    budget = load slot+GOAL_BUDGET as u64
+    budget = load slot+GOAL_BUDGET as i64
     used = load slot+GOAL_USED as u64
-    store out_budget+0, budget as u64
+    store out_budget+0, budget as i64
     store out_used+0, used as u64
     !budget
     !used
@@ -1612,7 +1859,7 @@ L_GG_NOT_FOUND:
     !out_used
     return -1
 
-@ffi_wrapper state_goal_clear(&state: ptr, thread_id: u64) -> u32:
+@ffi_wrapper state_goal_clear(&state: ptr, thread_id: u64, &key_ptr: ptr, key_len: u64) -> u32:
 L_ENTRY:
     count = load state+ST_GOAL_COUNT as u64
     i_ptr = stack_alloc 8
@@ -1628,19 +1875,63 @@ L_GC_BODY:
     slot_off = mul i, GOAL_SLOT_SIZE
     slot_abs = add slot_off, ST_GOALS
     slot = ptr_add state, slot_abs
-    gid = load slot+GOAL_THR_ID as u64
-    found = eq gid, thread_id
-    !gid
     active = load slot+GOAL_ACTIVE as u8
     is_active = eq active, 1
     !active
-    want = and found, is_active
-    !found
+    br is_active -> L_GC_FIND_ACTIVE, L_GC_FIND_INACTIVE
+
+L_GC_FIND_ACTIVE:
     !is_active
-    br want -> L_GC_FOUND, L_GC_NEXT
+    has_key = ugt key_len, 0
+    br has_key -> L_GC_FIND_KEY, L_GC_FIND_NUMERIC
+
+L_GC_FIND_INACTIVE:
+    !is_active
+    jmp L_GC_NEXT
+
+L_GC_FIND_KEY:
+    !has_key
+    slot_key_len = load slot+GOAL_KEY_LEN as u64
+    len_match = eq slot_key_len, key_len
+    br len_match -> L_GC_FIND_KEY_COMPARE, L_GC_FIND_KEY_NO
+
+L_GC_FIND_KEY_COMPARE:
+    !len_match
+    slot_key = ptr_add slot, GOAL_KEY
+    same = call @sa_bytes_eq(&slot_key, slot_key_len, &key_ptr, key_len)
+    !slot_key
+    !slot_key_len
+    br same -> L_GC_FIND_KEY_HIT, L_GC_FIND_NEXT_SAME
+
+L_GC_FIND_KEY_HIT:
+    !same
+    jmp L_GC_FOUND
+
+L_GC_FIND_KEY_NO:
+    !len_match
+    !slot_key_len
+    jmp L_GC_NEXT
+
+L_GC_FIND_NEXT_SAME:
+    !same
+    jmp L_GC_NEXT
+
+L_GC_FIND_NUMERIC:
+    !has_key
+    gid = load slot+GOAL_THR_ID as u64
+    found = eq gid, thread_id
+    !gid
+    br found -> L_GC_FIND_NUMERIC_HIT, L_GC_FIND_NUMERIC_NEXT
+
+L_GC_FIND_NUMERIC_HIT:
+    !found
+    jmp L_GC_FOUND
+
+L_GC_FIND_NUMERIC_NEXT:
+    !found
+    jmp L_GC_NEXT
 
 L_GC_FOUND:
-    !want
     store slot+GOAL_ACTIVE, 0 as u8
     !slot
     !slot_abs
@@ -1649,11 +1940,12 @@ L_GC_FOUND:
     !done
     !count
     !thread_id
+    !key_ptr
+    !key_len
     !state
     return 0
 
 L_GC_NEXT:
-    !want
     !slot
     !slot_abs
     !slot_off
@@ -1669,6 +1961,8 @@ L_GC_NOT_FOUND:
     !i
     !count
     !thread_id
+    !key_ptr
+    !key_len
     !state
     return 1
 

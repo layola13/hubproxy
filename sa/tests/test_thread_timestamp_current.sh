@@ -3,9 +3,11 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
-project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+env_file="${sa_dir}/.env"
+auth_token="client-secret"
+sa_port="${SA_TEST_PROXY_PORT:-28240}"
+base_url="http://127.0.0.1:${sa_port}"
+tmp_dir="$(mktemp -d)"
 hub_pid=""
 
 cleanup() {
@@ -13,50 +15,46 @@ cleanup() {
     kill "${hub_pid}" 2>/dev/null || true
     wait "${hub_pid}" 2>/dev/null || true
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}"
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
-
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+if ss -ltn | rg -q ":${sa_port}\\b"; then
+  echo "test port already in use: ${sa_port}" >&2
+  exit 1
 fi
 
-awk '
+awk -v port="${sa_port}" -v auth="${auth_token}" '
   BEGIN { wrote_auth=0; wrote_port=0 }
-  /^AUTH=/ { print "AUTH=client-secret"; wrote_auth=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_port=1; next }
+  /^AUTH=/ { print "AUTH=" auth; wrote_auth=1; next }
+  /^SA_PORT=/ { print "SA_PORT=" port; wrote_port=1; next }
+  /^PORT=/ { print "PORT=" port; next }
   { print }
   END {
-    if (!wrote_auth) print "AUTH=client-secret"
-    if (!wrote_port) print "SA_PORT=28080"
+    if (!wrote_auth) print "AUTH=" auth
+    if (!wrote_port) print "SA_PORT=" port
   }
-' "${backup_file}" >"${env_file}"
+' "${env_file}" >"${tmp_dir}/.env"
 
 (
-  cd "${sa_dir}"
-  setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_thread_timestamp_current.log 2>&1 < /dev/null &
-  echo "$!" > /tmp/hubproxy_sa_thread_timestamp_current.pid
+  cd "${tmp_dir}"
+  setsid "${sa_dir}/hubproxy" > "${tmp_dir}/hubproxy.log" 2>&1 < /dev/null &
+  echo "$!" > "${tmp_dir}/hubproxy.pid"
 )
-hub_pid="$(cat /tmp/hubproxy_sa_thread_timestamp_current.pid)"
-rm -f /tmp/hubproxy_sa_thread_timestamp_current.pid
+hub_pid="$(cat "${tmp_dir}/hubproxy.pid")"
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
+  if ss -ltn | rg -q ":${sa_port} "; then
     break
   fi
   sleep 0.1
 done
 
 response="$(curl -sS --max-time 15 \
-  -H 'authorization: Bearer client-secret' \
+  -H "authorization: Bearer ${auth_token}" \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"threadId":"thread-time","model":"mimo-v2.5"}}' \
-  'http://127.0.0.1:28080/rpc')"
+  "${base_url}/rpc")"
 
 python3 - "${response}" <<'PY'
 import json

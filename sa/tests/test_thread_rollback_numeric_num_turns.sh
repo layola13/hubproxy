@@ -3,13 +3,11 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
-project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-
-auth_token="$(awk -F= '$1=="AUTH"{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
-sa_port="$(awk -F= '$1=="SA_PORT"{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
-sa_port="${sa_port:-28080}"
+env_file="${sa_dir}/.env"
+auth_token="test-secret"
+sa_port="${SA_TEST_PROXY_PORT:-28235}"
 base_url="http://127.0.0.1:${sa_port}"
+tmp_dir="$(mktemp -d)"
 hub_pid=""
 
 cleanup() {
@@ -17,20 +15,37 @@ cleanup() {
     kill "${hub_pid}" 2>/dev/null || true
     wait "${hub_pid}" 2>/dev/null || true
   fi
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-old_pid="$(ss -ltnp | sed -nE "s/.*:${sa_port} .*pid=([0-9]+).*/\\1/p" | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+if ss -ltn | rg -q ":${sa_port}\\b"; then
+  echo "test port already in use: ${sa_port}" >&2
+  exit 1
 fi
 
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_thread_rollback_numeric.log 2>&1 < /dev/null &
-hub_pid=$!
+awk -v port="${sa_port}" -v auth="${auth_token}" '
+  BEGIN { wrote_sa=0; wrote_port=0; wrote_auth=0 }
+  /^SA_PORT=/ { print "SA_PORT=" port; wrote_sa=1; next }
+  /^PORT=/ { print "PORT=" port; wrote_port=1; next }
+  /^AUTH=/ { print "AUTH=" auth; wrote_auth=1; next }
+  { print }
+  END {
+    if (!wrote_sa) print "SA_PORT=" port
+    if (!wrote_port) print "PORT=" port
+    if (!wrote_auth) print "AUTH=" auth
+  }
+' "${env_file}" > "${tmp_dir}/.env"
+
+(
+  cd "${tmp_dir}"
+  setsid "${sa_dir}/hubproxy" > "${tmp_dir}/hubproxy.log" 2>&1 < /dev/null &
+  echo "$!" > "${tmp_dir}/hubproxy.pid"
+)
+hub_pid="$(cat "${tmp_dir}/hubproxy.pid")"
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q ":${sa_port} "; then
+  if ss -ltn | rg -q ":${sa_port} "; then
     break
   fi
   sleep 0.1
@@ -76,6 +91,30 @@ if ! rg -q "\"id\":\"${turn_one_id}\"" <<<"${turns}" || rg -q "\"id\":\"${turn_t
   echo "thread/turns/list after numeric rollback mismatch" >&2
   echo "--- turns ---" >&2
   echo "${turns}" >&2
+  exit 1
+fi
+
+turn_three="$(rpc "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"turn/start\",\"params\":{\"threadId\":\"${thread_id}\",\"input\":[{\"type\":\"message\",\"content\":\"three\"}]}}")"
+turn_three_id="$(sed -nE 's/.*"turn":\{"id":"([0-9]+)".*/\1/p' <<<"${turn_three}" | head -n 1)"
+if [[ -z "${turn_three_id}" ]]; then
+  echo "failed to parse third turn id" >&2
+  echo "${turn_three}" >&2
+  exit 1
+fi
+
+rollback_zero="$(rpc "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"thread/rollback\",\"params\":{\"threadId\":\"${thread_id}\",\"numTurns\":0}}")"
+if ! rg -q "\"id\":\"${turn_one_id}\"" <<<"${rollback_zero}" || ! rg -q "\"id\":\"${turn_three_id}\"" <<<"${rollback_zero}"; then
+  echo "thread/rollback numTurns=0 should keep all turns like Deno" >&2
+  echo "--- rollback zero ---" >&2
+  echo "${rollback_zero}" >&2
+  exit 1
+fi
+
+rollback_all="$(rpc "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"thread/rollback\",\"params\":{\"threadId\":\"${thread_id}\",\"numTurns\":999}}")"
+if ! rg -q '"turns":\[\]' <<<"${rollback_all}"; then
+  echo "thread/rollback larger than turn count should clear all turns like Deno" >&2
+  echo "--- rollback all ---" >&2
+  echo "${rollback_all}" >&2
   exit 1
 fi
 

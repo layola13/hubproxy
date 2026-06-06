@@ -5,11 +5,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
 env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+tmp_dir="$(mktemp -d)"
+hub_log="$(mktemp)"
 events_out="$(mktemp)"
 events_err="$(mktemp)"
 hub_pid=""
 events_pid=""
+hub_port="28193"
 
 stop_events() {
   if [[ -n "${events_pid}" ]]; then
@@ -25,47 +27,43 @@ cleanup() {
     kill "${hub_pid}" 2>/dev/null || true
     wait "${hub_pid}" 2>/dev/null || true
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}" "${events_out}" "${events_err}"
+  rm -rf "${tmp_dir}"
+  rm -f "${hub_log}" "${events_out}" "${events_err}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
-
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+if ss -ltn | rg -q "0\\.0\\.0\\.0:${hub_port}"; then
+  echo "test port already in use" >&2
+  exit 1
 fi
 
 awk '
   BEGIN { wrote_auth=0; wrote_port=0 }
   /^AUTH=/ { print "AUTH=client-secret"; wrote_auth=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_port=1; next }
+  /^SA_PORT=/ { print "SA_PORT=" hub_port; wrote_port=1; next }
   { print }
   END {
     if (!wrote_auth) print "AUTH=client-secret"
-    if (!wrote_port) print "SA_PORT=28080"
+    if (!wrote_port) print "SA_PORT=" hub_port
   }
-' "${backup_file}" >"${env_file}"
+' hub_port="${hub_port}" "${env_file}" >"${tmp_dir}/.env"
 
 (
-  cd "${sa_dir}"
-  setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_mcp_elicitation_event_shape.log 2>&1 < /dev/null &
-  echo "$!" > /tmp/hubproxy_sa_mcp_elicitation_event_shape.pid
+  cd "${tmp_dir}"
+  setsid "${sa_dir}/hubproxy" > "${hub_log}" 2>&1 < /dev/null &
+  echo "$!" > "${tmp_dir}/hub.pid"
 )
-hub_pid="$(cat /tmp/hubproxy_sa_mcp_elicitation_event_shape.pid)"
-rm -f /tmp/hubproxy_sa_mcp_elicitation_event_shape.pid
+hub_pid="$(cat "${tmp_dir}/hub.pid")"
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
+  if ss -ltn | rg -q "0\\.0\\.0\\.0:${hub_port}"; then
     break
   fi
   sleep 0.1
 done
 
 setsid timeout 8s curl -sS -N -H 'authorization: Bearer client-secret' \
-  'http://127.0.0.1:28080/events' >"${events_out}" 2>"${events_err}" &
+  "http://127.0.0.1:${hub_port}/events" >"${events_out}" 2>"${events_err}" &
 events_pid=$!
 
 sleep 0.3
@@ -74,7 +72,7 @@ response="$(curl -sS --max-time 15 \
   -H 'authorization: Bearer client-secret' \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"mcpServer/elicitation/request","params":{"threadId":"el-thread","turnId":"el-turn","serverName":"el-server"}}' \
-  'http://127.0.0.1:28080/rpc')"
+  "http://127.0.0.1:${hub_port}/rpc")"
 
 deadline=$((SECONDS + 6))
 while (( SECONDS < deadline )); do

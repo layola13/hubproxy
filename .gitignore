@@ -6,6 +6,7 @@
 # end code-index generated artifacts
 .env
 .env2
+.env*
 .mimir/
 logs/
 codex-relay/

@@ -110,7 +110,7 @@ Status legend:
 | Function-call history fallback and tool message name preservation | Complete | `responses_chat_fallback_request_test.sa`, `test_responses_fallback_tool_history.sh` |
 | Chat fallback tool-call stream normalization, split chunks, `read` to `exec_command`, `.env*` redaction, shell quoting | Complete | `test_responses_fallback_stream_tool_call_*.sh` |
 | Chat fallback namespaced tool-call de-flattening | Complete | `test_responses_fallback_stream_tool_call_namespace.sh` |
-| Native Responses SSE MCP de-flatten and server denormalize | Complete | `test_responses_client_mcp_denormalize.sh`, SCI `std-smoke` |
+| Native Responses SSE MCP de-flatten and server denormalize for `response.output_item.done` and `response.output_item.added` | Complete | `test_responses_client_mcp_denormalize.sh`, `test_responses_client_mcp_added_normalize.sh`, SCI `std-smoke` |
 | Request-side MCP server alias normalization | Complete | `test_responses_mcp_server_normalize.sh`, SCI `std-smoke` |
 | Long Responses request bodies and large normalized SSE bodies stay connected without heap corruption | Complete | `test_responses_long_input_request_no_crash.sh`, `test_responses_native_large_sse_no_crash.sh`, live long-prompt `codex exec` smoke |
 | Chat JSON fallback content, usage, tool calls, thought tags, `reasoning_content` to Responses JSON | Complete | `test_responses_fallback_json_*.sh`, SCI Deno facade helpers |
@@ -125,7 +125,8 @@ Status legend:
 | Turn context resolution from `thread-id` / `turn-id`, stale turn ignored, body-inferred modes | Complete | `test_responses_turn_context_goal_continuation.sh` |
 | Goal lifecycle and current timestamps | Complete | `test_state.sa`, timestamp shell tests |
 | `memory/reset` clears runtime state and emits wildcard close event | Complete | `test_state.sa`, `test_memory_reset_clears_state.sh` |
-| Events bridge for thread, turn, item, fs, process, realtime, MCP, warnings | Complete | `test_events_contract.sh`, `test_mcp_tool_progress_event.sh`, realtime/user-input/elicitation tests |
+| Events bridge for thread, turn, item, fs, process, realtime, MCP, warnings | Complete | `test_events_contract.sh`, `test_mcp_tool_progress_event.sh`, `test_mcp_elicitation_event_shape.sh`, `test_mcp_reload_status_oauth_contract.sh`, realtime/user-input tests |
+| MCP JSON-RPC helper surface: OAuth login URL, reload result/startup event, status list, resource read, unsupported resource list/templates | Complete | `test_mcp_reload_status_oauth_contract.sh`, `test_mcp_resource_unsupported.sh`, `test_http_contract.sa` |
 | Request logging, disabled-by-default logs, auth failure previews | Complete | `test_api_request_log.sh`, `test_api_request_log_disabled_by_default.sh`, `test_auth_failure_log.sh` |
 | Thin JSON-RPC compatibility responses for experimental features, remote control, login/logout, approvals, command/process control, plugin install/list/read, model list, config requirements, app list | Complete | `test_rpc_misc_parity.sh`, `model_list_contract_test.sa` |
 | `.env` load, `SA_PORT=28080`, null config semantics, config writes | Complete | `test_config.sa`, `test_server_config.sa`, `test_config_read_nulls.sh`, `test_config_write_cwd.sh` |

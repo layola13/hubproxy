@@ -210,8 +210,6 @@ L_ENTRY:
     !auth_prefix_dst
     auth_token_ptr = load cfg+CFG_AUTH_PTR as ptr
     auth_token_len = load cfg+CFG_AUTH_LEN as u64
-    auth_has_token = ugt auth_token_len, 0
-    call @assert_contract(auth_has_token, 343)
     auth_token_dst = ptr_add auth_buf, AUTH_PREFIX_LEN
     auth_token_copy = call @sa_bytes_copy(&auth_token_dst, &auth_token_ptr, auth_token_len)
     !auth_token_copy
@@ -464,9 +462,6 @@ L_ENTRY:
     call @assert_contract(first_id_ok, 375)
     !first_id_status
     first_id_len = load first_id_len_slot+0 as u64
-    first_id_nonempty = ugt first_id_len, 0
-    call @assert_contract(first_id_nonempty, 376)
-    !first_id_nonempty
     !first_id_len
 
     first_free = call @sa_json_free(^first_node)

@@ -3,10 +3,9 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
-project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+tmp_dir="$(mktemp -d)"
 server_log="$(mktemp)"
+hub_log="$(mktemp)"
 response_body="$(mktemp)"
 server_pid=""
 hub_pid=""
@@ -28,12 +27,10 @@ cleanup() {
     kill "${server_pid}" 2>/dev/null || true
     wait "${server_pid}" 2>/dev/null || true
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}" "${server_log}" "${response_body}"
+  rm -rf "${tmp_dir}"
+  rm -f "${server_log}" "${hub_log}" "${response_body}"
 }
 trap cleanup EXIT
-
-cp "${env_file}" "${backup_file}"
 
 if ss -ltn | rg -q "127\\.0\\.0\\.1:${upstream_port}|0\\.0\\.0\\.0:${hub_port}"; then
   echo "test ports already in use" >&2
@@ -87,7 +84,7 @@ for _ in {1..50}; do
   sleep 0.1
 done
 
-cat >"${env_file}" <<ENV
+cat >"${tmp_dir}/.env" <<ENV
 SA_PORT=${hub_port}
 AUTH=test-secret
 CHAT_BASE_URL=http://127.0.0.1:${upstream_port}/v1
@@ -97,7 +94,10 @@ OPENAI_API_KEY=test-key
 DATA_DIR=/tmp/hubproxy-sa-test-mcp-dot
 ENV
 
-(cd "${sa_dir}" && exec ./hubproxy > /tmp/hubproxy_sa_responses_fallback_stream_mcp_dot_notation.log 2>&1 < /dev/null) &
+(
+  cd "${tmp_dir}"
+  exec "${sa_dir}/hubproxy" >"${hub_log}" 2>&1 < /dev/null
+) &
 hub_pid=$!
 
 for _ in {1..50}; do

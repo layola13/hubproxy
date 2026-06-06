@@ -5,11 +5,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
 env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+tmp_dir="$(mktemp -d)"
 server_log="$(mktemp)"
 response_body="$(mktemp)"
 server_pid=""
 hub_pid=""
+hub_port="28186"
+upstream_port="28187"
 
 cleanup() {
   if [[ -n "${hub_pid}" ]]; then
@@ -20,17 +22,14 @@ cleanup() {
     kill "${server_pid}" 2>/dev/null || true
     wait "${server_pid}" 2>/dev/null || true
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}" "${server_log}" "${response_body}"
+  rm -rf "${tmp_dir}"
+  rm -f "${server_log}" "${response_body}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
-
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+if ss -ltn | rg -q "127\\.0\\.0\\.1:${upstream_port}|0\\.0\\.0\\.0:${hub_port}"; then
+  echo "test ports already in use" >&2
+  exit 1
 fi
 
 python3 <<'PY' >"${server_log}" 2>&1 &
@@ -69,12 +68,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
-http.server.ThreadingHTTPServer(("127.0.0.1", 28091), Handler).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", 28187), Handler).serve_forever()
 PY
 server_pid=$!
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '127\.0\.0\.1:28091'; then
+  if ss -ltn | rg -q "127\\.0\\.0\\.1:${upstream_port}"; then
     break
   fi
   sleep 0.1
@@ -82,33 +81,37 @@ done
 
 awk '
   BEGIN { wrote_chat=0; wrote_resp=0; wrote_sa_port=0 }
-  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:28091/v1"; wrote_chat=1; next }
-  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:28091/v1"; wrote_resp=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_sa_port=1; next }
+  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_chat=1; next }
+  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_resp=1; next }
+  /^SA_PORT=/ { print "SA_PORT=" hub_port; wrote_sa_port=1; next }
   { print }
   END {
-    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:28091/v1"
-    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:28091/v1"
-    if (!wrote_sa_port) print "SA_PORT=28080"
+    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
+    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
+    if (!wrote_sa_port) print "SA_PORT=" hub_port
   }
-' "${backup_file}" >"${env_file}"
+' upstream_port="${upstream_port}" hub_port="${hub_port}" "${env_file}" >"${tmp_dir}/.env"
 
-(cd "${sa_dir}" && setsid ./hubproxy > /tmp/hubproxy_sa_responses_fallback_stream_tool_call_namespace.log 2>&1 < /dev/null) &
-hub_pid=$!
+(
+  cd "${tmp_dir}"
+  setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_responses_fallback_stream_tool_call_namespace.log 2>&1 < /dev/null &
+  echo $! > "${tmp_dir}/hub.pid"
+)
+hub_pid="$(cat "${tmp_dir}/hub.pid")"
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
+  if ss -ltn | rg -q "0\\.0\\.0\\.0:${hub_port}"; then
     break
   fi
   sleep 0.1
 done
 
-auth="$(awk -F= '$1=="AUTH"{print substr($0, index($0, "=") + 1)}' "${env_file}")"
+auth="$(awk -F= '$1=="AUTH"{print substr($0, index($0, "=") + 1)}' "${tmp_dir}/.env")"
 curl -sS --max-time 15 \
   -H "authorization: Bearer ${auth}" \
   -H 'content-type: application/json' \
   --data '{"model":"models/mimo-v2.5-pro","stream":true,"tools":[{"type":"namespace","name":"mcp__code_index__","tools":[{"type":"function","name":"describe_index","parameters":{}}]}],"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}' \
-  'http://127.0.0.1:28080/v1/responses' >"${response_body}"
+  "http://127.0.0.1:${hub_port}/v1/responses" >"${response_body}"
 
 python3 - "${response_body}" <<'PY'
 import json

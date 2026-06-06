@@ -3,13 +3,15 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
-project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-auth_token="$(awk -F= '/^AUTH=/{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
+env_file="${sa_dir}/.env"
+auth_token="test-secret"
+sa_port="${SA_TEST_PROXY_PORT:-28237}"
+base_url="http://127.0.0.1:${sa_port}"
+tmp_dir="$(mktemp -d)"
 hub_pid=""
 events_pid=""
-events_out="$(mktemp)"
-events_err="$(mktemp)"
+events_out="${tmp_dir}/events.out"
+events_err="${tmp_dir}/events.err"
 
 cleanup() {
   if [[ -n "${events_pid}" ]]; then
@@ -20,21 +22,37 @@ cleanup() {
     kill "${hub_pid}" 2>/dev/null || true
     wait "${hub_pid}" 2>/dev/null || true
   fi
-  rm -f "${events_out}" "${events_err}"
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+if ss -ltn | rg -q ":${sa_port}\\b"; then
+  echo "test port already in use: ${sa_port}" >&2
+  exit 1
 fi
 
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_turn_items.log 2>&1 < /dev/null &
-hub_pid=$!
+awk -v port="${sa_port}" -v auth="${auth_token}" '
+  BEGIN { wrote_sa=0; wrote_port=0; wrote_auth=0 }
+  /^SA_PORT=/ { print "SA_PORT=" port; wrote_sa=1; next }
+  /^PORT=/ { print "PORT=" port; wrote_port=1; next }
+  /^AUTH=/ { print "AUTH=" auth; wrote_auth=1; next }
+  { print }
+  END {
+    if (!wrote_sa) print "SA_PORT=" port
+    if (!wrote_port) print "PORT=" port
+    if (!wrote_auth) print "AUTH=" auth
+  }
+' "${env_file}" > "${tmp_dir}/.env"
+
+(
+  cd "${tmp_dir}"
+  setsid "${sa_dir}/hubproxy" > "${tmp_dir}/hubproxy.log" 2>&1 < /dev/null &
+  echo "$!" > "${tmp_dir}/hubproxy.pid"
+)
+hub_pid="$(cat "${tmp_dir}/hubproxy.pid")"
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
+  if ss -ltn | rg -q ":${sa_port} "; then
     break
   fi
   sleep 0.1
@@ -45,11 +63,11 @@ rpc() {
     -H "authorization: Bearer ${auth_token}" \
     -H 'content-type: application/json' \
     --data "$1" \
-  'http://127.0.0.1:28080/rpc'
+    "${base_url}/rpc"
 }
 
 setsid timeout 8s curl -sS -N -H "authorization: Bearer ${auth_token}" \
-  'http://127.0.0.1:28080/events' >"${events_out}" 2>"${events_err}" &
+  "${base_url}/events" >"${events_out}" 2>"${events_err}" &
 events_pid=$!
 sleep 0.3
 
@@ -96,5 +114,3 @@ cat "${events_out}" >&2
 echo "--- curl stderr ---" >&2
 cat "${events_err}" >&2
 exit 1
-
-echo "turn_items_list_ok"

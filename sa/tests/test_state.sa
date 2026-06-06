@@ -175,7 +175,7 @@ L_T5_FAIL:
 
 // Test 6: goal_set
 L_T6:
-    gs_status = call @state_goal_set(&state, 2, 50000, &OBJ, 14)
+    gs_status = call @state_goal_set(&state, 2, &OBJ, 0, 0, &OBJ, 0, 0, 50000, &OBJ, 14)
     is_gs_ok = eq gs_status, 0
     !gs_status
     br is_gs_ok -> L_T6_PASS, L_T6_FAIL
@@ -322,7 +322,7 @@ L_T8_FAIL:
 L_T9:
     tid_reset = call @state_thread_create(&state, &MODEL, 5, &DIR, 9)
     turn_reset = call @state_turn_create(&state, tid_reset)
-    goal_reset_status = call @state_goal_set(&state, tid_reset, 123, &OBJ, 14)
+    goal_reset_status = call @state_goal_set(&state, tid_reset, &OBJ, 0, 0, &OBJ, 0, 0, 123, &OBJ, 14)
     proc_status = call @state_process_put(&state, &PROC, 10)
     watch_status = call @state_watch_put(&state, &WATCH, 11)
     reset_status = call @state_reset_runtime(&state)

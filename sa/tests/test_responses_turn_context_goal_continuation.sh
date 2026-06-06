@@ -3,10 +3,11 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
-project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+hub_port="${SA_TEST_PROXY_PORT:-28238}"
+upstream_port="${SA_TEST_UPSTREAM_PORT:-28239}"
 server_log="$(mktemp)"
+hub_log="$(mktemp)"
+tmp_dir="$(mktemp -d)"
 goal_body="$(mktemp)"
 normal_body="$(mktemp)"
 stale_body="$(mktemp)"
@@ -22,21 +23,21 @@ cleanup() {
     kill "${server_pid}" 2>/dev/null || true
     wait "${server_pid}" 2>/dev/null || true
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}" "${server_log}" "${goal_body}" "${normal_body}" "${stale_body}"
+  rm -f "${server_log}" "${hub_log}" "${goal_body}" "${normal_body}" "${stale_body}"
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
-
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+if ss -ltn | rg -q "(:${hub_port}|:${upstream_port})\\b"; then
+  echo "test ports already in use: hub=${hub_port}, upstream=${upstream_port}" >&2
+  exit 1
 fi
 
-python3 <<'PY' >"${server_log}" 2>&1 &
+UPSTREAM_PORT="${upstream_port}" python3 <<'PY' >"${server_log}" 2>&1 &
 import http.server
+import os
+
+port = int(os.environ["UPSTREAM_PORT"])
 
 CHAT_SSE = "\n".join([
     'data: {"choices":[{"delta":{"content":"Let me check the test failure details and run a focused check."},"finish_reason":null}]}',
@@ -71,50 +72,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
-http.server.ThreadingHTTPServer(("127.0.0.1", 28094), Handler).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 PY
 server_pid=$!
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '127\.0\.0\.1:28094'; then
+  if ss -ltn | rg -q "127\\.0\\.0\\.1:${upstream_port}"; then
     break
   fi
   sleep 0.1
 done
 
-awk '
-  BEGIN { wrote_auth=0; wrote_chat=0; wrote_resp=0; wrote_sa_port=0 }
-  /^AUTH=/ { print "AUTH=client-secret"; wrote_auth=1; next }
-  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:28094/v1"; wrote_chat=1; next }
-  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:28094/v1"; wrote_resp=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_sa_port=1; next }
-  { print }
-  END {
-    if (!wrote_auth) print "AUTH=client-secret"
-    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:28094/v1"
-    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:28094/v1"
-    if (!wrote_sa_port) print "SA_PORT=28080"
-  }
-' "${backup_file}" >"${env_file}"
+cat >"${tmp_dir}/.env" <<ENV
+SA_PORT=${hub_port}
+PORT=${hub_port}
+AUTH=client-secret
+CHAT_BASE_URL=http://127.0.0.1:${upstream_port}/v1
+RESPONSES_BASE_URL=http://127.0.0.1:${upstream_port}/v1
+DEFAULT_MODEL=models/mimo-v2.5-pro
+OPENAI_API_KEY=test-key
+DATA_DIR=${tmp_dir}/data
+ENV
 
-pushd "${sa_dir}" >/dev/null
-setsid ./hubproxy > /tmp/hubproxy_sa_responses_turn_context_goal.log 2>&1 < /dev/null &
-hub_pid=$!
-popd >/dev/null
+(
+  cd "${tmp_dir}"
+  setsid "${sa_dir}/hubproxy" > "${hub_log}" 2>&1 < /dev/null &
+  echo "$!" > "${tmp_dir}/hubproxy.pid"
+)
+hub_pid="$(cat "${tmp_dir}/hubproxy.pid")"
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
+  if ss -ltn | rg -q ":${hub_port} "; then
     break
   fi
   sleep 0.1
 done
+if ! ss -ltn | rg -q ":${hub_port} "; then
+  echo "hubproxy did not start on ${hub_port}" >&2
+  cat "${hub_log}" >&2 || true
+  exit 1
+fi
 
 rpc() {
   curl -sS --max-time 15 \
     -H 'authorization: Bearer client-secret' \
     -H 'content-type: application/json' \
     --data "$1" \
-    'http://127.0.0.1:28080/rpc'
+    "http://127.0.0.1:${hub_port}/rpc"
 }
 
 thread_response="$(rpc '{"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"threadId":"ignored-deno-string-id","model":"mimo-v2.5"}}')"
@@ -155,7 +159,7 @@ curl -sS --max-time 15 \
   -H "thread-id: ${thread_id}" \
   -H "turn-id: ${goal_turn_id}" \
   --data "${request_body}" \
-  'http://127.0.0.1:28080/v1/responses' >"${goal_body}"
+  "http://127.0.0.1:${hub_port}/v1/responses" >"${goal_body}"
 
 if ! rg -q '"name":"exec_command"' "${goal_body}"; then
   echo "goal turn context did not inject continuation tool" >&2
@@ -174,7 +178,7 @@ curl -sS --max-time 15 \
   -H "thread-id: ${thread_id}" \
   -H "turn-id: ${normal_turn_id}" \
   --data "${request_body}" \
-  'http://127.0.0.1:28080/v1/responses' >"${normal_body}"
+  "http://127.0.0.1:${hub_port}/v1/responses" >"${normal_body}"
 
 if rg -q '"name":"exec_command"|Progress-only message received in chat fallback' "${normal_body}"; then
   echo "plain turn unexpectedly injected continuation tool" >&2
@@ -188,7 +192,7 @@ curl -sS --max-time 15 \
   -H "thread-id: ${thread_id}" \
   -H 'turn-id: 999999' \
   --data "${request_body}" \
-  'http://127.0.0.1:28080/v1/responses' >"${stale_body}"
+  "http://127.0.0.1:${hub_port}/v1/responses" >"${stale_body}"
 
 if rg -q '"name":"exec_command"|Progress-only message received in chat fallback' "${stale_body}"; then
   echo "stale turn unexpectedly injected continuation tool" >&2

@@ -3,10 +3,11 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
-project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+hub_port="${SA_TEST_PROXY_PORT:-28282}"
+upstream_port="${SA_TEST_UPSTREAM_PORT:-28283}"
+tmp_dir="$(mktemp -d)"
 server_log="$(mktemp)"
+hub_log="$(mktemp)"
 request_body="$(mktemp)"
 response_body="$(mktemp)"
 server_pid=""
@@ -21,24 +22,23 @@ cleanup() {
     kill "${server_pid}" 2>/dev/null || true
     wait "${server_pid}" 2>/dev/null || true
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}" "${server_log}" "${request_body}" "${response_body}"
+  rm -rf "${tmp_dir}"
+  rm -f "${server_log}" "${hub_log}" "${request_body}" "${response_body}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
-
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+if ss -ltn | rg -q "(:${hub_port}|:${upstream_port})\b"; then
+  echo "test ports already in use: hub=${hub_port}, upstream=${upstream_port}" >&2
+  exit 1
 fi
 
-python3 - "${request_body}" <<'PY' >"${server_log}" 2>&1 &
+REQ_CAPTURE="${request_body}" UPSTREAM_PORT="${upstream_port}" python3 <<'PY' >"${server_log}" 2>&1 &
 import http.server
+import os
 import sys
 
-capture_path = sys.argv[1]
+capture_path = os.environ["REQ_CAPTURE"]
+port = int(os.environ["UPSTREAM_PORT"])
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -58,46 +58,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
-http.server.ThreadingHTTPServer(("127.0.0.1", 28081), Handler).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 PY
 server_pid=$!
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '127\.0\.0\.1:28081'; then
+  if ss -ltn | rg -q "127\.0\.0\.1:${upstream_port}"; then
     break
   fi
   sleep 0.1
 done
 
-awk '
-  BEGIN { wrote_chat=0; wrote_resp=0; wrote_sa_port=0 }
-  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:28081/v1"; wrote_chat=1; next }
-  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:28081/v1"; wrote_resp=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_sa_port=1; next }
-  { print }
-  END {
-    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:28081/v1"
-    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:28081/v1"
-    if (!wrote_sa_port) print "SA_PORT=28080"
-  }
-' "${backup_file}" >"${env_file}"
+cat >"${tmp_dir}/.env" <<ENV
+SA_PORT=${hub_port}
+PORT=${hub_port}
+AUTH=test-secret
+CHAT_BASE_URL=http://127.0.0.1:${upstream_port}/v1
+RESPONSES_BASE_URL=http://127.0.0.1:${upstream_port}/v1
+DEFAULT_MODEL=mimo-v2.5
+OPENAI_API_KEY=test-key
+DATA_DIR=/tmp/hubproxy-sa-chat-tools
+ENV
 
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_chat_capture.log 2>&1 < /dev/null &
+(
+  cd "${tmp_dir}"
+  exec "${sa_dir}/hubproxy" >"${hub_log}" 2>&1 < /dev/null
+) &
 hub_pid=$!
 
 for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
+  if ss -ltn | rg -q ":${hub_port} "; then
     break
   fi
   sleep 0.1
 done
+if ! ss -ltn | rg -q ":${hub_port} "; then
+  echo "hubproxy did not start on ${hub_port}" >&2
+  cat "${hub_log}" >&2 || true
+  exit 1
+fi
 
-auth="$(awk -F= '$1=="AUTH"{print substr($0, index($0, "=") + 1)}' "${env_file}")"
 curl -sS --max-time 15 \
-  -H "authorization: Bearer ${auth}" \
+  -H 'authorization: Bearer test-secret' \
   -H 'content-type: application/json' \
   --data '{"model":"mimo-v2.5","messages":[{"role":"user","content":"hello"}],"store":true,"prompt_cache_key":"drop-me","include":["drop-me"],"reasoning":{"effort":"low"},"tools":[{"type":"namespace","name":"mcp__code_index__","tools":[{"type":"function","name":"search","description":"Search index","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}]},{"type":"web_search","external_web_access":true},{"type":"function","name":"custom_search","description":"Search docs","parameters":{"type":"object","properties":{"query":{"type":"string"}}},"strict":true},{"type":"function","name":"custom_read","description":"Read docs","parameters":{"type":"object","properties":{"path":{"type":"string"}}},"strict":false},{"type":"function","name":"exec_command","parameters":{}},{"type":"function","name":"update_plan","parameters":{}},{"type":"function","name":"get_goal","parameters":{}}],"stream":false}' \
-  'http://127.0.0.1:28080/v1/chat/completions' >"${response_body}"
+  "http://127.0.0.1:${hub_port}/v1/chat/completions" >"${response_body}"
 
 if ! rg -q '"object":"chat.completion"' "${response_body}"; then
   echo "chat proxy did not return mock chat completion" >&2
