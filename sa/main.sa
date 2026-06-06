@@ -7387,11 +7387,8 @@ L_CTX_FINISH_WRITER:
     end_status = call @sa_json_writer_end_object(writer)
     finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
     buffer = load buffer_slot+0 as ptr
-    data_ptr = call @sa_json_buffer_data(&buffer)
-    data_len = call @sa_json_buffer_len(&buffer)
-    out_json = alloc data_len
-    copy_json = call @sa_bytes_copy(&out_json, &data_ptr, data_len)
-    !copy_json
+    out_json = call @json_buffer_to_owned(buffer, &out_len)
+    data_len = load out_len+0 as u64
     store out_len+0, data_len as u64
     buffer_free = call @sa_json_buffer_free(^buffer)
     writer_free = call @sa_json_writer_free(^writer)
@@ -7399,7 +7396,6 @@ L_CTX_FINISH_WRITER:
     !root_free
     !writer_free
     !buffer_free
-    !data_ptr
     !data_len
     !end_status
     !finish_status
@@ -7458,17 +7454,13 @@ L_CTX_MODE_ONLY_FINISH:
     end_status2 = call @sa_json_writer_end_object(writer2)
     finish_status2 = call @sa_json_writer_finish(writer2, &buffer_slot2)
     buffer2 = load buffer_slot2+0 as ptr
-    data_ptr2 = call @sa_json_buffer_data(&buffer2)
-    data_len2 = call @sa_json_buffer_len(&buffer2)
-    out_json2 = alloc data_len2
-    copy_json2 = call @sa_bytes_copy(&out_json2, &data_ptr2, data_len2)
-    !copy_json2
+    out_json2 = call @json_buffer_to_owned(buffer2, &out_len)
+    data_len2 = load out_len+0 as u64
     store out_len+0, data_len2 as u64
     buffer_free2 = call @sa_json_buffer_free(^buffer2)
     writer_free2 = call @sa_json_writer_free(^writer2)
     !writer_free2
     !buffer_free2
-    !data_ptr2
     !data_len2
     !finish_status2
     !end_status2
@@ -9876,11 +9868,8 @@ L_RESP_PROXY_COUNT_BAD:
     end_status_bad_count = call @sa_json_writer_end_object(writer)
     finish_status_bad_count = call @sa_json_writer_finish(writer, &buffer_slot)
     buffer_bad_count = load buffer_slot+0 as ptr
-    data_ptr_bad_count = call @sa_json_buffer_data(&buffer_bad_count)
-    data_len_bad_count = call @sa_json_buffer_len(&buffer_bad_count)
-    out_bad_count = alloc data_len_bad_count
-    copy_bad_count = call @sa_bytes_copy(&out_bad_count, &data_ptr_bad_count, data_len_bad_count)
-    !copy_bad_count
+    out_bad_count = call @json_buffer_to_owned(buffer_bad_count, &out_len)
+    data_len_bad_count = load out_len+0 as u64
     store out_len+0, data_len_bad_count as u64
     buffer_free_bad_count = call @sa_json_buffer_free(^buffer_bad_count)
     writer_free_bad_count = call @sa_json_writer_free(^writer)
@@ -9888,7 +9877,6 @@ L_RESP_PROXY_COUNT_BAD:
     !root_free_bad_count
     !writer_free_bad_count
     !buffer_free_bad_count
-    !data_ptr_bad_count
     !data_len_bad_count
     !finish_status_bad_count
     !end_status_bad_count
@@ -10019,11 +10007,8 @@ L_RESP_PROXY_DONE:
     end_status = call @sa_json_writer_end_object(writer)
     finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
     buffer = load buffer_slot+0 as ptr
-    data_ptr = call @sa_json_buffer_data(&buffer)
-    data_len = call @sa_json_buffer_len(&buffer)
-    out = alloc data_len
-    copy_status = call @sa_bytes_copy(&out, &data_ptr, data_len)
-    !copy_status
+    out = call @json_buffer_to_owned(buffer, &out_len)
+    data_len = load out_len+0 as u64
     store out_len+0, data_len as u64
     buffer_free = call @sa_json_buffer_free(^buffer)
     writer_free = call @sa_json_writer_free(^writer)
@@ -10031,7 +10016,6 @@ L_RESP_PROXY_DONE:
     !root_free
     !writer_free
     !buffer_free
-    !data_ptr
     !data_len
     !finish_status
     !end_status
@@ -10208,11 +10192,8 @@ L_CHAT_PROXY_DONE:
     end_status = call @sa_json_writer_end_object(writer)
     finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
     buffer = load buffer_slot+0 as ptr
-    data_ptr = call @sa_json_buffer_data(&buffer)
-    data_len = call @sa_json_buffer_len(&buffer)
-    out = alloc data_len
-    copy_status = call @sa_bytes_copy(&out, &data_ptr, data_len)
-    !copy_status
+    out = call @json_buffer_to_owned(buffer, &out_len)
+    data_len = load out_len+0 as u64
     store out_len+0, data_len as u64
     buffer_free = call @sa_json_buffer_free(^buffer)
     writer_free = call @sa_json_writer_free(^writer)
@@ -10220,7 +10201,6 @@ L_CHAT_PROXY_DONE:
     !root_free
     !writer_free
     !buffer_free
-    !data_ptr
     !data_len
     !finish_status
     !end_status

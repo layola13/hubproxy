@@ -2,6 +2,7 @@
 @import "strings.sai"
 @import "sa_std/fmt.sai"
 @import "sa_std/string.sai"
+@import "sa_std/encoding/json.sai"
 
 // sa_bytes_eq(a_ptr, a_len, b_ptr, b_len) -> u8
 // Returns 1 if byte sequences are equal, 0 otherwise.
@@ -257,6 +258,20 @@ L_ENTRY:
     !mid_len
     !right_ptr
     !right_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper json_buffer_to_owned(buffer: ptr, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    data_ptr = call @sa_json_buffer_data(&buffer)
+    data_len = call @sa_json_buffer_len(&buffer)
+    out_ptr = alloc data_len
+    copied = call @sa_bytes_copy(&out_ptr, &data_ptr, data_len)
+    store out_len+0, data_len as u64
+    !copied
+    !data_ptr
+    !data_len
+    !buffer
     !out_len
     return out_ptr
 
