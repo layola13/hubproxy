@@ -2530,7 +2530,15 @@ L_ENTRY:
 
 @ffi_wrapper build_bearer_auth_header(&token_ptr: ptr, token_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
-    joined_str = call @sa_string_concat(&BEARER_PREFIX, BEARER_PREFIX_LEN, token_ptr, token_len)
+    out_ptr = call @build_concat_owned(&BEARER_PREFIX, BEARER_PREFIX_LEN, &token_ptr, token_len, &out_len)
+    !token_ptr
+    !token_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper build_concat_owned(&left_ptr: ptr, left_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    joined_str = call @sa_string_concat(left_ptr, left_len, right_ptr, right_len)
     joined_ptr = call @sa_fmt_buffer_data(joined_str)
     joined_len = call @sa_fmt_buffer_len(joined_str)
     out_ptr = alloc joined_len
@@ -2541,10 +2549,43 @@ L_ENTRY:
     !out_copy
     !joined_len
     !joined_ptr
-    !token_ptr
-    !token_len
+    !left_ptr
+    !left_len
+    !right_ptr
+    !right_len
     !out_len
     return out_ptr
+
+@ffi_wrapper build_http_url(&host_ptr: ptr, host_len: u64, port_u64: u64, &suffix_ptr: ptr, suffix_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    port_buf = stack_alloc ID_BUF_SIZE
+    port_len_slot = stack_alloc 8
+    port_fmt_status = call @sa_fmt_u64_into(port_u64, 10, port_buf, ID_BUF_SIZE, &port_len_slot)
+    port_len = load port_len_slot+0 as u64
+    part1_len_slot = stack_alloc 8
+    part1 = call @build_concat_owned(&STRING_HTTP_PREFIX, STRING_HTTP_PREFIX_LEN, &host_ptr, host_len, &part1_len_slot)
+    part1_len = load part1_len_slot+0 as u64
+    part2_len_slot = stack_alloc 8
+    part2 = call @build_concat_owned(&part1, part1_len, &CHAT_PROXY_COLON, CHAT_PROXY_COLON_LEN, &part2_len_slot)
+    part2_len = load part2_len_slot+0 as u64
+    part3_len_slot = stack_alloc 8
+    part3 = call @build_concat_owned(&part2, part2_len, &port_buf, port_len, &part3_len_slot)
+    part3_len = load part3_len_slot+0 as u64
+    final_ptr = call @build_concat_owned(&part3, part3_len, &suffix_ptr, suffix_len, &out_len)
+    !part3_len
+    !part2_len
+    !part1_len
+    !port_fmt_status
+    !port_len
+    !part3
+    !part2
+    !part1
+    !host_ptr
+    !host_len
+    !port_u64
+    !suffix_ptr
+    !suffix_len
+    return final_ptr
 
 @ffi_wrapper http_response_read_all(resp: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
 L_ENTRY:
@@ -13987,20 +14028,9 @@ L_ENTRY:
     port_len_slot = stack_alloc 8
     port_fmt_status = call @sa_fmt_u64_into(port_u64, 10, port_buf, ID_BUF_SIZE, &port_len_slot)
     port_len = load port_len_slot+0 as u64
-    url_a_len = add STRING_HTTP_PREFIX_LEN, host_len
-    url_b_len = add url_a_len, CHAT_PROXY_COLON_LEN
-    url_c_len = add url_b_len, port_len
-    url_len = add url_c_len, STRING_SHARE_SUFFIX_LEN
-    url_ptr = alloc url_len
-    url_host_dst = ptr_add url_ptr, STRING_HTTP_PREFIX_LEN
-    url_colon_dst = ptr_add url_ptr, url_a_len
-    url_port_dst = ptr_add url_ptr, url_b_len
-    url_suffix_dst = ptr_add url_ptr, url_c_len
-    url_prefix_copy = call @sa_bytes_copy(&url_ptr, &STRING_HTTP_PREFIX, STRING_HTTP_PREFIX_LEN)
-    url_host_copy = call @sa_bytes_copy(&url_host_dst, &host_ptr, host_len)
-    url_colon_copy = call @sa_bytes_copy(&url_colon_dst, &CHAT_PROXY_COLON, CHAT_PROXY_COLON_LEN)
-    url_port_copy = call @sa_bytes_copy(&url_port_dst, &port_buf, port_len)
-    url_suffix_copy = call @sa_bytes_copy(&url_suffix_dst, &STRING_SHARE_SUFFIX, STRING_SHARE_SUFFIX_LEN)
+    url_len_slot = stack_alloc 8
+    url_ptr = call @build_http_url(&host_ptr, host_len, port_u64, &STRING_SHARE_SUFFIX, STRING_SHARE_SUFFIX_LEN, &url_len_slot)
+    url_len = load url_len_slot+0 as u64
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
@@ -14018,20 +14048,8 @@ L_ENTRY:
     !remote_status
     !begin_status
     !writer_status
-    !url_suffix_copy
-    !url_port_copy
-    !url_colon_copy
-    !url_host_copy
-    !url_prefix_copy
-    !url_suffix_dst
-    !url_port_dst
-    !url_colon_dst
-    !url_host_dst
     !url_ptr
     !url_len
-    !url_c_len
-    !url_b_len
-    !url_a_len
     !port_len
     !port_fmt_status
     !port_u64
@@ -14493,20 +14511,9 @@ L_ENTRY:
     port_len_slot = stack_alloc 8
     port_fmt_status = call @sa_fmt_u64_into(port_u64, 10, port_buf, ID_BUF_SIZE, &port_len_slot)
     port_len = load port_len_slot+0 as u64
-    url_a_len = add STRING_HTTP_PREFIX_LEN, host_len
-    url_b_len = add url_a_len, CHAT_PROXY_COLON_LEN
-    url_c_len = add url_b_len, port_len
-    url_len = add url_c_len, STRING_OAUTH_SUFFIX_LEN
-    url_ptr = alloc url_len
-    url_host_dst = ptr_add url_ptr, STRING_HTTP_PREFIX_LEN
-    url_colon_dst = ptr_add url_ptr, url_a_len
-    url_port_dst = ptr_add url_ptr, url_b_len
-    url_suffix_dst = ptr_add url_ptr, url_c_len
-    url_prefix_copy = call @sa_bytes_copy(&url_ptr, &STRING_HTTP_PREFIX, STRING_HTTP_PREFIX_LEN)
-    url_host_copy = call @sa_bytes_copy(&url_host_dst, &host_ptr, host_len)
-    url_colon_copy = call @sa_bytes_copy(&url_colon_dst, &CHAT_PROXY_COLON, CHAT_PROXY_COLON_LEN)
-    url_port_copy = call @sa_bytes_copy(&url_port_dst, &port_buf, port_len)
-    url_suffix_copy = call @sa_bytes_copy(&url_suffix_dst, &STRING_OAUTH_SUFFIX, STRING_OAUTH_SUFFIX_LEN)
+    url_len_slot = stack_alloc 8
+    url_ptr = call @build_http_url(&host_ptr, host_len, port_u64, &STRING_OAUTH_SUFFIX, STRING_OAUTH_SUFFIX_LEN, &url_len_slot)
+    url_len = load url_len_slot+0 as u64
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
@@ -14518,20 +14525,8 @@ L_ENTRY:
     !auth_status
     !begin_status
     !writer_status
-    !url_suffix_copy
-    !url_port_copy
-    !url_colon_copy
-    !url_host_copy
-    !url_prefix_copy
-    !url_suffix_dst
-    !url_port_dst
-    !url_colon_dst
-    !url_host_dst
     !url_ptr
     !url_len
-    !url_c_len
-    !url_b_len
-    !url_a_len
     !port_len
     !port_fmt_status
     !host_ptr
