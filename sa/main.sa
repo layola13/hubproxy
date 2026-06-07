@@ -157,7 +157,6 @@
 @const J_ERR_FS = utf8:"fs operation failed"
 @const J_NAME_KEY = utf8:"\"name\":\""
 @const J_PREVIEW_KEY = utf8:"\"preview\":\""
-@const J_PREVIEW_NULL = utf8:"\"preview\":null"
 @const J_WATCH_ID_KEY = utf8:"\"watchId\":\""
 @const J_TURN_STATUS_IN_PROGRESS = utf8:"inProgress"
 @const J_TURN_STATUS_INTERRUPTED = utf8:"interrupted"
@@ -361,6 +360,7 @@
 @const JSON_KEY_META = utf8:"meta"
 @const JSON_KEY_TURN_ID = utf8:"turnId"
 @const JSON_KEY_ITEM_ID = utf8:"itemId"
+@const JSON_KEY_NUM_TURNS = utf8:"numTurns"
 @const JSON_KEY_RELOADED = utf8:"reloaded"
 @const JSON_KEY_TOOLS = utf8:"tools"
 @const JSON_KEY_RESOURCES = utf8:"resources"
@@ -745,6 +745,7 @@
 #def JSON_KEY_META_LEN = 4
 #def JSON_KEY_TURN_ID_LEN = 6
 #def JSON_KEY_ITEM_ID_LEN = 6
+#def JSON_KEY_NUM_TURNS_LEN = 8
 #def JSON_KEY_RELOADED_LEN = 8
 #def JSON_KEY_TOOLS_LEN = 5
 #def JSON_KEY_RESOURCES_LEN = 9
@@ -975,11 +976,9 @@
 @const J_APPROVAL_POLICY_KEY = utf8:"\"approvalPolicy\":\""
 @const J_APPROVALS_REVIEWER_KEY = utf8:"\"approvalsReviewer\":\""
 @const J_SANDBOX_KEY = utf8:"\"sandbox\":\""
-@const J_EPHEMERAL_FALSE_KEY = utf8:"\"ephemeral\":false"
 @const J_TURNID_KEY = utf8:"\"turnId\":\""
 @const J_EXPECTED_TURNID_KEY = utf8:"\"expectedTurnId\":\""
 @const J_NUM_TURNS_KEY = utf8:"\"numTurns\":\""
-@const J_NUM_TURNS_NUM_KEY = utf8:"\"numTurns\":"
 @const J_OBJECTIVE_KEY = utf8:"\"objective\":\""
 @const J_STATUS_KEY = utf8:"\"status\":\""
 @const J_TOKEN_BUDGET_KEY = utf8:"\"tokenBudget\":"
@@ -1113,7 +1112,6 @@
 #def RESP_NATIVE_CONT_BEFORE_COMPLETED_LEN = 513
 #def J_NAME_KEY_LEN = 8
 #def J_PREVIEW_KEY_LEN = 11
-#def J_PREVIEW_NULL_LEN = 14
 #def J_WATCH_ID_KEY_LEN = 11
 #def J_PATH_KEY_LEN = 8
 #def J_DATA_BASE64_KEY_LEN = 14
@@ -1144,11 +1142,9 @@
 #def J_APPROVAL_POLICY_KEY_LEN = 18
 #def J_APPROVALS_REVIEWER_KEY_LEN = 21
 #def J_SANDBOX_KEY_LEN = 11
-#def J_EPHEMERAL_FALSE_KEY_LEN = 17
 #def J_TURNID_KEY_LEN = 10
 #def J_EXPECTED_TURNID_KEY_LEN = 18
 #def J_NUM_TURNS_KEY_LEN = 12
-#def J_NUM_TURNS_NUM_KEY_LEN = 11
 #def J_OBJECTIVE_KEY_LEN = 13
 #def J_STATUS_KEY_LEN = 10
 #def J_TOKEN_BUDGET_KEY_LEN = 14
@@ -6078,6 +6074,175 @@ L_EXTRACT_FALLBACK2:
     !key
     !key_len
     return fallback
+
+@ffi_wrapper rpc_extract_bool_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: u8) -> u8:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_BOOL_ROOT, L_BOOL_FALLBACK
+
+L_BOOL_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    !params_status
+    br params_ok -> L_BOOL_PARAMS, L_BOOL_FREE_ROOT
+
+L_BOOL_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    lookup_ptr_slot = stack_alloc 8
+    lookup_len_slot = stack_alloc 8
+    lookup_status = call @rpc_jsonrpc_lookup_key(&key, key_len, &lookup_ptr_slot, &lookup_len_slot)
+    !lookup_status
+    lookup_ptr = load lookup_ptr_slot+0 as ptr
+    lookup_len = load lookup_len_slot+0 as u64
+    value_slot = stack_alloc 1
+    value_status = call @sa_json_object_get_bool(params_node, &lookup_ptr, lookup_len, &value_slot)
+    value_ok = eq value_status, 0
+    !value_status
+    br value_ok -> L_BOOL_VALUE, L_BOOL_MISSING
+
+L_BOOL_VALUE:
+    !value_ok
+    value = load value_slot+0 as u8
+    free_params = call @sa_json_free(^params_node)
+    free_root = call @sa_json_free(^root)
+    !free_params
+    !free_root
+    !lookup_ptr
+    !lookup_len
+    !body
+    !body_len
+    !key
+    !key_len
+    !fallback
+    return value
+
+L_BOOL_MISSING:
+    !value_ok
+    !lookup_ptr
+    !lookup_len
+    free_params_missing = call @sa_json_free(^params_node)
+    free_root_missing = call @sa_json_free(^root)
+    !free_params_missing
+    !free_root_missing
+    !body
+    !body_len
+    !key
+    !key_len
+    return fallback
+
+L_BOOL_FREE_ROOT:
+    !params_ok
+    free_root_only = call @sa_json_free(^root)
+    !free_root_only
+    !body
+    !body_len
+    !key
+    !key_len
+    return fallback
+
+L_BOOL_FALLBACK:
+    !has_root
+    !root
+    !body
+    !body_len
+    !key
+    !key_len
+    return fallback
+
+@ffi_wrapper rpc_param_is_null(&body: ptr, body_len: u64, &key: ptr, key_len: u64) -> u8:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_NULL_ROOT, L_NULL_NO_ROOT
+
+L_NULL_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    !params_status
+    br params_ok -> L_NULL_PARAMS, L_NULL_FREE_ROOT
+
+L_NULL_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    lookup_ptr_slot = stack_alloc 8
+    lookup_len_slot = stack_alloc 8
+    lookup_status = call @rpc_jsonrpc_lookup_key(&key, key_len, &lookup_ptr_slot, &lookup_len_slot)
+    !lookup_status
+    lookup_ptr = load lookup_ptr_slot+0 as ptr
+    lookup_len = load lookup_len_slot+0 as u64
+    value_slot = stack_alloc 8
+    value_status = call @sa_json_object_get(params_node, &lookup_ptr, lookup_len, &value_slot)
+    value_ok = eq value_status, 0
+    br value_ok -> L_NULL_VALUE, L_NULL_MISSING
+
+L_NULL_VALUE:
+    !value_ok
+    value_node = load value_slot+0 as ptr
+    value_kind = call @sa_json_kind(value_node)
+    is_null = eq value_kind, SA_JSON_KIND_NULL
+    free_value = call @sa_json_free(^value_node)
+    free_params = call @sa_json_free(^params_node)
+    free_root = call @sa_json_free(^root)
+    !free_root
+    !free_params
+    !free_value
+    !value_kind
+    !value_status
+    !lookup_ptr
+    !lookup_len
+    !body
+    !body_len
+    !key
+    !key_len
+    br is_null -> L_NULL_TRUE, L_NULL_FALSE
+
+L_NULL_TRUE:
+    !is_null
+    return 1
+
+L_NULL_FALSE:
+    !is_null
+    return 0
+
+L_NULL_MISSING:
+    !value_ok
+    !value_status
+    !lookup_ptr
+    !lookup_len
+    free_params_missing = call @sa_json_free(^params_node)
+    free_root_missing = call @sa_json_free(^root)
+    !free_root_missing
+    !free_params_missing
+    !body
+    !body_len
+    !key
+    !key_len
+    return 0
+
+L_NULL_FREE_ROOT:
+    !params_ok
+    free_root_only = call @sa_json_free(^root)
+    !free_root_only
+    !body
+    !body_len
+    !key
+    !key_len
+    return 0
+
+L_NULL_NO_ROOT:
+    !has_root
+    !root
+    !body
+    !body_len
+    !key
+    !key_len
+    return 0
 
 @ffi_wrapper rpc_extract_u64_number_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: u64) -> u64:
 L_ENTRY:
@@ -12200,9 +12365,7 @@ L_META_SET:
 
 L_META_CHECK_NULL:
     !has_preview
-    null_idx = call @sa_bytes_find(&body, body_len, &J_PREVIEW_NULL, J_PREVIEW_NULL_LEN)
-    has_null = sge null_idx, 0
-    !null_idx
+    has_null = call @rpc_param_is_null(&body, body_len, &J_PREVIEW_KEY, J_PREVIEW_KEY_LEN)
     br has_null -> L_META_CLEAR, L_META_READ
 
 L_META_CLEAR:
@@ -15598,11 +15761,7 @@ L_RPC_THR_START:
     provider_len = load provider_len_slot+0 as u64
     thread_key_ptr = load thread_key_ptr_slot+0 as ptr
     thread_key_len = load thread_key_len_slot+0 as u64
-    eph_false_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &J_EPHEMERAL_FALSE_KEY, J_EPHEMERAL_FALSE_KEY_LEN)
-    eph_false_found = sge eph_false_idx, 0
-    ephemeral = eq eph_false_found, 0
-    !eph_false_idx
-    !eph_false_found
+    ephemeral = call @rpc_extract_bool_after(&rpc_body_ptr, rpc_body_len, &JSON_KEY_EPHEMERAL, JSON_KEY_EPHEMERAL_LEN, 1)
     new_tid = call @state_thread_create_with_key(&state_ptr, &thread_key_ptr, thread_key_len, &model_ptr, model_len, &dir_ptr, dir_len)
     provider_set = call @state_thread_set_model_provider(&state_ptr, new_tid, &provider_ptr, provider_len)
     ephemeral_set = call @state_thread_set_ephemeral(&state_ptr, new_tid, ephemeral)
@@ -15775,11 +15934,7 @@ L_RPC_THR_FORK_FOUND:
     dir_len2 = load fork_dir_len_slot+0 as u64
     provider_ptr2 = load fork_provider_ptr_slot+0 as ptr
     provider_len2 = load fork_provider_len_slot+0 as u64
-    fork_eph_false_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &J_EPHEMERAL_FALSE_KEY, J_EPHEMERAL_FALSE_KEY_LEN)
-    fork_eph_false_found = sge fork_eph_false_idx, 0
-    ephemeral2 = eq fork_eph_false_found, 0
-    !fork_eph_false_idx
-    !fork_eph_false_found
+    ephemeral2 = call @rpc_extract_bool_after(&rpc_body_ptr, rpc_body_len, &JSON_KEY_EPHEMERAL, JSON_KEY_EPHEMERAL_LEN, 1)
     fork_tid = call @state_thread_create(&state_ptr, &model_ptr2, model_len2, &dir_ptr2, dir_len2)
     fork_provider_set = call @state_thread_set_model_provider(&state_ptr, fork_tid, &provider_ptr2, provider_len2)
     fork_ephemeral_set = call @state_thread_set_ephemeral(&state_ptr, fork_tid, ephemeral2)
@@ -15875,25 +16030,10 @@ L_RPC_TRY_THR_ROLLBACK:
 L_RPC_THR_ROLLBACK:
     !m_trb_ok
     rollback_tid = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
-    remove_count_string_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &J_NUM_TURNS_KEY, J_NUM_TURNS_KEY_LEN)
-    remove_count_is_string = sge remove_count_string_idx, 0
-    !remove_count_string_idx
-    br remove_count_is_string -> L_RPC_THR_ROLLBACK_STRING_COUNT, L_RPC_THR_ROLLBACK_NUMBER_COUNT
-
-L_RPC_THR_ROLLBACK_STRING_COUNT:
-    !remove_count_is_string
-    remove_count = call @rpc_extract_u64_after(&rpc_body_ptr, rpc_body_len, &J_NUM_TURNS_KEY, J_NUM_TURNS_KEY_LEN, 1)
+    remove_count = call @rpc_extract_u64_after(&rpc_body_ptr, rpc_body_len, &JSON_KEY_NUM_TURNS, JSON_KEY_NUM_TURNS_LEN, 1)
     call @send_rpc_thread_rollback(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, rollback_tid, remove_count)
     !rollback_tid
     !remove_count
-    jmp L_RPC_DONE
-
-L_RPC_THR_ROLLBACK_NUMBER_COUNT:
-    !remove_count_is_string
-    remove_count2 = call @rpc_extract_u64_number_after(&rpc_body_ptr, rpc_body_len, &J_NUM_TURNS_NUM_KEY, J_NUM_TURNS_NUM_KEY_LEN, 1)
-    call @send_rpc_thread_rollback(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, rollback_tid, remove_count2)
-    !rollback_tid
-    !remove_count2
     jmp L_RPC_DONE
 
 L_RPC_TRY_THR_TURNS:
