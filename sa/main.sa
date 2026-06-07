@@ -180,8 +180,6 @@
 @const J_COMMAND_KEY = utf8:"\"command\":\""
 @const J_CWD_KEY = utf8:"\"cwd\":\""
 @const J_MESSAGE_KEY = utf8:"\"message\":\""
-@const J_INPUT_ARRAY_KEY = utf8:"\"input\":"
-@const J_ITEMS_ARRAY_KEY = utf8:"\"items\":"
 @const J_TOOL_KEY = utf8:"\"tool\":\""
 @const J_SERVER_KEY = utf8:"\"server\":\""
 @const J_ITEMID_KEY = utf8:"\"itemId\":\""
@@ -200,7 +198,6 @@
 @const J_ENVIRONMENT_ID_KEY = utf8:"\"environmentId\":\""
 @const J_SHELL_WARNING_PREFIX = utf8:"shell command queued: "
 @const FB_KEY_VALUE = utf8:"value"
-@const CHAT_FB_ARRAY_CLOSE = utf8:"]"
 @const CHAT_PROXY_COLON = utf8:":"
 @const DEFAULT_LOCAL = utf8:"local"
 @const DEFAULT_INSTALLATION = utf8:"local-installation"
@@ -1065,8 +1062,6 @@
 #def J_COMMAND_KEY_LEN = 11
 #def J_CWD_KEY_LEN = 7
 #def J_MESSAGE_KEY_LEN = 11
-#def J_INPUT_ARRAY_KEY_LEN = 8
-#def J_ITEMS_ARRAY_KEY_LEN = 8
 #def J_TOOL_KEY_LEN = 8
 #def J_SERVER_KEY_LEN = 10
 #def J_ITEMID_KEY_LEN = 10
@@ -1085,7 +1080,6 @@
 #def J_ENVIRONMENT_ID_KEY_LEN = 17
 #def J_SHELL_WARNING_PREFIX_LEN = 22
 #def FB_KEY_VALUE_LEN = 5
-#def CHAT_FB_ARRAY_CLOSE_LEN = 1
 #def CHAT_PROXY_COLON_LEN = 1
 #def DEFAULT_LOCAL_LEN = 5
 #def DEFAULT_INSTALLATION_LEN = 18
@@ -7722,202 +7716,158 @@ L_RESP_PROGRESS_NO_FINAL:
     return 0
 
 
-@ffi_wrapper rpc_extract_array_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32:
+@ffi_wrapper rpc_extract_param_array_json(&body: ptr, body_len: u64, &field: ptr, field_len: u64, &out_ptr: ptr, &out_len: ptr, &out_buffer: ptr) -> u32:
 L_ENTRY:
-    idx = call @sa_bytes_find(&body, body_len, &key, key_len)
-    found = sge idx, 0
-    br found -> L_ARRAY_PREP, L_ARRAY_NOT_FOUND
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_PARAM_ARRAY_ROOT, L_PARAM_ARRAY_NO_ROOT
 
-L_ARRAY_PREP:
-    !found
-    val_off_i = add idx, key_len
-    !idx
-    val_off = bitcast val_off_i as u64
-    remaining = sub body_len, val_off
-    val_ptr = ptr_add body, val_off
-    first = load val_ptr+0 as u8
-    is_array = eq first, 91
-    !first
-    br is_array -> L_ARRAY_SCAN_INIT, L_ARRAY_BAD
+L_PARAM_ARRAY_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_PARAM_ARRAY_PARAMS, L_PARAM_ARRAY_NO_PARAMS
 
-L_ARRAY_SCAN_INIT:
+L_PARAM_ARRAY_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    value_slot = stack_alloc 8
+    value_status = call @sa_json_object_get(params_node, &field, field_len, &value_slot)
+    value_ok = eq value_status, 0
+    br value_ok -> L_PARAM_ARRAY_VALUE, L_PARAM_ARRAY_NO_VALUE
+
+L_PARAM_ARRAY_VALUE:
+    !value_ok
+    value_node = load value_slot+0 as ptr
+    value_kind = call @sa_json_kind(value_node)
+    is_array = eq value_kind, SA_JSON_KIND_ARRAY
+    br is_array -> L_PARAM_ARRAY_STRINGIFY, L_PARAM_ARRAY_NOT_ARRAY
+
+L_PARAM_ARRAY_STRINGIFY:
     !is_array
-    depth_slot = stack_alloc 8
-    i_slot = stack_alloc 8
-    in_str_slot = stack_alloc 8
-    esc_slot = stack_alloc 8
-    store depth_slot+0, 0 as u64
-    store i_slot+0, 0 as u64
-    store in_str_slot+0, 0 as u64
-    store esc_slot+0, 0 as u64
-    jmp L_ARRAY_SCAN_COND
+    buffer_slot = stack_alloc 8
+    stringify_status = call @sa_json_stringify(value_node, &buffer_slot)
+    stringify_ok = eq stringify_status, 0
+    br stringify_ok -> L_PARAM_ARRAY_OK, L_PARAM_ARRAY_STRINGIFY_BAD
 
-L_ARRAY_SCAN_COND:
-    i = load i_slot+0 as u64
-    done = uge i, remaining
-    br done -> L_ARRAY_BAD_FROM_SCAN, L_ARRAY_SCAN_BODY
-
-L_ARRAY_SCAN_BODY:
-    ch_ptr = ptr_add val_ptr, i
-    ch = load ch_ptr+0 as u8
-    esc = load esc_slot+0 as u64
-    in_str = load in_str_slot+0 as u64
-    is_escaped = eq esc, 1
-    br is_escaped -> L_ARRAY_ESCAPED, L_ARRAY_NOT_ESCAPED
-
-L_ARRAY_ESCAPED:
-    !is_escaped
-    store esc_slot+0, 0 as u64
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_NOT_ESCAPED:
-    !is_escaped
-    is_in_str = eq in_str, 1
-    br is_in_str -> L_ARRAY_IN_STRING, L_ARRAY_STRUCT
-
-L_ARRAY_IN_STRING:
-    !is_in_str
-    is_backslash = eq ch, 92
-    br is_backslash -> L_ARRAY_SET_ESC, L_ARRAY_CHECK_QUOTE_IN_STRING
-
-L_ARRAY_SET_ESC:
-    !is_backslash
-    store esc_slot+0, 1 as u64
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_CHECK_QUOTE_IN_STRING:
-    !is_backslash
-    is_quote = eq ch, 34
-    br is_quote -> L_ARRAY_END_STRING, L_ARRAY_NEXT_FROM_STRING
-
-L_ARRAY_END_STRING:
-    !is_quote
-    store in_str_slot+0, 0 as u64
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_NEXT_FROM_STRING:
-    !is_quote
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_STRUCT:
-    !is_in_str
-    is_quote2 = eq ch, 34
-    br is_quote2 -> L_ARRAY_START_STRING, L_ARRAY_CHECK_OPEN
-
-L_ARRAY_START_STRING:
-    !is_quote2
-    store in_str_slot+0, 1 as u64
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_CHECK_OPEN:
-    !is_quote2
-    is_open = eq ch, 91
-    br is_open -> L_ARRAY_INC_DEPTH, L_ARRAY_CHECK_CLOSE
-
-L_ARRAY_INC_DEPTH:
-    !is_open
-    depth = load depth_slot+0 as u64
-    next_depth = add depth, 1
-    store depth_slot+0, next_depth as u64
-    !next_depth
-    !depth
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_CHECK_CLOSE:
-    !is_open
-    is_close = eq ch, 93
-    br is_close -> L_ARRAY_DEC_OR_DONE, L_ARRAY_NEXT_FROM_STRUCT
-
-L_ARRAY_DEC_OR_DONE:
-    !is_close
-    depth2 = load depth_slot+0 as u64
-    is_outer = eq depth2, 1
-    br is_outer -> L_ARRAY_FOUND_END, L_ARRAY_DEC_DEPTH
-
-L_ARRAY_DEC_DEPTH:
-    !is_outer
-    next_depth2 = sub depth2, 1
-    store depth_slot+0, next_depth2 as u64
-    !next_depth2
-    !depth2
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_FOUND_END:
-    !is_outer
-    arr_len = add i, 1
-    store out_ptr+0, val_ptr as ptr
-    store out_len+0, arr_len as u64
-    !arr_len
-    !depth2
-    !ch
-    !ch_ptr
-    !i
-    !done
-    !remaining
-    !val_ptr
-    !val_off
-    !val_off_i
+L_PARAM_ARRAY_OK:
+    !stringify_ok
+    buffer = load buffer_slot+0 as ptr
+    data_ptr = call @sa_json_buffer_data(&buffer)
+    data_len = call @sa_json_buffer_len(&buffer)
+    store out_ptr+0, data_ptr as ptr
+    store out_len+0, data_len as u64
+    store out_buffer+0, buffer as ptr
+    value_free = call @sa_json_free(^value_node)
+    params_free = call @sa_json_free(^params_node)
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !params_free
+    !value_free
+    !data_ptr
+    !data_len
+    !buffer
+    !stringify_status
+    !value_kind
+    !value_status
+    !params_status
     !body
     !body_len
-    !key
-    !key_len
+    !field
+    !field_len
     !out_ptr
     !out_len
+    !out_buffer
     return 1
 
-L_ARRAY_NEXT_FROM_STRUCT:
-    !is_close
-    jmp L_ARRAY_NEXT
-
-L_ARRAY_NEXT:
-    !ch
-    !ch_ptr
-    !esc
-    !in_str
-    next_i = add i, 1
-    store i_slot+0, next_i as u64
-    !next_i
-    !i
-    !done
-    jmp L_ARRAY_SCAN_COND
-
-L_ARRAY_BAD_FROM_SCAN:
-    !done
-    !i
-    !remaining
-    !val_ptr
-    !val_off
-    !val_off_i
+L_PARAM_ARRAY_STRINGIFY_BAD:
+    !stringify_ok
+    !stringify_status
+    store out_buffer+0, 0 as ptr
+    value_free_stringify_bad = call @sa_json_free(^value_node)
+    params_free_stringify_bad = call @sa_json_free(^params_node)
+    root_free_stringify_bad = call @sa_json_free(^root)
+    !root_free_stringify_bad
+    !params_free_stringify_bad
+    !value_free_stringify_bad
+    !value_kind
+    !value_status
+    !params_status
     !body
     !body_len
-    !key
-    !key_len
+    !field
+    !field_len
     !out_ptr
     !out_len
+    !out_buffer
     return 0
 
-L_ARRAY_BAD:
-    !remaining
-    !val_ptr
-    !val_off
-    !val_off_i
+L_PARAM_ARRAY_NOT_ARRAY:
+    !is_array
+    store out_buffer+0, 0 as ptr
+    value_free_bad = call @sa_json_free(^value_node)
+    params_free_bad_value = call @sa_json_free(^params_node)
+    root_free_bad_value = call @sa_json_free(^root)
+    !root_free_bad_value
+    !params_free_bad_value
+    !value_free_bad
+    !value_kind
+    !value_status
+    !params_status
     !body
     !body_len
-    !key
-    !key_len
+    !field
+    !field_len
     !out_ptr
     !out_len
+    !out_buffer
     return 0
 
-L_ARRAY_NOT_FOUND:
-    !found
-    !idx
+L_PARAM_ARRAY_NO_VALUE:
+    !value_ok
+    !value_status
+    store out_buffer+0, 0 as ptr
+    params_free_no_value = call @sa_json_free(^params_node)
+    root_free_no_value = call @sa_json_free(^root)
+    !root_free_no_value
+    !params_free_no_value
+    !params_status
     !body
     !body_len
-    !key
-    !key_len
+    !field
+    !field_len
     !out_ptr
     !out_len
+    !out_buffer
+    return 0
+
+L_PARAM_ARRAY_NO_PARAMS:
+    !params_ok
+    !params_status
+    store out_buffer+0, 0 as ptr
+    root_free_no_params = call @sa_json_free(^root)
+    !root_free_no_params
+    !body
+    !body_len
+    !field
+    !field_len
+    !out_ptr
+    !out_len
+    !out_buffer
+    return 0
+
+L_PARAM_ARRAY_NO_ROOT:
+    !has_root
+    !root
+    store out_buffer+0, 0 as ptr
+    !body
+    !body_len
+    !field
+    !field_len
+    !out_ptr
+    !out_len
+    !out_buffer
     return 0
 
 
@@ -12615,7 +12565,8 @@ L_STEER_OK:
     !missing
     input_ptr_slot = stack_alloc 8
     input_len_slot = stack_alloc 8
-    input_status = call @rpc_extract_array_after(&body, body_len, &J_INPUT_ARRAY_KEY, J_INPUT_ARRAY_KEY_LEN, &input_ptr_slot, &input_len_slot)
+    input_buffer_slot = stack_alloc 8
+    input_status = call @rpc_extract_param_array_json(&body, body_len, &FB_KEY_INPUT, FB_KEY_INPUT_LEN, &input_ptr_slot, &input_len_slot, &input_buffer_slot)
     has_input = eq input_status, 1
     br has_input -> L_STEER_APPEND, L_STEER_NO_INPUT
 
@@ -12626,6 +12577,9 @@ L_STEER_APPEND:
     input_len = load input_len_slot+0 as u64
     append_status = call @state_turn_append_items(&state_ptr, thread_id, turn_id, &input_ptr, input_len)
     !append_status
+    input_buffer = load input_buffer_slot+0 as ptr
+    input_buffer_free = call @sa_json_buffer_free(^input_buffer)
+    !input_buffer_free
     steer_notify_count = call @notify_turn_input_items_from_dom(&state_ptr, &body, body_len, thread_id, turn_id)
     !steer_notify_count
     !input_ptr
@@ -14019,16 +13973,17 @@ L_INJECT_FOUND:
     !thread_slot
     items_ptr_slot = stack_alloc 8
     items_len_slot = stack_alloc 8
-    items_status = call @rpc_extract_array_after(&body, body_len, &J_ITEMS_ARRAY_KEY, J_ITEMS_ARRAY_KEY_LEN, &items_ptr_slot, &items_len_slot)
+    items_buffer_slot = stack_alloc 8
+    items_status = call @rpc_extract_param_array_json(&body, body_len, &FB_KEY_ITEMS, FB_KEY_ITEMS_LEN, &items_ptr_slot, &items_len_slot, &items_buffer_slot)
     has_items = eq items_status, 1
     br has_items -> L_INJECT_WITH_ITEMS, L_INJECT_EMPTY_ITEMS
 
 L_INJECT_EMPTY_ITEMS:
     !has_items
     !items_status
-    empty_items_ptr = &CHAT_FB_ARRAY_CLOSE
+    empty_items_ptr = &EMPTY_TEXT
     store items_ptr_slot+0, empty_items_ptr as ptr
-    store items_len_slot+0, CHAT_FB_ARRAY_CLOSE_LEN as u64
+    store items_len_slot+0, EMPTY_TEXT_LEN as u64
     !empty_items_ptr
     jmp L_INJECT_CREATE
 
@@ -14043,6 +13998,22 @@ L_INJECT_CREATE:
     new_turn_id = call @state_turn_create(&state_ptr, thread_id)
     set_items_status = call @state_turn_set_items(&state_ptr, thread_id, new_turn_id, &items_ptr, items_len)
     !set_items_status
+    items_buffer = load items_buffer_slot+0 as ptr
+    has_items_buffer = ne items_buffer, 0
+    br has_items_buffer -> L_INJECT_FREE_ITEMS_BUFFER, L_INJECT_NO_ITEMS_BUFFER
+
+L_INJECT_FREE_ITEMS_BUFFER:
+    !has_items_buffer
+    items_buffer_free = call @sa_json_buffer_free(^items_buffer)
+    !items_buffer_free
+    jmp L_INJECT_NOTIFY
+
+L_INJECT_NO_ITEMS_BUFFER:
+    !has_items_buffer
+    !items_buffer
+    jmp L_INJECT_NOTIFY
+
+L_INJECT_NOTIFY:
     injected_count = call @notify_injected_items_from_dom(&state_ptr, &body, body_len, thread_id, new_turn_id)
     jmp L_INJECT_RESP
 
@@ -15736,7 +15707,8 @@ L_RPC_TURN_START_CREATED:
     !turn_created
     input_ptr_slot = stack_alloc 8
     input_len_slot = stack_alloc 8
-    input_status = call @rpc_extract_array_after(&rpc_body_ptr, rpc_body_len, &J_INPUT_ARRAY_KEY, J_INPUT_ARRAY_KEY_LEN, &input_ptr_slot, &input_len_slot)
+    input_buffer_slot = stack_alloc 8
+    input_status = call @rpc_extract_param_array_json(&rpc_body_ptr, rpc_body_len, &FB_KEY_INPUT, FB_KEY_INPUT_LEN, &input_ptr_slot, &input_len_slot, &input_buffer_slot)
     has_input = eq input_status, 1
     br has_input -> L_RPC_TURN_START_STORE_INPUT, L_RPC_TURN_START_NO_INPUT
 
@@ -15747,6 +15719,9 @@ L_RPC_TURN_START_STORE_INPUT:
     input_len = load input_len_slot+0 as u64
     set_items_status = call @state_turn_set_items(&state_ptr, turn_thread_id, new_turn_id, &input_ptr, input_len)
     !set_items_status
+    input_buffer = load input_buffer_slot+0 as ptr
+    input_buffer_free = call @sa_json_buffer_free(^input_buffer)
+    !input_buffer_free
     !input_ptr
     !input_len
     jmp L_RPC_TURN_START_NOTIFY

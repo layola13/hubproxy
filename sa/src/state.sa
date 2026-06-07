@@ -10,16 +10,22 @@
 
 @const LOG_STATE_INIT = utf8:"[state] initialized\n"
 @const DEFAULT_PROVIDER_OPENAI = utf8:"openai"
-@const SSE_WARNING_PREFIX = utf8:"event: warning\ndata: {\"method\":\"warning\",\"params\":"
-@const SSE_WARNING_SUFFIX = utf8:"}\n\n"
+@const SSE_WARNING_PREFIX = utf8:"event: warning\ndata: "
+@const SSE_WARNING_SUFFIX = utf8:"\n\n"
 @const WARN_KEY_MESSAGE = utf8:"message"
 @const WARN_KEY_THREAD_ID = utf8:"threadId"
+@const WARN_KEY_METHOD = utf8:"method"
+@const WARN_KEY_PARAMS = utf8:"params"
+@const WARN_VALUE_WARNING = utf8:"warning"
 #def LOG_STATE_INIT_LEN = 20
 #def DEFAULT_PROVIDER_OPENAI_LEN = 6
-#def SSE_WARNING_PREFIX_LEN = 50
-#def SSE_WARNING_SUFFIX_LEN = 3
+#def SSE_WARNING_PREFIX_LEN = 21
+#def SSE_WARNING_SUFFIX_LEN = 2
 #def WARN_KEY_MESSAGE_LEN = 7
 #def WARN_KEY_THREAD_ID_LEN = 8
+#def WARN_KEY_METHOD_LEN = 6
+#def WARN_KEY_PARAMS_LEN = 6
+#def WARN_VALUE_WARNING_LEN = 7
 
 @ffi_wrapper state_clamp_len(len: u64, cap: u64) -> u64:
 L_ENTRY:
@@ -1126,18 +1132,8 @@ L_TAI_WRITER_NEW:
     !new_count_ok
     writer_slot = stack_alloc 8
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
-    writer_ok = eq writer_status, 0
-    br writer_ok -> L_TAI_WRITER_BEGIN, L_TAI_BAD_WRITER
-
-L_TAI_WRITER_BEGIN:
-    !writer_ok
     writer = load writer_slot+0 as ptr
     begin_status = call @sa_json_writer_begin_array(writer)
-    begin_ok = eq begin_status, 0
-    br begin_ok -> L_TAI_LOOP_EXISTING_INIT, L_TAI_BAD_BEGIN
-
-L_TAI_LOOP_EXISTING_INIT:
-    !begin_ok
     existing_count = load existing_count_slot+0 as u64
     new_count = load new_count_slot+0 as u64
     index_slot = stack_alloc 8
@@ -1162,8 +1158,9 @@ L_TAI_WRITE_EXISTING:
     write_status = call @sa_json_writer_write_node(writer, item_node)
     item_free = call @sa_json_free(^item_node)
     !item_free
-    write_ok = eq write_status, 0
-    br write_ok -> L_TAI_ADVANCE_EXISTING, L_TAI_BAD_WRITE_EXISTING
+    !write_status
+    !item_status
+    jmp L_TAI_ADVANCE_EXISTING
 
 L_TAI_ADVANCE_EXISTING_BAD:
     !item_ok
@@ -1200,8 +1197,9 @@ L_TAI_WRITE_NEW:
     new_write_status = call @sa_json_writer_write_node(writer, new_item_node)
     new_item_free = call @sa_json_free(^new_item_node)
     !new_item_free
-    new_write_ok = eq new_write_status, 0
-    br new_write_ok -> L_TAI_ADVANCE_NEW, L_TAI_BAD_WRITE_NEW
+    !new_write_status
+    !new_item_status
+    jmp L_TAI_ADVANCE_NEW
 
 L_TAI_ADVANCE_NEW_BAD:
     !new_item_ok
@@ -1219,18 +1217,8 @@ L_TAI_FINISH_ARRAY:
     !new_done
     !new_index
     end_status = call @sa_json_writer_end_array(writer)
-    end_ok = eq end_status, 0
-    br end_ok -> L_TAI_FINISH_BUFFER, L_TAI_BAD_END
-
-L_TAI_FINISH_BUFFER:
-    !end_ok
     buffer_slot = stack_alloc 8
     finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
-    finish_ok = eq finish_status, 0
-    br finish_ok -> L_TAI_COPY_BUFFER, L_TAI_BAD_FINISH
-
-L_TAI_COPY_BUFFER:
-    !finish_ok
     buffer = load buffer_slot+0 as ptr
     final_ptr = call @sa_json_buffer_data(&buffer)
     final_len = call @sa_json_buffer_len(&buffer)
@@ -1259,20 +1247,12 @@ L_TAI_STORE_BUFFER:
     !now_append_i
     !final_len
     !final_ptr
-    !buffer
-    !buffer_slot
     !finish_status
     !end_status
     !new_count
     !existing_count
-    !item_slot
-    !index_slot
     !new_count_status
     !existing_count_status
-    !new_count_slot
-    !existing_count_slot
-    !new_root
-    !existing_root
     !existing_items_ptr
     !existing_len
     !slot
@@ -1295,20 +1275,12 @@ L_TAI_TOO_LARGE:
     !buffer_free_large
     !final_len
     !final_ptr
-    !buffer
-    !buffer_slot
     !finish_status
     !end_status
     !new_count
     !existing_count
-    !item_slot
-    !index_slot
     !new_count_status
     !existing_count_status
-    !new_count_slot
-    !existing_count_slot
-    !new_root
-    !existing_root
     !existing_items_ptr
     !existing_len
     !slot
@@ -1319,52 +1291,46 @@ L_TAI_TOO_LARGE:
     !items_len
     return 1
 
-L_TAI_BAD_FINISH:
-    !finish_ok
-    !finish_status
-    jmp L_TAI_FAIL_FREE_WRITER_ROOTS
-
-L_TAI_BAD_END:
-    !end_ok
-    !end_status
-    jmp L_TAI_FAIL_FREE_WRITER_ROOTS
-
-L_TAI_BAD_WRITE_NEW:
-    !new_write_ok
-    !new_write_status
-    jmp L_TAI_FAIL_FREE_WRITER_ROOTS
-
-L_TAI_BAD_WRITE_EXISTING:
-    !write_ok
-    !write_status
-    jmp L_TAI_FAIL_FREE_WRITER_ROOTS
-
-L_TAI_BAD_BEGIN:
-    !begin_ok
-    !begin_status
-    jmp L_TAI_FAIL_FREE_WRITER_ROOTS
-
-L_TAI_BAD_WRITER:
-    !writer_ok
-    !writer_status
-    jmp L_TAI_FAIL_FREE_ROOTS
-
 L_TAI_BAD_COUNTS_NEW:
     !new_count_ok
     !new_count_status
-    jmp L_TAI_FAIL_FREE_ROOTS
+    !existing_count_status
+    new_free_bad_counts_new = call @sa_json_free(^new_root)
+    existing_free_bad_counts_new = call @sa_json_free(^existing_root)
+    !existing_free_bad_counts_new
+    !new_free_bad_counts_new
+    !existing_items_ptr
+    !existing_len
+    !slot
+    !state
+    !thread_id
+    !turn_id
+    !items_ptr
+    !items_len
+    return 1
 
 L_TAI_BAD_COUNTS:
     !existing_count_ok
     !existing_count_status
-    jmp L_TAI_FAIL_FREE_ROOTS
+    new_free_bad_counts = call @sa_json_free(^new_root)
+    existing_free_bad_counts = call @sa_json_free(^existing_root)
+    !existing_free_bad_counts
+    !new_free_bad_counts
+    !existing_items_ptr
+    !existing_len
+    !slot
+    !state
+    !thread_id
+    !turn_id
+    !items_ptr
+    !items_len
+    return 1
 
 L_TAI_BAD_NEW:
     !new_ok
     !new_root
     existing_free_bad_new = call @sa_json_free(^existing_root)
     !existing_free_bad_new
-    !existing_root
     !existing_items_ptr
     !existing_len
     !slot
@@ -1377,28 +1343,6 @@ L_TAI_BAD_NEW:
 
 L_TAI_BAD_EXISTING:
     !existing_ok
-    !existing_root
-    !existing_items_ptr
-    !existing_len
-    !slot
-    !state
-    !thread_id
-    !turn_id
-    !items_ptr
-    !items_len
-    return 1
-
-L_TAI_FAIL_FREE_WRITER_ROOTS:
-    writer_free_fail = call @sa_json_writer_free(^writer)
-    !writer_free_fail
-    jmp L_TAI_FAIL_FREE_ROOTS
-
-L_TAI_FAIL_FREE_ROOTS:
-    new_free_fail = call @sa_json_free(^new_root)
-    existing_free_fail = call @sa_json_free(^existing_root)
-    !existing_free_fail
-    !new_free_fail
-    !new_root
     !existing_root
     !existing_items_ptr
     !existing_len
@@ -2777,6 +2721,9 @@ L_ENTRY:
     writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
     writer = load writer_slot+0 as ptr
     begin_status = call @sa_json_writer_begin_object(writer)
+    method_status = call @sa_json_writer_field_string(writer, &WARN_KEY_METHOD, WARN_KEY_METHOD_LEN, &WARN_VALUE_WARNING, WARN_VALUE_WARNING_LEN)
+    params_field_status = call @sa_json_writer_object_field(writer, &WARN_KEY_PARAMS, WARN_KEY_PARAMS_LEN)
+    params_begin_status = call @sa_json_writer_begin_object(writer)
     field_msg_status = call @sa_json_writer_field_string(writer, &WARN_KEY_MESSAGE, WARN_KEY_MESSAGE_LEN, &message_ptr, message_len)
     has_thread = ugt thread_len, 0
     br has_thread -> L_WARN_THREAD, L_WARN_NO_THREAD
@@ -2792,6 +2739,7 @@ L_WARN_NO_THREAD:
     jmp L_WARN_END_OBJECT
 
 L_WARN_END_OBJECT:
+    params_end_status = call @sa_json_writer_end_object(writer)
     end_status = call @sa_json_writer_end_object(writer)
     finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
     buffer = load buffer_slot+0 as ptr
@@ -2812,7 +2760,11 @@ L_WARN_END_OBJECT:
     !frame_len
     !writer_status
     !begin_status
+    !method_status
+    !params_field_status
+    !params_begin_status
     !field_msg_status
+    !params_end_status
     !end_status
     !finish_status
     !state
