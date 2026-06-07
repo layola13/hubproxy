@@ -243,6 +243,7 @@
 @const JSON_KEY_THREAD_ID = utf8:"threadId"
 @const JSON_KEY_OBJECTIVE = utf8:"objective"
 @const JSON_KEY_STATUS = utf8:"status"
+@const JSON_KEY_RESPONSE = utf8:"response"
 @const JSON_KEY_TOKEN_BUDGET = utf8:"tokenBudget"
 @const JSON_KEY_TOKENS_USED = utf8:"tokensUsed"
 @const JSON_KEY_TIME_USED_SECONDS = utf8:"timeUsedSeconds"
@@ -347,6 +348,9 @@
 @const JSON_KEY_INJECTED_COUNT = utf8:"injectedCount"
 @const JSON_KEY_QUEUED = utf8:"queued"
 @const JSON_KEY_COMMAND = utf8:"command"
+@const JSON_KEY_CMD = utf8:"cmd"
+@const JSON_KEY_CALL_ID = utf8:"call_id"
+@const JSON_KEY_ARGUMENTS = utf8:"arguments"
 @const JSON_KEY_MEMORY_MODE = utf8:"memoryMode"
 @const JSON_KEY_TOKEN = utf8:"token"
 @const JSON_KEY_CONTENT_ITEMS = utf8:"contentItems"
@@ -554,6 +558,7 @@
 @const FB_TYPE_FUNCTION = utf8:"function"
 @const FB_TYPE_NAMESPACE = utf8:"namespace"
 @const TOOL_NAME_EXEC_KEY = utf8:"\"name\":\"exec_command\""
+@const TOOL_NAME_EXEC = utf8:"exec_command"
 @const BODY_GOAL_CONTEXT = utf8:"<goal_context>"
 @const BODY_GOAL_CONTEXT_TEXT = utf8:"Continue working toward the active thread goal"
 @const BODY_MODE_PLAN = utf8:"\"mode\":\"plan\""
@@ -580,7 +585,12 @@
 @const CHAT_FINAL_CN_DONE = utf8:"我已完成"
 @const CHAT_PROPOSED_PLAN = utf8:"<proposed_plan>"
 @const RESP_EVENT_COMPLETED_PREFIX = utf8:"event: response.completed\n"
-@const RESP_NATIVE_CONT_BEFORE_COMPLETED = utf8:"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"tc_chat_continue\",\"type\":\"function_call\",\"call_id\":\"call_chat_continue\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"printf '%s\\\\n' 'Progress-only message received in chat fallback. Continue now: call a read-only tool if more evidence is needed, otherwise provide the final answer.'\\\"}\"}}\n\nevent: response.done\ndata: {\"type\":\"response.done\",\"response\":{\"id\":\"resp_chat_fb\",\"status\":\"completed\"}}\n\nevent: response.completed\n"
+@const RESP_EVENT_OUTPUT_ITEM_DONE = utf8:"response.output_item.done"
+@const RESP_EVENT_DONE = utf8:"response.done"
+@const RESP_ID_CHAT_CONTINUE = utf8:"tc_chat_continue"
+@const RESP_CALL_ID_CHAT_CONTINUE = utf8:"call_chat_continue"
+@const RESP_ID_CHAT_FB = utf8:"resp_chat_fb"
+@const RESP_CONTINUATION_CMD = utf8:"printf '%s\n' 'Progress-only message received in chat fallback. Continue now: call a read-only tool if more evidence is needed, otherwise provide the final answer.'"
 @const RESP_TYPE_FUNCTION_CALL = utf8:"function_call"
 @const RESP_TYPE_CUSTOM_TOOL_CALL = utf8:"custom_tool_call"
 @const RESP_TYPE_TOOL_SEARCH_CALL = utf8:"tool_search_call"
@@ -628,6 +638,7 @@
 #def JSON_KEY_THREAD_ID_LEN = 8
 #def JSON_KEY_OBJECTIVE_LEN = 9
 #def JSON_KEY_STATUS_LEN = 6
+#def JSON_KEY_RESPONSE_LEN = 8
 #def JSON_KEY_TOKEN_BUDGET_LEN = 11
 #def JSON_KEY_TOKENS_USED_LEN = 10
 #def JSON_KEY_TIME_USED_SECONDS_LEN = 15
@@ -732,6 +743,9 @@
 #def JSON_KEY_INJECTED_COUNT_LEN = 13
 #def JSON_KEY_QUEUED_LEN = 6
 #def JSON_KEY_COMMAND_LEN = 7
+#def JSON_KEY_CMD_LEN = 3
+#def JSON_KEY_CALL_ID_LEN = 7
+#def JSON_KEY_ARGUMENTS_LEN = 9
 #def JSON_KEY_MEMORY_MODE_LEN = 10
 #def JSON_KEY_TOKEN_LEN = 5
 #def JSON_KEY_CONTENT_ITEMS_LEN = 12
@@ -1109,7 +1123,13 @@
 #def CHAT_FINAL_CN_DONE_LEN = 12
 #def CHAT_PROPOSED_PLAN_LEN = 15
 #def RESP_EVENT_COMPLETED_PREFIX_LEN = 26
-#def RESP_NATIVE_CONT_BEFORE_COMPLETED_LEN = 513
+#def RESP_EVENT_OUTPUT_ITEM_DONE_LEN = 25
+#def RESP_EVENT_DONE_LEN = 13
+#def RESP_ID_CHAT_CONTINUE_LEN = 16
+#def RESP_CALL_ID_CHAT_CONTINUE_LEN = 18
+#def RESP_ID_CHAT_FB_LEN = 12
+#def RESP_CONTINUATION_CMD_LEN = 164
+#def TOOL_NAME_EXEC_LEN = 12
 #def J_NAME_KEY_LEN = 8
 #def J_PREVIEW_KEY_LEN = 11
 #def J_WATCH_ID_KEY_LEN = 11
@@ -8031,6 +8051,130 @@ L_RESP_PROGRESS_NO_FINAL:
     !body_len
     return 0
 
+@ffi_wrapper build_native_progress_continuation(&out_len: ptr) -> ^ptr:
+L_ENTRY:
+    args_writer_slot = stack_alloc 8
+    args_buffer_slot = stack_alloc 8
+    args_writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &args_writer_slot)
+    args_writer = load args_writer_slot+0 as ptr
+    args_begin = call @sa_json_writer_begin_object(args_writer)
+    cmd_status = call @sa_json_writer_field_string(args_writer, &JSON_KEY_CMD, JSON_KEY_CMD_LEN, &RESP_CONTINUATION_CMD, RESP_CONTINUATION_CMD_LEN)
+    args_end = call @sa_json_writer_end_object(args_writer)
+    args_finish = call @sa_json_writer_finish(args_writer, &args_buffer_slot)
+    args_buffer = load args_buffer_slot+0 as ptr
+    args_ptr = call @sa_json_buffer_data(&args_buffer)
+    args_len = call @sa_json_buffer_len(&args_buffer)
+
+    item_writer_slot = stack_alloc 8
+    item_buffer_slot = stack_alloc 8
+    item_writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &item_writer_slot)
+    item_writer = load item_writer_slot+0 as ptr
+    item_begin = call @sa_json_writer_begin_object(item_writer)
+    item_type_status = call @sa_json_writer_field_string(item_writer, &FB_KEY_TYPE, FB_KEY_TYPE_LEN, &RESP_EVENT_OUTPUT_ITEM_DONE, RESP_EVENT_OUTPUT_ITEM_DONE_LEN)
+    item_field_status = call @sa_json_writer_object_field(item_writer, &JSON_KEY_ITEM, JSON_KEY_ITEM_LEN)
+    item_obj_begin = call @sa_json_writer_begin_object(item_writer)
+    item_id_status = call @sa_json_writer_field_string(item_writer, &RPC_KEY_ID, RPC_KEY_ID_LEN, &RESP_ID_CHAT_CONTINUE, RESP_ID_CHAT_CONTINUE_LEN)
+    item_call_type_status = call @sa_json_writer_field_string(item_writer, &FB_KEY_TYPE, FB_KEY_TYPE_LEN, &RESP_TYPE_FUNCTION_CALL, RESP_TYPE_FUNCTION_CALL_LEN)
+    item_call_id_status = call @sa_json_writer_field_string(item_writer, &JSON_KEY_CALL_ID, JSON_KEY_CALL_ID_LEN, &RESP_CALL_ID_CHAT_CONTINUE, RESP_CALL_ID_CHAT_CONTINUE_LEN)
+    item_name_status = call @sa_json_writer_field_string(item_writer, &JSON_KEY_NAME, JSON_KEY_NAME_LEN, &TOOL_NAME_EXEC, TOOL_NAME_EXEC_LEN)
+    item_args_status = call @sa_json_writer_field_string(item_writer, &JSON_KEY_ARGUMENTS, JSON_KEY_ARGUMENTS_LEN, &args_ptr, args_len)
+    item_obj_end = call @sa_json_writer_end_object(item_writer)
+    item_end = call @sa_json_writer_end_object(item_writer)
+    item_finish = call @sa_json_writer_finish(item_writer, &item_buffer_slot)
+    item_buffer = load item_buffer_slot+0 as ptr
+    item_ptr = call @sa_json_buffer_data(&item_buffer)
+    item_len = call @sa_json_buffer_len(&item_buffer)
+
+    done_writer_slot = stack_alloc 8
+    done_buffer_slot = stack_alloc 8
+    done_writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &done_writer_slot)
+    done_writer = load done_writer_slot+0 as ptr
+    done_begin = call @sa_json_writer_begin_object(done_writer)
+    done_type_status = call @sa_json_writer_field_string(done_writer, &FB_KEY_TYPE, FB_KEY_TYPE_LEN, &RESP_EVENT_DONE, RESP_EVENT_DONE_LEN)
+    response_field_status = call @sa_json_writer_object_field(done_writer, &JSON_KEY_RESPONSE, JSON_KEY_RESPONSE_LEN)
+    response_begin = call @sa_json_writer_begin_object(done_writer)
+    response_id_status = call @sa_json_writer_field_string(done_writer, &RPC_KEY_ID, RPC_KEY_ID_LEN, &RESP_ID_CHAT_FB, RESP_ID_CHAT_FB_LEN)
+    response_status = call @sa_json_writer_field_string(done_writer, &JSON_KEY_STATUS, JSON_KEY_STATUS_LEN, &JSON_VALUE_COMPLETED, JSON_VALUE_COMPLETED_LEN)
+    response_end = call @sa_json_writer_end_object(done_writer)
+    done_end = call @sa_json_writer_end_object(done_writer)
+    done_finish = call @sa_json_writer_finish(done_writer, &done_buffer_slot)
+    done_buffer = load done_buffer_slot+0 as ptr
+    done_ptr = call @sa_json_buffer_data(&done_buffer)
+    done_len = call @sa_json_buffer_len(&done_buffer)
+
+    capacity_a = add item_len, done_len
+    capacity_b = add capacity_a, 256
+    frame = call @rpc_builder_new_capacity(capacity_b)
+    call @rpc_builder_append(&frame, &SSE_EVENT_PREFIX, SSE_EVENT_PREFIX_LEN)
+    call @rpc_builder_append(&frame, &RESP_EVENT_OUTPUT_ITEM_DONE, RESP_EVENT_OUTPUT_ITEM_DONE_LEN)
+    call @rpc_builder_append(&frame, &SSE_DATA_PREFIX, SSE_DATA_PREFIX_LEN)
+    call @rpc_builder_append(&frame, &item_ptr, item_len)
+    call @rpc_builder_append(&frame, &SSE_FRAME_TRAILER, SSE_FRAME_TRAILER_LEN)
+    call @rpc_builder_append(&frame, &SSE_EVENT_PREFIX, SSE_EVENT_PREFIX_LEN)
+    call @rpc_builder_append(&frame, &RESP_EVENT_DONE, RESP_EVENT_DONE_LEN)
+    call @rpc_builder_append(&frame, &SSE_DATA_PREFIX, SSE_DATA_PREFIX_LEN)
+    call @rpc_builder_append(&frame, &done_ptr, done_len)
+    call @rpc_builder_append(&frame, &SSE_FRAME_TRAILER, SSE_FRAME_TRAILER_LEN)
+    call @rpc_builder_append(&frame, &RESP_EVENT_COMPLETED_PREFIX, RESP_EVENT_COMPLETED_PREFIX_LEN)
+    frame_ptr = call @rpc_builder_data(&frame)
+    frame_len = call @rpc_builder_len(&frame)
+    out = call @bytes_to_owned(&frame_ptr, frame_len, &out_len)
+    store out_len+0, frame_len as u64
+
+    done_buffer_free = call @sa_json_buffer_free(^done_buffer)
+    done_writer_free = call @sa_json_writer_free(^done_writer)
+    item_buffer_free = call @sa_json_buffer_free(^item_buffer)
+    item_writer_free = call @sa_json_writer_free(^item_writer)
+    args_buffer_free = call @sa_json_buffer_free(^args_buffer)
+    args_writer_free = call @sa_json_writer_free(^args_writer)
+    !args_writer_free
+    !args_buffer_free
+    !item_writer_free
+    !item_buffer_free
+    !done_writer_free
+    !done_buffer_free
+    !frame_ptr
+    !frame_len
+    !frame
+    !capacity_b
+    !capacity_a
+    !done_ptr
+    !done_len
+    !done_finish
+    !done_end
+    !response_end
+    !response_status
+    !response_id_status
+    !response_begin
+    !response_field_status
+    !done_type_status
+    !done_begin
+    !done_writer_status
+    !item_ptr
+    !item_len
+    !item_finish
+    !item_end
+    !item_obj_end
+    !item_args_status
+    !item_name_status
+    !item_call_id_status
+    !item_call_type_status
+    !item_id_status
+    !item_obj_begin
+    !item_field_status
+    !item_type_status
+    !item_begin
+    !item_writer_status
+    !args_ptr
+    !args_len
+    !args_finish
+    !args_end
+    !cmd_status
+    !args_begin
+    !args_writer_status
+    !out_len
+    return out
+
 
 @ffi_wrapper rpc_extract_param_array_json(&body: ptr, body_len: u64, &field: ptr, field_len: u64, &out_ptr: ptr, &out_len: ptr, &out_buffer: ptr) -> u32:
 L_ENTRY:
@@ -8429,9 +8573,12 @@ L_NATIVE_CONT_PROGRESS_CHECK:
 L_NATIVE_CONT_REWRITE:
     !native_progress
     !native_progress_status
-    pass5_capacity = add norm_len, RESP_NATIVE_CONT_BEFORE_COMPLETED_LEN
+    continuation_len_slot = stack_alloc 8
+    continuation_ptr = call @build_native_progress_continuation(&continuation_len_slot)
+    continuation_len = load continuation_len_slot+0 as u64
+    pass5_capacity = add norm_len, continuation_len
     pass5 = call @rpc_builder_new_capacity(pass5_capacity)
-    p5_status = call @append_with_replacement(&pass5, &norm_ptr, norm_len, &RESP_EVENT_COMPLETED_PREFIX, RESP_EVENT_COMPLETED_PREFIX_LEN, &RESP_NATIVE_CONT_BEFORE_COMPLETED, RESP_NATIVE_CONT_BEFORE_COMPLETED_LEN)
+    p5_status = call @append_with_replacement(&pass5, &norm_ptr, norm_len, &RESP_EVENT_COMPLETED_PREFIX, RESP_EVENT_COMPLETED_PREFIX_LEN, &continuation_ptr, continuation_len)
     !p5_status
     p5_ptr = call @rpc_builder_data(&pass5)
     p5_len = call @rpc_builder_len(&pass5)
@@ -8441,6 +8588,8 @@ L_NATIVE_CONT_REWRITE:
     !p5_len
     !pass5
     !pass5_capacity
+    !continuation_ptr
+    !continuation_len
     norm_free_status2 = call @sa_deno_plugin_free_buffer(norm_ptr, norm_len)
     !norm_free_status2
     !norm_ptr
