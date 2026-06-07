@@ -59,13 +59,14 @@ proc_stdin="$(rpc '{"jsonrpc":"2.0","id":13,"method":"process/writeStdin","param
 proc_resize="$(rpc '{"jsonrpc":"2.0","id":14,"method":"process/resizePty","params":{"processHandle":"missing","cols":80,"rows":24}}')"
 mock_echo="$(rpc '{"jsonrpc":"2.0","id":15,"method":"mock/experimentalMethod","params":{"value":{"a":1,"nested":[true,null,"x"]}}}')"
 feedback="$(rpc '{"jsonrpc":"2.0","id":16,"method":"feedback/upload","params":{"threadId":"thr-123"}}')"
+id_after_method="$(rpc '{"jsonrpc":"2.0","method":"configRequirements/read","id":987,"params":{}}')"
 
 python3 - <<'PY' \
   "${exp_list}" "${exp_set}" "${exp_missing}" "${exp_null}" \
   "${remote_enable}" "${remote_disable}" "${remote_status}" \
   "${login_cancel}" "${logout}" "${file_approval}" \
   "${cmd_terminate}" "${cmd_resize}" "${proc_stdin}" "${proc_resize}" \
-  "${mock_echo}" "${feedback}"
+  "${mock_echo}" "${feedback}" "${id_after_method}"
 import json
 import sys
 
@@ -86,6 +87,7 @@ import sys
     proc_resize,
     mock_echo,
     feedback,
+    id_after_method,
 ) = [json.loads(arg)["result"] for arg in sys.argv[1:]]
 
 assert exp_list["data"][0]["name"] == "reasoning", exp_list
@@ -117,6 +119,10 @@ assert proc_stdin == {"ok": True}, proc_stdin
 assert proc_resize == {"ok": True}, proc_resize
 assert mock_echo == {"echoed": {"a": 1, "nested": [True, None, "x"]}}, mock_echo
 assert feedback == {"threadId": "thr-123"}, feedback
+assert id_after_method["requirements"]["network"] is None, id_after_method
+
+id_after_method_envelope = json.loads(sys.argv[-1])
+assert id_after_method_envelope["id"] == 987, id_after_method_envelope
 PY
 
 echo "rpc_misc_parity_ok"

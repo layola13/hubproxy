@@ -143,11 +143,10 @@
 // --- JSON builder constants ---
 #def RPC_JSON_BUF_SIZE = 65536
 #def ID_BUF_SIZE = 32
+#def RPC_ID_BUF_SIZE = 4096
 #def FS_MAX_READ_BYTES = 16777216
 #def FS_MAX_DIR_ENTRIES = 4096
 
-@const J_ID_KEY = utf8:"\"id\":"
-@const J_METHOD_KEY = utf8:",\"method\""
 @const J_NULL_ID = utf8:"null"
 @const J_ERR_NOT_FOUND = utf8:"method not found"
 @const J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED = utf8:"unsupported method: mcpServer/resource/list"
@@ -950,8 +949,6 @@
 @const J_DATA_BASE64_KEY = utf8:"\"dataBase64\":\""
 @const J_SOURCE_PATH_KEY = utf8:"\"sourcePath\":\""
 @const J_DESTINATION_PATH_KEY = utf8:"\"destinationPath\":\""
-@const J_COMMAND_ARRAY_START = utf8:"\"command\":[\""
-@const J_ARG_SEPARATOR = utf8:",\""
 @const J_PROCESS_ID_KEY = utf8:"\"processId\":\""
 @const J_PROCESS_HANDLE_KEY = utf8:"\"processHandle\":\""
 @const JSON_ESC_BACKSLASH = utf8:"\\\\"
@@ -1032,8 +1029,6 @@
 @const J_EVT_RT_DONE_B2 = utf8:",\"text\":"
 @const EVENT_WORKER_VT = vtable { call = @event_stream_worker }
 
-#def J_ID_KEY_LEN = 5
-#def J_METHOD_KEY_LEN = 9
 #def J_NULL_ID_LEN = 4
 #def J_ERR_NOT_FOUND_LEN = 16
 #def J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED_LEN = 43
@@ -1124,8 +1119,6 @@
 #def J_DATA_BASE64_KEY_LEN = 14
 #def J_SOURCE_PATH_KEY_LEN = 14
 #def J_DESTINATION_PATH_KEY_LEN = 19
-#def J_COMMAND_ARRAY_START_LEN = 12
-#def J_ARG_SEPARATOR_LEN = 2
 #def J_PROCESS_ID_KEY_LEN = 13
 #def J_PROCESS_HANDLE_KEY_LEN = 17
 #def JSON_ESC_BACKSLASH_LEN = 2
@@ -1207,6 +1200,8 @@
 
 #def CMD_ARGV_MAX = 4
 #def CMD_ARGV_BUF_SIZE = 64
+#def CMD_ARG_MAX_LEN = 1024
+#def CMD_ARG_STORAGE_SIZE = 4096
 #def CMD_OUTPUT_BUF_SIZE = 16384
 
 // --- RPC method constants ---
@@ -4589,62 +4584,94 @@ L_ENTRY:
     !req
     return 0
 
-@ffi_wrapper rpc_extract_id_token(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32:
+@ffi_wrapper rpc_extract_id_token(&body: ptr, body_len: u64, &out_buf: ptr, out_cap: u64, &out_ptr: ptr, &out_len: ptr) -> u32:
 L_ENTRY:
-    idx = call @sa_bytes_find(&body, body_len, &J_ID_KEY, J_ID_KEY_LEN)
-    found = sge idx, 0
-    br found -> L_ID_PREP, L_ID_NOT_FOUND
+    store out_ptr+0, J_NULL_ID as ptr
+    store out_len+0, J_NULL_ID_LEN as u64
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_ID_ROOT, L_ID_NO_ROOT
 
-L_ID_PREP:
-    !found
-    val_off_i = add idx, J_ID_KEY_LEN
-    !idx
-    val_off = bitcast val_off_i as u64
-    remaining = sub body_len, val_off
-    val_ptr = ptr_add body, val_off
-    method_idx = call @sa_bytes_find(&val_ptr, remaining, &J_METHOD_KEY, J_METHOD_KEY_LEN)
-    method_found = sge method_idx, 0
-    br method_found -> L_ID_FOUND, L_ID_NO_METHOD
+L_ID_ROOT:
+    !has_root
+    id_slot = stack_alloc 8
+    id_status = call @sa_json_object_get(root, &RPC_KEY_ID, RPC_KEY_ID_LEN, &id_slot)
+    id_ok = eq id_status, 0
+    br id_ok -> L_ID_VALUE, L_ID_MISSING
 
-L_ID_FOUND:
-    !method_found
-    token_len = bitcast method_idx as u64
-    store out_ptr+0, val_ptr as ptr
-    store out_len+0, token_len as u64
-    !token_len
-    !method_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
+L_ID_VALUE:
+    !id_ok
+    id_node = load id_slot+0 as ptr
+    id_buffer_slot = stack_alloc 8
+    stringify_status = call @sa_json_stringify(id_node, &id_buffer_slot)
+    stringify_ok = eq stringify_status, 0
+    br stringify_ok -> L_ID_COPY, L_ID_STRINGIFY_BAD
+
+L_ID_COPY:
+    !stringify_ok
+    id_buffer = load id_buffer_slot+0 as ptr
+    id_ptr = call @sa_json_buffer_data(&id_buffer)
+    id_len = call @sa_json_buffer_len(&id_buffer)
+    copy_len = call @min_u64(id_len, out_cap)
+    copied = call @sa_bytes_copy(&out_buf, &id_ptr, copy_len)
+    store out_ptr+0, out_buf as ptr
+    store out_len+0, copied as u64
+    id_buffer_free = call @sa_json_buffer_free(^id_buffer)
+    id_free = call @sa_json_free(^id_node)
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !id_free
+    !id_buffer_free
+    !copied
+    !copy_len
+    !id_len
+    !id_ptr
+    !stringify_status
+    !id_status
     !body
     !body_len
+    !out_buf
+    !out_cap
     !out_ptr
     !out_len
     return 1
 
-L_ID_NO_METHOD:
-    !method_found
-    !method_idx
-    !val_ptr
-    !remaining
-    !val_off
-    !val_off_i
+L_ID_STRINGIFY_BAD:
+    !stringify_ok
+    !stringify_status
+    id_free_bad = call @sa_json_free(^id_node)
+    root_free_bad = call @sa_json_free(^root)
+    !root_free_bad
+    !id_free_bad
+    !id_status
     !body
     !body_len
-    store out_ptr+0, J_NULL_ID as ptr
-    store out_len+0, J_NULL_ID_LEN as u64
+    !out_buf
+    !out_cap
     !out_ptr
     !out_len
     return 0
 
-L_ID_NOT_FOUND:
-    !found
-    !idx
+L_ID_MISSING:
+    !id_ok
+    !id_status
+    root_free_missing = call @sa_json_free(^root)
+    !root_free_missing
     !body
     !body_len
-    store out_ptr+0, J_NULL_ID as ptr
-    store out_len+0, J_NULL_ID_LEN as u64
+    !out_buf
+    !out_cap
+    !out_ptr
+    !out_len
+    return 0
+
+L_ID_NO_ROOT:
+    !has_root
+    !root
+    !body
+    !body_len
+    !out_buf
+    !out_cap
     !out_ptr
     !out_len
     return 0
@@ -5413,31 +5440,46 @@ L_ENTRY:
 
 @ffi_wrapper json_writer_field_param_string_or_default(writer: ptr, &field_key: ptr, field_key_len: u64, &body: ptr, body_len: u64, &lookup_key: ptr, lookup_key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8) -> u32:
 L_ENTRY:
-    literal_ptr_slot = stack_alloc 8
-    literal_len_slot = stack_alloc 8
-    literal_status = call @sa_deno_plugin_jsonrpc_params_string_literal(&body, body_len, &lookup_key, lookup_key_len, &fallback, fallback_len, emit_null_if_missing, &literal_ptr_slot, &literal_len_slot)
-    literal_ok = eq literal_status, 0
-    br literal_ok -> L_JW_PARAM_LITERAL, L_JW_PARAM_FALLBACK
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_JW_PARAM_ROOT, L_JW_PARAM_NO_ROOT
 
-L_JW_PARAM_LITERAL:
-    !literal_ok
-    literal_ptr = load literal_ptr_slot+0 as ptr
-    literal_len = load literal_len_slot+0 as u64
-    literal_node = call @sa_json_parse(&literal_ptr, literal_len)
-    has_node = ne literal_node, 0
-    br has_node -> L_JW_PARAM_NODE, L_JW_PARAM_LITERAL_BAD
+L_JW_PARAM_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_JW_PARAM_PARAMS, L_JW_PARAM_NO_PARAMS
+
+L_JW_PARAM_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    lookup_ptr_slot = stack_alloc 8
+    lookup_len_slot = stack_alloc 8
+    lookup_status = call @rpc_jsonrpc_lookup_key(&lookup_key, lookup_key_len, &lookup_ptr_slot, &lookup_len_slot)
+    !lookup_status
+    lookup_ptr = load lookup_ptr_slot+0 as ptr
+    lookup_len = load lookup_len_slot+0 as u64
+    value_slot = stack_alloc 8
+    value_status = call @sa_json_object_get(params_node, &lookup_ptr, lookup_len, &value_slot)
+    value_ok = eq value_status, 0
+    br value_ok -> L_JW_PARAM_NODE, L_JW_PARAM_MISSING
 
 L_JW_PARAM_NODE:
-    !has_node
-    field_status = call @sa_json_writer_field_node(writer, &field_key, field_key_len, literal_node)
-    node_free = call @sa_json_free(^literal_node)
-    literal_free = call @sa_deno_plugin_free_buffer(literal_ptr, literal_len)
-    !literal_free
-    !node_free
+    !value_ok
+    value_node = load value_slot+0 as ptr
+    field_status = call @sa_json_writer_field_node(writer, &field_key, field_key_len, value_node)
+    value_free = call @sa_json_free(^value_node)
+    params_free = call @sa_json_free(^params_node)
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !params_free
+    !value_free
     !field_status
-    !literal_ptr
-    !literal_len
-    !literal_status
+    !value_status
+    !lookup_ptr
+    !lookup_len
+    !params_status
     !writer
     !field_key
     !field_key_len
@@ -5450,29 +5492,23 @@ L_JW_PARAM_NODE:
     !emit_null_if_missing
     return 0
 
-L_JW_PARAM_LITERAL_BAD:
-    !has_node
-    !literal_node
-    literal_free_bad = call @sa_deno_plugin_free_buffer(literal_ptr, literal_len)
-    !literal_free_bad
-    !literal_ptr
-    !literal_len
-    !literal_status
-    jmp L_JW_PARAM_FALLBACK_AFTER_LITERAL
+L_JW_PARAM_MISSING:
+    !value_ok
+    !value_status
+    !lookup_ptr
+    !lookup_len
+    params_free_missing = call @sa_json_free(^params_node)
+    root_free_missing = call @sa_json_free(^root)
+    !root_free_missing
+    !params_free_missing
+    !params_status
+    emit_null_missing = eq emit_null_if_missing, 1
+    br emit_null_missing -> L_JW_PARAM_MISSING_NULL, L_JW_PARAM_MISSING_DEFAULT
 
-L_JW_PARAM_FALLBACK:
-    !literal_ok
-    !literal_status
-    jmp L_JW_PARAM_FALLBACK_AFTER_LITERAL
-
-L_JW_PARAM_FALLBACK_AFTER_LITERAL:
-    emit_null = eq emit_null_if_missing, 1
-    br emit_null -> L_JW_PARAM_WRITE_NULL, L_JW_PARAM_WRITE_DEFAULT
-
-L_JW_PARAM_WRITE_NULL:
-    !emit_null
-    null_status = call @sa_json_writer_field_null(writer, &field_key, field_key_len)
-    !null_status
+L_JW_PARAM_MISSING_NULL:
+    !emit_null_missing
+    null_missing = call @sa_json_writer_field_null(writer, &field_key, field_key_len)
+    !null_missing
     !writer
     !field_key
     !field_key_len
@@ -5485,10 +5521,88 @@ L_JW_PARAM_WRITE_NULL:
     !emit_null_if_missing
     return 0
 
-L_JW_PARAM_WRITE_DEFAULT:
-    !emit_null
-    default_status = call @sa_json_writer_field_string(writer, &field_key, field_key_len, &fallback, fallback_len)
-    !default_status
+L_JW_PARAM_MISSING_DEFAULT:
+    !emit_null_missing
+    default_missing = call @sa_json_writer_field_string(writer, &field_key, field_key_len, &fallback, fallback_len)
+    !default_missing
+    !writer
+    !field_key
+    !field_key_len
+    !body
+    !body_len
+    !lookup_key
+    !lookup_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+L_JW_PARAM_NO_PARAMS:
+    !params_ok
+    !params_status
+    root_free_no_params = call @sa_json_free(^root)
+    !root_free_no_params
+    emit_null_no_params = eq emit_null_if_missing, 1
+    br emit_null_no_params -> L_JW_PARAM_NO_PARAMS_NULL, L_JW_PARAM_NO_PARAMS_DEFAULT
+
+L_JW_PARAM_NO_PARAMS_NULL:
+    !emit_null_no_params
+    null_no_params = call @sa_json_writer_field_null(writer, &field_key, field_key_len)
+    !null_no_params
+    !writer
+    !field_key
+    !field_key_len
+    !body
+    !body_len
+    !lookup_key
+    !lookup_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+L_JW_PARAM_NO_PARAMS_DEFAULT:
+    !emit_null_no_params
+    default_no_params = call @sa_json_writer_field_string(writer, &field_key, field_key_len, &fallback, fallback_len)
+    !default_no_params
+    !writer
+    !field_key
+    !field_key_len
+    !body
+    !body_len
+    !lookup_key
+    !lookup_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+L_JW_PARAM_NO_ROOT:
+    !has_root
+    !root
+    emit_null_no_root = eq emit_null_if_missing, 1
+    br emit_null_no_root -> L_JW_PARAM_NO_ROOT_NULL, L_JW_PARAM_NO_ROOT_DEFAULT
+
+L_JW_PARAM_NO_ROOT_NULL:
+    !emit_null_no_root
+    null_no_root = call @sa_json_writer_field_null(writer, &field_key, field_key_len)
+    !null_no_root
+    !writer
+    !field_key
+    !field_key_len
+    !body
+    !body_len
+    !lookup_key
+    !lookup_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+L_JW_PARAM_NO_ROOT_DEFAULT:
+    !emit_null_no_root
+    default_no_root = call @sa_json_writer_field_string(writer, &field_key, field_key_len, &fallback, fallback_len)
+    !default_no_root
     !writer
     !field_key
     !field_key_len
@@ -5503,22 +5617,34 @@ L_JW_PARAM_WRITE_DEFAULT:
 
 @ffi_wrapper json_writer_field_param_string_or_alt_default(writer: ptr, &field_key: ptr, field_key_len: u64, &body: ptr, body_len: u64, &primary_key: ptr, primary_key_len: u64, &alt_key: ptr, alt_key_len: u64, &fallback: ptr, fallback_len: u64) -> u32:
 L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_JW_PARAM_ALT_ROOT, L_JW_PARAM_ALT_USE_ALT_NO_ROOT
+
+L_JW_PARAM_ALT_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_JW_PARAM_ALT_PARAMS, L_JW_PARAM_ALT_USE_ALT_NO_PARAMS
+
+L_JW_PARAM_ALT_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
     primary_ptr_slot = stack_alloc 8
     primary_len_slot = stack_alloc 8
-    primary_status = call @sa_deno_plugin_jsonrpc_params_string_literal(&body, body_len, &primary_key, primary_key_len, &EMPTY_TEXT, EMPTY_TEXT_LEN, 1, &primary_ptr_slot, &primary_len_slot)
-    primary_ok = eq primary_status, 0
-    br primary_ok -> L_JW_PARAM_ALT_PRIMARY, L_JW_PARAM_ALT_USE_ALT_MISSING
-
-L_JW_PARAM_ALT_PRIMARY:
-    !primary_ok
+    lookup_status = call @rpc_jsonrpc_lookup_key(&primary_key, primary_key_len, &primary_ptr_slot, &primary_len_slot)
+    !lookup_status
     primary_ptr = load primary_ptr_slot+0 as ptr
     primary_len = load primary_len_slot+0 as u64
-    primary_node = call @sa_json_parse(&primary_ptr, primary_len)
-    primary_has_node = ne primary_node, 0
-    br primary_has_node -> L_JW_PARAM_ALT_NODE, L_JW_PARAM_ALT_USE_ALT_BAD
+    primary_slot = stack_alloc 8
+    primary_status = call @sa_json_object_get(params_node, &primary_ptr, primary_len, &primary_slot)
+    primary_ok = eq primary_status, 0
+    br primary_ok -> L_JW_PARAM_ALT_NODE, L_JW_PARAM_ALT_USE_ALT_MISSING
 
 L_JW_PARAM_ALT_NODE:
-    !primary_has_node
+    !primary_ok
+    primary_node = load primary_slot+0 as ptr
     primary_kind = call @sa_json_kind(primary_node)
     primary_is_null = eq primary_kind, SA_JSON_KIND_NULL
     !primary_kind
@@ -5528,13 +5654,15 @@ L_JW_PARAM_ALT_WRITE_PRIMARY:
     !primary_is_null
     field_status = call @sa_json_writer_field_node(writer, &field_key, field_key_len, primary_node)
     node_free = call @sa_json_free(^primary_node)
-    primary_free = call @sa_deno_plugin_free_buffer(primary_ptr, primary_len)
-    !primary_free
+    params_free = call @sa_json_free(^params_node)
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !params_free
     !node_free
     !field_status
+    !primary_status
     !primary_ptr
     !primary_len
-    !primary_status
     !writer
     !field_key
     !field_key_len
@@ -5551,37 +5679,16 @@ L_JW_PARAM_ALT_WRITE_PRIMARY:
 L_JW_PARAM_ALT_USE_ALT_NULL:
     !primary_is_null
     node_free_null = call @sa_json_free(^primary_node)
-    primary_free_null = call @sa_deno_plugin_free_buffer(primary_ptr, primary_len)
-    !primary_free_null
+    params_free_null = call @sa_json_free(^params_node)
+    root_free_null = call @sa_json_free(^root)
+    !root_free_null
+    !params_free_null
     !node_free_null
+    !primary_status
     !primary_ptr
     !primary_len
-    !primary_status
     alt_status = call @json_writer_field_param_string_or_default(writer, &field_key, field_key_len, &body, body_len, &alt_key, alt_key_len, &fallback, fallback_len, 0)
     !alt_status
-    !writer
-    !field_key
-    !field_key_len
-    !body
-    !body_len
-    !primary_key
-    !primary_key_len
-    !alt_key
-    !alt_key_len
-    !fallback
-    !fallback_len
-    return 0
-
-L_JW_PARAM_ALT_USE_ALT_BAD:
-    !primary_has_node
-    !primary_node
-    primary_free_bad = call @sa_deno_plugin_free_buffer(primary_ptr, primary_len)
-    !primary_free_bad
-    !primary_ptr
-    !primary_len
-    !primary_status
-    alt_status_bad = call @json_writer_field_param_string_or_default(writer, &field_key, field_key_len, &body, body_len, &alt_key, alt_key_len, &fallback, fallback_len, 0)
-    !alt_status_bad
     !writer
     !field_key
     !field_key_len
@@ -5598,8 +5705,52 @@ L_JW_PARAM_ALT_USE_ALT_BAD:
 L_JW_PARAM_ALT_USE_ALT_MISSING:
     !primary_ok
     !primary_status
+    !primary_ptr
+    !primary_len
+    params_free_missing = call @sa_json_free(^params_node)
+    root_free_missing = call @sa_json_free(^root)
+    !root_free_missing
+    !params_free_missing
     alt_status_missing = call @json_writer_field_param_string_or_default(writer, &field_key, field_key_len, &body, body_len, &alt_key, alt_key_len, &fallback, fallback_len, 0)
     !alt_status_missing
+    !writer
+    !field_key
+    !field_key_len
+    !body
+    !body_len
+    !primary_key
+    !primary_key_len
+    !alt_key
+    !alt_key_len
+    !fallback
+    !fallback_len
+    return 0
+
+L_JW_PARAM_ALT_USE_ALT_NO_PARAMS:
+    !params_ok
+    !params_status
+    root_free_no_params = call @sa_json_free(^root)
+    !root_free_no_params
+    alt_status_no_params = call @json_writer_field_param_string_or_default(writer, &field_key, field_key_len, &body, body_len, &alt_key, alt_key_len, &fallback, fallback_len, 0)
+    !alt_status_no_params
+    !writer
+    !field_key
+    !field_key_len
+    !body
+    !body_len
+    !primary_key
+    !primary_key_len
+    !alt_key
+    !alt_key_len
+    !fallback
+    !fallback_len
+    return 0
+
+L_JW_PARAM_ALT_USE_ALT_NO_ROOT:
+    !has_root
+    !root
+    alt_status_no_root = call @json_writer_field_param_string_or_default(writer, &field_key, field_key_len, &body, body_len, &alt_key, alt_key_len, &fallback, fallback_len, 0)
+    !alt_status_no_root
     !writer
     !field_key
     !field_key_len
@@ -10347,139 +10498,258 @@ L_B64_DONE:
     !out_len_slot
     return 0
 
-@ffi_wrapper rpc_extract_command_argv(&body: ptr, body_len: u64, &argv: ptr, &out_count: ptr) -> u32:
+@ffi_wrapper rpc_extract_command_argv(&body: ptr, body_len: u64, &argv: ptr, &arg_storage: ptr, &out_count: ptr) -> u32:
 L_ENTRY:
-    start_idx = call @sa_bytes_find(&body, body_len, &J_COMMAND_ARRAY_START, J_COMMAND_ARRAY_START_LEN)
-    found = sge start_idx, 0
-    br found -> L_CMD_PARSE_INIT, L_CMD_PARSE_NOT_FOUND
+    store out_count+0, 0 as u64
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_CMD_DOM_ROOT, L_CMD_DOM_NO_ROOT
 
-L_CMD_PARSE_INIT:
-    !found
-    start_off_i = add start_idx, J_COMMAND_ARRAY_START_LEN
-    !start_idx
-    start_off = bitcast start_off_i as u64
-    cursor_slot = stack_alloc 8
-    count_slot = stack_alloc 8
-    store cursor_slot+0, start_off as u64
-    store count_slot+0, 0 as u64
-    !start_off
-    !start_off_i
-    jmp L_CMD_ARG_START
+L_CMD_DOM_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &FB_KEY_PARAMS, FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_CMD_DOM_PARAMS, L_CMD_DOM_NO_PARAMS
 
-L_CMD_ARG_START:
-    count = load count_slot+0 as u64
-    too_many = uge count, CMD_ARGV_MAX
-    br too_many -> L_CMD_DONE_MAX, L_CMD_FIND_END
+L_CMD_DOM_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    command_slot = stack_alloc 8
+    command_status = call @sa_json_object_get(params_node, &JSON_KEY_COMMAND, JSON_KEY_COMMAND_LEN, &command_slot)
+    command_ok = eq command_status, 0
+    br command_ok -> L_CMD_DOM_COMMAND, L_CMD_DOM_NO_COMMAND
 
-L_CMD_FIND_END:
-    !too_many
-    cursor = load cursor_slot+0 as u64
-    rem = sub body_len, cursor
-    arg_ptr = ptr_add body, cursor
-    end_idx = call @sa_bytes_find_byte(&arg_ptr, rem, 34)
-    has_end = sge end_idx, 0
-    br has_end -> L_CMD_STORE_ARG, L_CMD_DONE_NO_MORE
+L_CMD_DOM_COMMAND:
+    !command_ok
+    command_node = load command_slot+0 as ptr
+    command_kind = call @sa_json_kind(command_node)
+    is_array = eq command_kind, SA_JSON_KIND_ARRAY
+    br is_array -> L_CMD_DOM_COUNT, L_CMD_DOM_NOT_ARRAY
 
-L_CMD_STORE_ARG:
-    !has_end
-    arg_len = bitcast end_idx as u64
-    off = mul count, SaProcessArgv_SIZE
-    entry = ptr_add argv, off
-    store entry+SaProcessArgv_data, arg_ptr as ptr
-    store entry+SaProcessArgv_len, arg_len as u64
-    next_count = add count, 1
-    store count_slot+0, next_count as u64
-    after_quote = add cursor, arg_len
-    next_after_quote = add after_quote, 1
-    rem_after = sub body_len, next_after_quote
-    sep_ptr = ptr_add body, next_after_quote
-    sep_idx = call @sa_bytes_find(&sep_ptr, rem_after, &J_ARG_SEPARATOR, J_ARG_SEPARATOR_LEN)
-    sep_here = eq sep_idx, 0
-    br sep_here -> L_CMD_NEXT_ARG, L_CMD_DONE_AFTER_ARG
+L_CMD_DOM_COUNT:
+    !is_array
+    array_count_slot = stack_alloc 8
+    count_status = call @sa_json_value_count(command_node, &array_count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_CMD_DOM_LOOP_INIT, L_CMD_DOM_BAD_COUNT
 
-L_CMD_NEXT_ARG:
-    !sep_here
-    !sep_idx
-    next_cursor = add next_after_quote, J_ARG_SEPARATOR_LEN
-    store cursor_slot+0, next_cursor as u64
-    !next_cursor
-    !sep_ptr
-    !rem_after
-    !next_after_quote
-    !after_quote
-    !next_count
-    !entry
-    !off
+L_CMD_DOM_LOOP_INIT:
+    !count_ok
+    array_count = load array_count_slot+0 as u64
+    has_args = ugt array_count, 0
+    br has_args -> L_CMD_DOM_LOOP_PREP, L_CMD_DOM_EMPTY
+
+L_CMD_DOM_LOOP_PREP:
+    !has_args
+    index_slot = stack_alloc 8
+    item_slot = stack_alloc 8
+    store index_slot+0, 0 as u64
+    jmp L_CMD_DOM_LOOP_COND
+
+L_CMD_DOM_LOOP_COND:
+    index = load index_slot+0 as u64
+    at_array_end = uge index, array_count
+    at_max = uge index, CMD_ARGV_MAX
+    stop_any = or at_array_end, at_max
+    br stop_any -> L_CMD_DOM_DONE, L_CMD_DOM_ITEM
+
+L_CMD_DOM_ITEM:
+    !stop_any
+    item_status = call @sa_json_array_get(command_node, index, &item_slot)
+    item_ok = eq item_status, 0
+    br item_ok -> L_CMD_DOM_ITEM_KIND, L_CMD_DOM_BAD_ITEM
+
+L_CMD_DOM_ITEM_KIND:
+    !item_ok
+    item_node = load item_slot+0 as ptr
+    item_kind = call @sa_json_kind(item_node)
+    is_string = eq item_kind, SA_JSON_KIND_STRING
+    br is_string -> L_CMD_DOM_STORE_ITEM, L_CMD_DOM_BAD_ITEM_KIND
+
+L_CMD_DOM_STORE_ITEM:
+    !is_string
+    arg_ptr = call @sa_json_string_ptr(item_node)
+    arg_len = call @sa_json_string_len(item_node)
+    copy_len = call @min_u64(arg_len, CMD_ARG_MAX_LEN)
+    storage_off = mul index, CMD_ARG_MAX_LEN
+    dst_ptr = ptr_add arg_storage, storage_off
+    copied = call @sa_bytes_copy(&dst_ptr, &arg_ptr, copy_len)
+    argv_off = mul index, SaProcessArgv_SIZE
+    argv_entry = ptr_add argv, argv_off
+    store argv_entry+SaProcessArgv_data, dst_ptr as ptr
+    store argv_entry+SaProcessArgv_len, copy_len as u64
+    item_free = call @sa_json_free(^item_node)
+    !item_free
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !argv_entry
+    !argv_off
+    !copied
+    !dst_ptr
+    !storage_off
+    !copy_len
     !arg_len
-    !end_idx
     !arg_ptr
-    !rem
-    !cursor
-    !count
-    jmp L_CMD_ARG_START
+    !item_kind
+    !item_status
+    !at_max
+    !at_array_end
+    !index
+    jmp L_CMD_DOM_LOOP_COND
 
-L_CMD_DONE_AFTER_ARG:
-    !sep_here
-    !sep_idx
-    !sep_ptr
-    !rem_after
-    !next_after_quote
-    !after_quote
-    !next_count
-    !entry
-    !off
-    !arg_len
-    !end_idx
-    !arg_ptr
-    !rem
-    !cursor
-    !count
-    jmp L_CMD_DONE
-
-L_CMD_DONE_NO_MORE:
-    !has_end
-    !end_idx
-    !arg_ptr
-    !rem
-    !cursor
-    !count
-    jmp L_CMD_DONE
-
-L_CMD_DONE_MAX:
-    !too_many
-    !count
-    jmp L_CMD_DONE
-
-L_CMD_DONE:
-    final_count = load count_slot+0 as u64
+L_CMD_DOM_DONE:
+    !stop_any
+    !at_max
+    !at_array_end
+    final_count = load index_slot+0 as u64
     store out_count+0, final_count as u64
-    ok = ugt final_count, 0
-    br ok -> L_CMD_OK, L_CMD_BAD
-
-L_CMD_OK:
-    !ok
+    command_free_done = call @sa_json_free(^command_node)
+    params_free_done = call @sa_json_free(^params_node)
+    root_free_done = call @sa_json_free(^root)
+    !root_free_done
+    !params_free_done
+    !command_free_done
     !final_count
+    !array_count
+    !count_status
+    !command_kind
+    !command_status
+    !params_status
     !body
     !body_len
     !argv
+    !arg_storage
     !out_count
     return 1
 
-L_CMD_BAD:
-    !ok
-    !final_count
+L_CMD_DOM_BAD_ITEM_KIND:
+    !is_string
+    bad_item_free = call @sa_json_free(^item_node)
+    !bad_item_free
+    !item_kind
+    !item_status
+    jmp L_CMD_DOM_FAIL_LOOP
+
+L_CMD_DOM_BAD_ITEM:
+    !item_ok
+    !item_status
+    jmp L_CMD_DOM_FAIL_LOOP
+
+L_CMD_DOM_FAIL_LOOP:
+    command_free_fail = call @sa_json_free(^command_node)
+    params_free_fail = call @sa_json_free(^params_node)
+    root_free_fail = call @sa_json_free(^root)
+    !root_free_fail
+    !params_free_fail
+    !command_free_fail
+    !at_max
+    !at_array_end
+    !index
+    !array_count
+    !count_status
+    !command_kind
+    !command_status
+    !params_status
     !body
     !body_len
     !argv
+    !arg_storage
     !out_count
     return 0
 
-L_CMD_PARSE_NOT_FOUND:
-    !found
-    !start_idx
+L_CMD_DOM_EMPTY:
+    !has_args
+    command_free_empty = call @sa_json_free(^command_node)
+    params_free_empty = call @sa_json_free(^params_node)
+    root_free_empty = call @sa_json_free(^root)
+    !root_free_empty
+    !params_free_empty
+    !command_free_empty
+    !array_count
+    !count_status
+    !command_kind
+    !command_status
+    !params_status
     !body
     !body_len
     !argv
+    !arg_storage
+    !out_count
+    return 0
+
+L_CMD_DOM_BAD_COUNT:
+    !count_ok
+    command_free_count = call @sa_json_free(^command_node)
+    params_free_count = call @sa_json_free(^params_node)
+    root_free_count = call @sa_json_free(^root)
+    !root_free_count
+    !params_free_count
+    !command_free_count
+    !count_status
+    !command_kind
+    !command_status
+    !params_status
+    !body
+    !body_len
+    !argv
+    !arg_storage
+    !out_count
+    return 0
+
+L_CMD_DOM_NOT_ARRAY:
+    !is_array
+    command_free_bad = call @sa_json_free(^command_node)
+    params_free_bad = call @sa_json_free(^params_node)
+    root_free_bad = call @sa_json_free(^root)
+    !root_free_bad
+    !params_free_bad
+    !command_free_bad
+    !command_kind
+    !command_status
+    !params_status
+    !body
+    !body_len
+    !argv
+    !arg_storage
+    !out_count
+    return 0
+
+L_CMD_DOM_NO_COMMAND:
+    !command_ok
+    params_free_no_command = call @sa_json_free(^params_node)
+    root_free_no_command = call @sa_json_free(^root)
+    !root_free_no_command
+    !params_free_no_command
+    !command_status
+    !params_status
+    !body
+    !body_len
+    !argv
+    !arg_storage
+    !out_count
+    return 0
+
+L_CMD_DOM_NO_PARAMS:
+    !params_ok
+    root_free_no_params = call @sa_json_free(^root)
+    !root_free_no_params
+    !params_status
+    !body
+    !body_len
+    !argv
+    !arg_storage
+    !out_count
+    return 0
+
+L_CMD_DOM_NO_ROOT:
+    !has_root
+    !root
+    !body
+    !body_len
+    !argv
+    !arg_storage
     !out_count
     return 0
 
@@ -10536,8 +10806,9 @@ L_CMD_NOTIFY_SKIP:
 @ffi_wrapper send_rpc_command_exec(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
     argv = stack_alloc CMD_ARGV_BUF_SIZE
+    arg_storage = stack_alloc CMD_ARG_STORAGE_SIZE
     count_slot = stack_alloc 8
-    parse_ok = call @rpc_extract_command_argv(&body, body_len, &argv, &count_slot)
+    parse_ok = call @rpc_extract_command_argv(&body, body_len, &argv, &arg_storage, &count_slot)
     has_command = eq parse_ok, 1
     !parse_ok
     br has_command -> L_CMD_EXEC_PROCESS_ID, L_CMD_EXEC_BAD_PARAMS
@@ -10778,8 +11049,9 @@ L_ENTRY:
 @ffi_wrapper send_rpc_process_spawn(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
     argv = stack_alloc CMD_ARGV_BUF_SIZE
+    arg_storage = stack_alloc CMD_ARG_STORAGE_SIZE
     count_slot = stack_alloc 8
-    parse_ok = call @rpc_extract_command_argv(&body, body_len, &argv, &count_slot)
+    parse_ok = call @rpc_extract_command_argv(&body, body_len, &argv, &arg_storage, &count_slot)
     has_command = eq parse_ok, 1
     !parse_ok
     br has_command -> L_PROC_HANDLE, L_PROC_DEFAULT_COMMAND
@@ -15270,9 +15542,10 @@ L_TOK_NO_COMMA:
 // ============================================================
 @ffi_wrapper handle_rpc_request(&req: ptr, &rpc_body_ptr: ptr, rpc_body_len: u64, &state_ptr: ptr, &cfg_ptr: ptr) -> u32:
 L_ENTRY:
+    rpc_id_buf = stack_alloc RPC_ID_BUF_SIZE
     rpc_id_ptr_slot = stack_alloc 8
     rpc_id_len_slot = stack_alloc 8
-    rpc_id_status = call @rpc_extract_id_token(&rpc_body_ptr, rpc_body_len, &rpc_id_ptr_slot, &rpc_id_len_slot)
+    rpc_id_status = call @rpc_extract_id_token(&rpc_body_ptr, rpc_body_len, &rpc_id_buf, RPC_ID_BUF_SIZE, &rpc_id_ptr_slot, &rpc_id_len_slot)
     !rpc_id_status
     rpc_id_ptr = load rpc_id_ptr_slot+0 as ptr
     rpc_id_len = load rpc_id_len_slot+0 as u64
