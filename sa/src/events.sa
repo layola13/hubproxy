@@ -1,0 +1,727 @@
+// events.sa — shared event/SSE infrastructure for SA HubProxy
+@import "events.sai"
+@import "sa_std/encoding/json.sa"
+@import "sa_std/encoding/json.sai"
+@import "sa_http_server.sai"
+@import "deno.sal"
+@import "strings.sai"
+@import "json_support.sai"
+@import "proxy.sai"
+@import "rpc_emit.sai"
+@import "rpc_parse.sai"
+@import "state.sai"
+
+@extern pthread_spawn_detached(*entry: ptr, ^arg: ptr) -> i32
+
+@const EVENTS_SSE_KEEPALIVE = utf8:": keepalive\n\n"
+@const EVENTS_SSE_EVENT_PREFIX = utf8:"event: "
+@const EVENTS_SSE_DATA_PREFIX = utf8:"\ndata: "
+@const EVENTS_SSE_FRAME_TRAILER = utf8:"\n\n"
+@const EVENTS_JSON_KEY_METHOD = utf8:"method"
+@const EVENTS_JSON_KEY_PARAMS = utf8:"params"
+@const EVENTS_JSON_KEY_THREAD_ID = utf8:"threadId"
+@const EVENTS_JSON_KEY_TURN_ID = utf8:"turnId"
+@const EVENTS_JSON_KEY_ITEM_ID = utf8:"itemId"
+@const EVENTS_JSON_KEY_MESSAGE = utf8:"message"
+@const EVENTS_JSON_KEY_QUESTIONS = utf8:"questions"
+@const EVENTS_JSON_KEY_HEADER = utf8:"header"
+@const EVENTS_JSON_KEY_QUESTION = utf8:"question"
+@const EVENTS_JSON_KEY_IS_OTHER = utf8:"isOther"
+@const EVENTS_JSON_KEY_IS_SECRET = utf8:"isSecret"
+@const EVENTS_JSON_KEY_OPTIONS = utf8:"options"
+@const EVENTS_JSON_KEY_LABEL = utf8:"label"
+@const EVENTS_JSON_KEY_DESCRIPTION = utf8:"description"
+@const EVENTS_JSON_KEY_SERVER_NAME = utf8:"serverName"
+@const EVENTS_JSON_KEY_REQUEST = utf8:"request"
+@const EVENTS_JSON_KEY_REQUESTED_SCHEMA = utf8:"requestedSchema"
+@const EVENTS_JSON_KEY_SCHEMA = utf8:"$schema"
+@const EVENTS_JSON_KEY_PROPERTIES = utf8:"properties"
+@const EVENTS_JSON_KEY_REQUIRED = utf8:"required"
+@const EVENTS_JSON_KEY_INSTRUCTIONS = utf8:"instructions"
+@const EVENTS_JSON_KEY_NAME = utf8:"name"
+@const EVENTS_JSON_KEY_STATUS = utf8:"status"
+@const EVENTS_JSON_KEY_ERROR = utf8:"error"
+@const EVENTS_JSON_KEY_SAMPLE_PATHS = utf8:"samplePaths"
+@const EVENTS_JSON_KEY_EXTRA_COUNT = utf8:"extraCount"
+@const EVENTS_JSON_KEY_FAILED_SCAN = utf8:"failedScan"
+@const EVENTS_RPC_KEY_ID = utf8:"id"
+@const EVENTS_FB_KEY_TYPE = utf8:"type"
+@const EVENTS_J_THREADID_KEY = utf8:"\"threadId\":\""
+@const EVENTS_J_TURNID_KEY = utf8:"\"turnId\":\""
+@const EVENTS_J_ITEMID_KEY = utf8:"\"itemId\":\""
+@const EVENTS_J_MESSAGE_KEY = utf8:"\"message\":\""
+@const EVENTS_J_SERVER_NAME_KEY = utf8:"\"serverName\":\""
+@const EVENTS_J_NAME_KEY = utf8:"\"name\":\""
+@const EVENTS_EMPTY_TEXT = utf8:""
+@const EVENTS_DEFAULT_CALLED = utf8:"called"
+@const EVENTS_DEFAULT_LOCAL = utf8:"local"
+@const EVENTS_DEFAULT_MARKETPLACE = utf8:"default"
+@const EVENTS_JSON_VALUE_INPUT_HEADER = utf8:"Input"
+@const EVENTS_JSON_VALUE_PROVIDE_INPUT = utf8:"Provide input"
+@const EVENTS_JSON_VALUE_CONTINUE = utf8:"Continue"
+@const EVENTS_JSON_VALUE_CONTINUE_DESCRIPTION = utf8:"Provide a value and continue."
+@const EVENTS_JSON_VALUE_FORM = utf8:"form"
+@const EVENTS_JSON_VALUE_JSON_SCHEMA_2020 = utf8:"https://json-schema.org/draft/2020-12/schema"
+@const EVENTS_JSON_VALUE_OBJECT = utf8:"object"
+@const EVENTS_JSON_VALUE_PROVIDE_VALUE = utf8:"Provide a value to continue."
+@const EVENTS_JSON_VALUE_STARTING = utf8:"starting"
+@const EVENTS_EV_MCP_TOOL_PROGRESS = utf8:"item/mcpToolCall/progress"
+@const EVENTS_EV_USER_INPUT = utf8:"item/tool/requestUserInput"
+@const EVENTS_EV_MCP_ELICITATION = utf8:"mcpServer/elicitation/request"
+@const EVENTS_EV_WORLD_WARN = utf8:"windows/worldWritableWarning"
+@const EVENTS_EV_MCP_STARTUP = utf8:"mcpServer/startupStatus/updated"
+@const EVENTS_WORKER_VT = vtable { call = @event_stream_worker }
+
+#def EVENTS_SSE_KEEPALIVE_LEN = 13
+#def EVENTS_SSE_EVENT_PREFIX_LEN = 7
+#def EVENTS_SSE_DATA_PREFIX_LEN = 7
+#def EVENTS_SSE_FRAME_TRAILER_LEN = 2
+#def EVENTS_JSON_KEY_METHOD_LEN = 6
+#def EVENTS_JSON_KEY_PARAMS_LEN = 6
+#def EVENTS_JSON_KEY_THREAD_ID_LEN = 8
+#def EVENTS_JSON_KEY_TURN_ID_LEN = 6
+#def EVENTS_JSON_KEY_ITEM_ID_LEN = 6
+#def EVENTS_JSON_KEY_MESSAGE_LEN = 7
+#def EVENTS_JSON_KEY_QUESTIONS_LEN = 9
+#def EVENTS_JSON_KEY_HEADER_LEN = 6
+#def EVENTS_JSON_KEY_QUESTION_LEN = 8
+#def EVENTS_JSON_KEY_IS_OTHER_LEN = 7
+#def EVENTS_JSON_KEY_IS_SECRET_LEN = 8
+#def EVENTS_JSON_KEY_OPTIONS_LEN = 7
+#def EVENTS_JSON_KEY_LABEL_LEN = 5
+#def EVENTS_JSON_KEY_DESCRIPTION_LEN = 11
+#def EVENTS_JSON_KEY_SERVER_NAME_LEN = 10
+#def EVENTS_JSON_KEY_REQUEST_LEN = 7
+#def EVENTS_JSON_KEY_REQUESTED_SCHEMA_LEN = 15
+#def EVENTS_JSON_KEY_SCHEMA_LEN = 7
+#def EVENTS_JSON_KEY_PROPERTIES_LEN = 10
+#def EVENTS_JSON_KEY_REQUIRED_LEN = 8
+#def EVENTS_JSON_KEY_INSTRUCTIONS_LEN = 12
+#def EVENTS_JSON_KEY_NAME_LEN = 4
+#def EVENTS_JSON_KEY_STATUS_LEN = 6
+#def EVENTS_JSON_KEY_ERROR_LEN = 5
+#def EVENTS_JSON_KEY_SAMPLE_PATHS_LEN = 11
+#def EVENTS_JSON_KEY_EXTRA_COUNT_LEN = 10
+#def EVENTS_JSON_KEY_FAILED_SCAN_LEN = 10
+#def EVENTS_RPC_KEY_ID_LEN = 2
+#def EVENTS_FB_KEY_TYPE_LEN = 4
+#def EVENTS_J_THREADID_KEY_LEN = 12
+#def EVENTS_J_TURNID_KEY_LEN = 10
+#def EVENTS_J_ITEMID_KEY_LEN = 10
+#def EVENTS_J_MESSAGE_KEY_LEN = 11
+#def EVENTS_J_SERVER_NAME_KEY_LEN = 14
+#def EVENTS_J_NAME_KEY_LEN = 8
+#def EVENTS_EMPTY_TEXT_LEN = 0
+#def EVENTS_DEFAULT_CALLED_LEN = 6
+#def EVENTS_DEFAULT_LOCAL_LEN = 5
+#def EVENTS_DEFAULT_MARKETPLACE_LEN = 7
+#def EVENTS_JSON_VALUE_INPUT_HEADER_LEN = 5
+#def EVENTS_JSON_VALUE_PROVIDE_INPUT_LEN = 13
+#def EVENTS_JSON_VALUE_CONTINUE_LEN = 8
+#def EVENTS_JSON_VALUE_CONTINUE_DESCRIPTION_LEN = 29
+#def EVENTS_JSON_VALUE_FORM_LEN = 4
+#def EVENTS_JSON_VALUE_JSON_SCHEMA_2020_LEN = 44
+#def EVENTS_JSON_VALUE_OBJECT_LEN = 6
+#def EVENTS_JSON_VALUE_PROVIDE_VALUE_LEN = 28
+#def EVENTS_JSON_VALUE_STARTING_LEN = 8
+#def EVENTS_EV_MCP_TOOL_PROGRESS_LEN = 25
+#def EVENTS_EV_USER_INPUT_LEN = 26
+#def EVENTS_EV_MCP_ELICITATION_LEN = 29
+#def EVENTS_EV_WORLD_WARN_LEN = 28
+#def EVENTS_EV_MCP_STARTUP_LEN = 31
+#def EVENTS_RPC_JSON_BUF_SIZE = 65536
+#def EVENTS_SSE_BUF_SIZE = 8192
+#def EVENTS_EVENT_CTX_REQ = +0
+#def EVENTS_EVENT_CTX_STATE = +8
+#def EVENTS_EVENT_WORKER_LOOPS = 864000
+
+@ffi_wrapper rpc_builder_new() -> ^ptr:
+L_ENTRY:
+    buf = alloc EVENTS_RPC_JSON_BUF_SIZE
+    store buf+0, 0 as u64
+    return buf
+
+@ffi_wrapper rpc_builder_new_capacity(capacity: u64) -> ^ptr:
+L_ENTRY:
+    total = add capacity, 8
+    buf = alloc total
+    store buf+0, 0 as u64
+    !total
+    !capacity
+    return buf
+
+@ffi_wrapper rpc_builder_len(&buf: ptr) -> u64:
+L_ENTRY:
+    len = load buf+0 as u64
+    !buf
+    return len
+
+@ffi_wrapper rpc_builder_data(&buf: ptr) -> &ptr:
+L_ENTRY:
+    data = ptr_add buf, 8
+    raw_data = *data
+    view = assume_borrow raw_data
+    !data
+    !buf
+    return view
+
+@ffi_wrapper rpc_builder_append(&buf: ptr, &src: ptr, src_len: u64) -> u32:
+L_ENTRY:
+    cur = load buf+0 as u64
+    dst_base = ptr_add buf, 8
+    dst = ptr_add dst_base, cur
+    copied = call @sa_bytes_copy(&dst, &src, src_len)
+    next = add cur, copied
+    store buf+0, next as u64
+    !next
+    !copied
+    !dst
+    !dst_base
+    !cur
+    !buf
+    !src
+    !src_len
+    return 0
+
+@ffi_wrapper rpc_builder_append_sse_frame(&buf: ptr, &event_ptr: ptr, event_len: u64, &data_ptr: ptr, data_len: u64) -> u32:
+L_ENTRY:
+    event_status = call @rpc_builder_append(&buf, &EVENTS_SSE_EVENT_PREFIX, EVENTS_SSE_EVENT_PREFIX_LEN)
+    name_status = call @rpc_builder_append(&buf, &event_ptr, event_len)
+    data_prefix_status = call @rpc_builder_append(&buf, &EVENTS_SSE_DATA_PREFIX, EVENTS_SSE_DATA_PREFIX_LEN)
+    data_status = call @rpc_builder_append(&buf, &data_ptr, data_len)
+    trailer_status = call @rpc_builder_append(&buf, &EVENTS_SSE_FRAME_TRAILER, EVENTS_SSE_FRAME_TRAILER_LEN)
+    !trailer_status
+    !data_status
+    !data_prefix_status
+    !name_status
+    !event_status
+    !buf
+    !event_ptr
+    !event_len
+    !data_ptr
+    !data_len
+    return 0
+
+@ffi_wrapper rpc_builder_append_byte(&buf: ptr, &byte_ptr: ptr) -> u32:
+L_ENTRY:
+    status = call @rpc_builder_append(&buf, &byte_ptr, 1)
+    !status
+    !buf
+    !byte_ptr
+    return 0
+
+@ffi_wrapper rpc_builder_to_owned(buf: ptr, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    buf_ptr = call @rpc_builder_data(&buf)
+    buf_len = call @rpc_builder_len(&buf)
+    out = call @bytes_to_owned(&buf_ptr, buf_len, &out_len)
+    !buf_ptr
+    !buf_len
+    !buf
+    !out_len
+    return out
+
+@ffi_wrapper notify_push_frame(&state_ptr: ptr, ^frame: ptr) -> u32:
+L_ENTRY:
+    frame_ptr = call @rpc_builder_data(&frame)
+    frame_len = call @rpc_builder_len(&frame)
+    push_status = call @state_notify_push(&state_ptr, &frame_ptr, frame_len)
+    !push_status
+    !frame_ptr
+    !frame_len
+    !frame
+    !state_ptr
+    return 0
+
+@ffi_wrapper rpc_builder_push_state(&state_ptr: ptr, buf: ptr) -> u32:
+L_ENTRY:
+    frame_ptr = call @rpc_builder_data(&buf)
+    frame_len = call @rpc_builder_len(&buf)
+    push_status = call @state_notify_push(&state_ptr, &frame_ptr, frame_len)
+    !push_status
+    !frame_ptr
+    !frame_len
+    !buf
+    !state_ptr
+    return 0
+
+@ffi_wrapper notify_const_params(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &params_ptr: ptr, params_len: u64) -> u32:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING method_status, writer, EVENTS_JSON_KEY_METHOD, EVENTS_JSON_KEY_METHOD_LEN, event_ptr, event_len
+    params_node = call @sa_json_parse(&params_ptr, params_len)
+    has_params_node = ne params_node, 0
+    br has_params_node -> L_NOTIFY_CONST_PARAMS_NODE, L_NOTIFY_CONST_PARAMS_EMPTY
+
+L_NOTIFY_CONST_PARAMS_NODE:
+    !has_params_node
+    params_status = call @sa_json_writer_field_node(writer, &EVENTS_JSON_KEY_PARAMS, EVENTS_JSON_KEY_PARAMS_LEN, params_node)
+    params_free = call @sa_json_free(^params_node)
+    !params_free
+    !params_status
+    jmp L_NOTIFY_CONST_PARAMS_FINISH
+
+L_NOTIFY_CONST_PARAMS_EMPTY:
+    !has_params_node
+    !params_node
+    params_field_status = call @json_writer_field_empty_object(writer, &EVENTS_JSON_KEY_PARAMS, EVENTS_JSON_KEY_PARAMS_LEN)
+    !params_field_status
+    jmp L_NOTIFY_CONST_PARAMS_FINISH
+
+L_NOTIFY_CONST_PARAMS_FINISH:
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    json_ptr_slot = stack_alloc 8
+    json_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &json_ptr_slot, &json_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    json_ptr = load json_ptr_slot+0 as ptr
+    json_len = load json_len_slot+0 as u64
+    frame = call @rpc_builder_new()
+    frame_status = call @rpc_builder_append_sse_frame(&frame, &event_ptr, event_len, &json_ptr, json_len)
+    call @notify_push_frame(&state_ptr, ^frame)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !json_ptr
+    !json_len
+    !finish_status
+    !end_status
+    !frame_status
+    !method_status
+    !begin_status
+    !writer_status
+    !state_ptr
+    !event_ptr
+    !event_len
+    !params_ptr
+    !params_len
+    return 0
+
+@ffi_wrapper notify_writer_params(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, writer: ptr) -> u32:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    params_ptr_slot = stack_alloc 8
+    params_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &params_ptr_slot, &params_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    params_ptr = load params_ptr_slot+0 as ptr
+    params_len = load params_len_slot+0 as u64
+    notify_status = call @notify_const_params(&state_ptr, &event_ptr, event_len, &params_ptr, params_len)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !notify_status
+    !params_ptr
+    !params_len
+    !finish_status
+    !state_ptr
+    !event_ptr
+    !event_len
+    return 0
+
+@event_stream_worker(^ctx: ptr) -> i32:
+L_EW_ENTRY:
+    req = load ctx+EVENTS_EVENT_CTX_REQ as ptr
+    state_ptr = load ctx+EVENTS_EVENT_CTX_STATE as ptr
+    stream_slot = stack_alloc 8
+    stream_status = call @sa_http_server_resp_stream_new(req, 200, &stream_slot)
+    stream = load stream_slot+0 as ptr
+    keepalive_write = call @sa_http_server_resp_stream_write(stream, &EVENTS_SSE_KEEPALIVE, EVENTS_SSE_KEEPALIVE_LEN)
+    keepalive_flush = call @sa_http_server_resp_stream_flush(stream)
+    keepalive_ok = eq keepalive_write, 0
+    !keepalive_write
+    !keepalive_flush
+    !stream_status
+    br keepalive_ok -> L_EW_INIT_OK, L_EW_END_INIT_CLOSED
+
+L_EW_INIT_OK:
+    !keepalive_ok
+    frame_buf = stack_alloc NOTIFY_CAP
+    frame_len_slot = stack_alloc 8
+    cursor_slot = stack_alloc 8
+    cursor_start = call @state_notify_cursor(&state_ptr)
+    store cursor_slot+0, cursor_start as u64
+    !cursor_start
+    loop_slot = stack_alloc 8
+    store loop_slot+0, 0 as u64
+    jmp L_EW_LOOP_COND
+
+L_EW_LOOP_COND:
+    loop_i = load loop_slot+0 as u64
+    done = uge loop_i, EVENTS_EVENT_WORKER_LOOPS
+    br done -> L_EW_END, L_EW_POP
+
+L_EW_POP:
+    !done
+    pop_status = call @state_notify_read(&state_ptr, &cursor_slot, &frame_buf, NOTIFY_CAP, &frame_len_slot)
+    has_frame = eq pop_status, 1
+    !pop_status
+    br has_frame -> L_EW_WRITE_FRAME, L_EW_SLEEP
+
+L_EW_WRITE_FRAME:
+    !has_frame
+    frame_len = load frame_len_slot+0 as u64
+    frame_write = call @sa_http_server_resp_stream_write(stream, &frame_buf, frame_len)
+    frame_flush = call @sa_http_server_resp_stream_flush(stream)
+    frame_write_ok = eq frame_write, 0
+    !frame_write
+    !frame_flush
+    !frame_len
+    br frame_write_ok -> L_EW_WRITE_OK, L_EW_END_WRITE_CLOSED
+
+L_EW_WRITE_OK:
+    !frame_write_ok
+    jmp L_EW_NEXT
+
+L_EW_SLEEP:
+    !has_frame
+    idle_keepalive_write = call @sa_http_server_resp_stream_write(stream, &EVENTS_SSE_KEEPALIVE, EVENTS_SSE_KEEPALIVE_LEN)
+    idle_keepalive_flush = call @sa_http_server_resp_stream_flush(stream)
+    idle_keepalive_ok = eq idle_keepalive_write, 0
+    !idle_keepalive_write
+    !idle_keepalive_flush
+    br idle_keepalive_ok -> L_EW_SLEEP_OK, L_EW_END_IDLE_CLOSED
+
+L_EW_SLEEP_OK:
+    !idle_keepalive_ok
+    EXPAND DENO_SLEEP_MS sleep_status, 50
+    !sleep_status
+    jmp L_EW_NEXT
+
+L_EW_NEXT:
+    next_loop = add loop_i, 1
+    store loop_slot+0, next_loop as u64
+    !next_loop
+    !loop_i
+    jmp L_EW_LOOP_COND
+
+L_EW_END:
+    !done
+    !loop_i
+    end_status = call @sa_http_server_resp_stream_end(stream)
+    !end_status
+    call @sa_http_server_resp_stream_free(^stream)
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !ctx
+    return 0
+
+L_EW_END_INIT_CLOSED:
+    !keepalive_ok
+    call @sa_http_server_resp_stream_free(^stream)
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !ctx
+    return 0
+
+L_EW_END_WRITE_CLOSED:
+    !frame_write_ok
+    call @sa_http_server_resp_stream_free(^stream)
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !ctx
+    return 0
+
+L_EW_END_IDLE_CLOSED:
+    !idle_keepalive_ok
+    call @sa_http_server_resp_stream_free(^stream)
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !ctx
+    return 0
+
+@ffi_wrapper spawn_event_stream(^ctx: ptr) -> u32:
+L_ENTRY:
+    worker_vt = &EVENTS_WORKER_VT
+    worker_fn = load worker_vt+0 as ptr
+    worker_raw = *worker_fn
+    worker_safe = assume_safe worker_raw
+    spawn_status = call @pthread_spawn_detached(*worker_safe, ^ctx)
+    !worker_safe
+    !worker_raw
+    !worker_fn
+    !worker_vt
+    return spawn_status
+
+@ffi_wrapper notify_mcp_tool_progress(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    thread_ptr_slot = stack_alloc 8
+    thread_len_slot = stack_alloc 8
+    turn_ptr_slot = stack_alloc 8
+    turn_len_slot = stack_alloc 8
+    item_ptr_slot = stack_alloc 8
+    item_len_slot = stack_alloc 8
+    message_ptr_slot = stack_alloc 8
+    message_len_slot = stack_alloc 8
+    thread_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_THREADID_KEY, EVENTS_J_THREADID_KEY_LEN, &EVENTS_EMPTY_TEXT, EVENTS_EMPTY_TEXT_LEN, &thread_ptr_slot, &thread_len_slot)
+    turn_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_TURNID_KEY, EVENTS_J_TURNID_KEY_LEN, &EVENTS_EMPTY_TEXT, EVENTS_EMPTY_TEXT_LEN, &turn_ptr_slot, &turn_len_slot)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
+    item_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_ITEMID_KEY, EVENTS_J_ITEMID_KEY_LEN, &uuid_ptr, uuid_len, &item_ptr_slot, &item_len_slot)
+    message_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_MESSAGE_KEY, EVENTS_J_MESSAGE_KEY_LEN, &EVENTS_DEFAULT_CALLED, EVENTS_DEFAULT_CALLED_LEN, &message_ptr_slot, &message_len_slot)
+    thread_ptr = load thread_ptr_slot+0 as ptr
+    thread_len = load thread_len_slot+0 as u64
+    turn_ptr = load turn_ptr_slot+0 as ptr
+    turn_len = load turn_len_slot+0 as u64
+    item_ptr = load item_ptr_slot+0 as ptr
+    item_len = load item_len_slot+0 as u64
+    message_ptr = load message_ptr_slot+0 as ptr
+    message_len = load message_len_slot+0 as u64
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING thread_status, writer, EVENTS_JSON_KEY_THREAD_ID, EVENTS_JSON_KEY_THREAD_ID_LEN, thread_ptr, thread_len
+    EXPAND JSON_WRITER_FIELD_STRING turn_status, writer, EVENTS_JSON_KEY_TURN_ID, EVENTS_JSON_KEY_TURN_ID_LEN, turn_ptr, turn_len
+    EXPAND JSON_WRITER_FIELD_STRING item_status, writer, EVENTS_JSON_KEY_ITEM_ID, EVENTS_JSON_KEY_ITEM_ID_LEN, item_ptr, item_len
+    EXPAND JSON_WRITER_FIELD_STRING message_status, writer, EVENTS_JSON_KEY_MESSAGE, EVENTS_JSON_KEY_MESSAGE_LEN, message_ptr, message_len
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &EVENTS_EV_MCP_TOOL_PROGRESS, EVENTS_EV_MCP_TOOL_PROGRESS_LEN, writer)
+    uuid_free_status = call @plugin_free_buffer(uuid_ptr, uuid_len)
+    !uuid_free_status
+    !end_status
+    !message_status
+    !item_status
+    !turn_status
+    !thread_status
+    !begin_status
+    !writer_status
+    !message_extract_status
+    !item_extract_status
+    !turn_extract_status
+    !thread_extract_status
+    !uuid_status
+    !thread_ptr
+    !thread_len
+    !turn_ptr
+    !turn_len
+    !item_ptr
+    !item_len
+    !message_ptr
+    !message_len
+    !uuid_ptr
+    !uuid_len
+    !state_ptr
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper notify_user_input_request(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    thread_ptr_slot = stack_alloc 8
+    thread_len_slot = stack_alloc 8
+    turn_ptr_slot = stack_alloc 8
+    turn_len_slot = stack_alloc 8
+    item_ptr_slot = stack_alloc 8
+    item_len_slot = stack_alloc 8
+    thread_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_THREADID_KEY, EVENTS_J_THREADID_KEY_LEN, &EVENTS_EMPTY_TEXT, EVENTS_EMPTY_TEXT_LEN, &thread_ptr_slot, &thread_len_slot)
+    turn_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_TURNID_KEY, EVENTS_J_TURNID_KEY_LEN, &EVENTS_EMPTY_TEXT, EVENTS_EMPTY_TEXT_LEN, &turn_ptr_slot, &turn_len_slot)
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
+    item_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_ITEMID_KEY, EVENTS_J_ITEMID_KEY_LEN, &uuid_ptr, uuid_len, &item_ptr_slot, &item_len_slot)
+    thread_ptr = load thread_ptr_slot+0 as ptr
+    thread_len = load thread_len_slot+0 as u64
+    turn_ptr = load turn_ptr_slot+0 as ptr
+    turn_len = load turn_len_slot+0 as u64
+    item_ptr = load item_ptr_slot+0 as ptr
+    item_len = load item_len_slot+0 as u64
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING thread_status, writer, EVENTS_JSON_KEY_THREAD_ID, EVENTS_JSON_KEY_THREAD_ID_LEN, thread_ptr, thread_len
+    EXPAND JSON_WRITER_FIELD_STRING turn_status, writer, EVENTS_JSON_KEY_TURN_ID, EVENTS_JSON_KEY_TURN_ID_LEN, turn_ptr, turn_len
+    EXPAND JSON_WRITER_FIELD_STRING item_status, writer, EVENTS_JSON_KEY_ITEM_ID, EVENTS_JSON_KEY_ITEM_ID_LEN, item_ptr, item_len
+    questions_begin_status = call @json_writer_begin_field_array(writer, &EVENTS_JSON_KEY_QUESTIONS, EVENTS_JSON_KEY_QUESTIONS_LEN)
+    EXPAND JSON_WRITER_BEGIN_OBJECT question_begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING qid_status, writer, EVENTS_RPC_KEY_ID, EVENTS_RPC_KEY_ID_LEN, EVENTS_DEFAULT_MARKETPLACE, EVENTS_DEFAULT_MARKETPLACE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING header_status, writer, EVENTS_JSON_KEY_HEADER, EVENTS_JSON_KEY_HEADER_LEN, EVENTS_JSON_VALUE_INPUT_HEADER, EVENTS_JSON_VALUE_INPUT_HEADER_LEN
+    EXPAND JSON_WRITER_FIELD_STRING question_status, writer, EVENTS_JSON_KEY_QUESTION, EVENTS_JSON_KEY_QUESTION_LEN, EVENTS_JSON_VALUE_PROVIDE_INPUT, EVENTS_JSON_VALUE_PROVIDE_INPUT_LEN
+    EXPAND JSON_WRITER_FIELD_BOOL other_status, writer, EVENTS_JSON_KEY_IS_OTHER, EVENTS_JSON_KEY_IS_OTHER_LEN, 1
+    EXPAND JSON_WRITER_FIELD_BOOL secret_status, writer, EVENTS_JSON_KEY_IS_SECRET, EVENTS_JSON_KEY_IS_SECRET_LEN, 0
+    options_begin_status = call @json_writer_begin_field_array(writer, &EVENTS_JSON_KEY_OPTIONS, EVENTS_JSON_KEY_OPTIONS_LEN)
+    EXPAND JSON_WRITER_BEGIN_OBJECT option_begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING label_status, writer, EVENTS_JSON_KEY_LABEL, EVENTS_JSON_KEY_LABEL_LEN, EVENTS_JSON_VALUE_CONTINUE, EVENTS_JSON_VALUE_CONTINUE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING desc_status, writer, EVENTS_JSON_KEY_DESCRIPTION, EVENTS_JSON_KEY_DESCRIPTION_LEN, EVENTS_JSON_VALUE_CONTINUE_DESCRIPTION, EVENTS_JSON_VALUE_CONTINUE_DESCRIPTION_LEN
+    EXPAND JSON_WRITER_END_OBJECT option_end_status, writer
+    EXPAND JSON_WRITER_END_ARRAY options_end_status, writer
+    EXPAND JSON_WRITER_END_OBJECT question_end_status, writer
+    EXPAND JSON_WRITER_END_ARRAY questions_end_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &EVENTS_EV_USER_INPUT, EVENTS_EV_USER_INPUT_LEN, writer)
+    uuid_free_status = call @plugin_free_buffer(uuid_ptr, uuid_len)
+    !uuid_free_status
+    !end_status
+    !questions_end_status
+    !question_end_status
+    !options_end_status
+    !option_end_status
+    !desc_status
+    !label_status
+    !option_begin_status
+    !options_begin_status
+    !secret_status
+    !other_status
+    !question_status
+    !header_status
+    !qid_status
+    !question_begin_status
+    !questions_begin_status
+    !item_status
+    !turn_status
+    !thread_status
+    !begin_status
+    !writer_status
+    !item_extract_status
+    !turn_extract_status
+    !thread_extract_status
+    !uuid_status
+    !thread_ptr
+    !thread_len
+    !turn_ptr
+    !turn_len
+    !item_ptr
+    !item_len
+    !uuid_ptr
+    !uuid_len
+    !state_ptr
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper notify_mcp_elicitation_request(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    thread_ptr_slot = stack_alloc 8
+    thread_len_slot = stack_alloc 8
+    turn_ptr_slot = stack_alloc 8
+    turn_len_slot = stack_alloc 8
+    server_ptr_slot = stack_alloc 8
+    server_len_slot = stack_alloc 8
+    thread_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_THREADID_KEY, EVENTS_J_THREADID_KEY_LEN, &EVENTS_EMPTY_TEXT, EVENTS_EMPTY_TEXT_LEN, &thread_ptr_slot, &thread_len_slot)
+    turn_extract_status = call @rpc_extract_param_string(&body, body_len, &EVENTS_J_TURNID_KEY, EVENTS_J_TURNID_KEY_LEN, &turn_ptr_slot, &turn_len_slot)
+    server_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_SERVER_NAME_KEY, EVENTS_J_SERVER_NAME_KEY_LEN, &EVENTS_DEFAULT_LOCAL, EVENTS_DEFAULT_LOCAL_LEN, &server_ptr_slot, &server_len_slot)
+    thread_ptr = load thread_ptr_slot+0 as ptr
+    thread_len = load thread_len_slot+0 as u64
+    turn_ptr = load turn_ptr_slot+0 as ptr
+    turn_len = load turn_len_slot+0 as u64
+    server_ptr = load server_ptr_slot+0 as ptr
+    server_len = load server_len_slot+0 as u64
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING thread_status, writer, EVENTS_JSON_KEY_THREAD_ID, EVENTS_JSON_KEY_THREAD_ID_LEN, thread_ptr, thread_len
+    has_turn = eq turn_extract_status, 1
+    br has_turn -> L_NOTIFY_MCP_ELICIT_TURN, L_NOTIFY_MCP_ELICIT_NO_TURN
+
+L_NOTIFY_MCP_ELICIT_TURN:
+    !has_turn
+    EXPAND JSON_WRITER_FIELD_STRING turn_status, writer, EVENTS_JSON_KEY_TURN_ID, EVENTS_JSON_KEY_TURN_ID_LEN, turn_ptr, turn_len
+    jmp L_NOTIFY_MCP_ELICIT_AFTER_TURN
+
+L_NOTIFY_MCP_ELICIT_NO_TURN:
+    !has_turn
+    EXPAND JSON_WRITER_FIELD_NULL turn_status, writer, EVENTS_JSON_KEY_TURN_ID, EVENTS_JSON_KEY_TURN_ID_LEN
+    jmp L_NOTIFY_MCP_ELICIT_AFTER_TURN
+
+L_NOTIFY_MCP_ELICIT_AFTER_TURN:
+    EXPAND JSON_WRITER_FIELD_STRING server_status, writer, EVENTS_JSON_KEY_SERVER_NAME, EVENTS_JSON_KEY_SERVER_NAME_LEN, server_ptr, server_len
+    request_begin_status = call @json_writer_begin_field_object(writer, &EVENTS_JSON_KEY_REQUEST, EVENTS_JSON_KEY_REQUEST_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING type_status, writer, EVENTS_FB_KEY_TYPE, EVENTS_FB_KEY_TYPE_LEN, EVENTS_JSON_VALUE_FORM, EVENTS_JSON_VALUE_FORM_LEN
+    EXPAND JSON_WRITER_FIELD_STRING id_status, writer, EVENTS_RPC_KEY_ID, EVENTS_RPC_KEY_ID_LEN, uuid_ptr, uuid_len
+    schema_begin_status = call @json_writer_begin_field_object(writer, &EVENTS_JSON_KEY_REQUESTED_SCHEMA, EVENTS_JSON_KEY_REQUESTED_SCHEMA_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING schema_version_status, writer, EVENTS_JSON_KEY_SCHEMA, EVENTS_JSON_KEY_SCHEMA_LEN, EVENTS_JSON_VALUE_JSON_SCHEMA_2020, EVENTS_JSON_VALUE_JSON_SCHEMA_2020_LEN
+    EXPAND JSON_WRITER_FIELD_STRING schema_type_status, writer, EVENTS_FB_KEY_TYPE, EVENTS_FB_KEY_TYPE_LEN, EVENTS_JSON_VALUE_OBJECT, EVENTS_JSON_VALUE_OBJECT_LEN
+    props_status = call @json_writer_field_empty_object(writer, &EVENTS_JSON_KEY_PROPERTIES, EVENTS_JSON_KEY_PROPERTIES_LEN)
+    required_status = call @json_writer_field_empty_array(writer, &EVENTS_JSON_KEY_REQUIRED, EVENTS_JSON_KEY_REQUIRED_LEN)
+    EXPAND JSON_WRITER_END_OBJECT schema_end_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING instructions_status, writer, EVENTS_JSON_KEY_INSTRUCTIONS, EVENTS_JSON_KEY_INSTRUCTIONS_LEN, EVENTS_JSON_VALUE_PROVIDE_VALUE, EVENTS_JSON_VALUE_PROVIDE_VALUE_LEN
+    EXPAND JSON_WRITER_END_OBJECT request_end_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &EVENTS_EV_MCP_ELICITATION, EVENTS_EV_MCP_ELICITATION_LEN, writer)
+    uuid_free_status = call @plugin_free_buffer(uuid_ptr, uuid_len)
+    !uuid_free_status
+    !end_status
+    !request_end_status
+    !instructions_status
+    !schema_end_status
+    !required_status
+    !props_status
+    !schema_type_status
+    !schema_version_status
+    !schema_begin_status
+    !id_status
+    !type_status
+    !request_begin_status
+    !server_status
+    !turn_status
+    !thread_status
+    !begin_status
+    !writer_status
+    !server_extract_status
+    !turn_extract_status
+    !thread_extract_status
+    !uuid_status
+    !thread_ptr
+    !thread_len
+    !turn_ptr
+    !turn_len
+    !server_ptr
+    !server_len
+    !uuid_ptr
+    !uuid_len
+    !state_ptr
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper notify_world_warning_params(&state_ptr: ptr) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    paths_status = call @json_writer_field_empty_array(writer, &EVENTS_JSON_KEY_SAMPLE_PATHS, EVENTS_JSON_KEY_SAMPLE_PATHS_LEN)
+    EXPAND JSON_WRITER_FIELD_I64 extra_status, writer, EVENTS_JSON_KEY_EXTRA_COUNT, EVENTS_JSON_KEY_EXTRA_COUNT_LEN, 0
+    EXPAND JSON_WRITER_FIELD_BOOL failed_status, writer, EVENTS_JSON_KEY_FAILED_SCAN, EVENTS_JSON_KEY_FAILED_SCAN_LEN, 0
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &EVENTS_EV_WORLD_WARN, EVENTS_EV_WORLD_WARN_LEN, writer)
+    !end_status
+    !failed_status
+    !extra_status
+    !paths_status
+    !begin_status
+    !writer_status
+    !state_ptr
+    return 0
+
+@ffi_wrapper notify_mcp_startup_params(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    name_ptr_slot = stack_alloc 8
+    name_len_slot = stack_alloc 8
+    name_extract_status = call @rpc_extract_string_or_default(&body, body_len, &EVENTS_J_NAME_KEY, EVENTS_J_NAME_KEY_LEN, &EVENTS_DEFAULT_LOCAL, EVENTS_DEFAULT_LOCAL_LEN, &name_ptr_slot, &name_len_slot)
+    name_ptr = load name_ptr_slot+0 as ptr
+    name_len = load name_len_slot+0 as u64
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING name_status, writer, EVENTS_JSON_KEY_NAME, EVENTS_JSON_KEY_NAME_LEN, name_ptr, name_len
+    EXPAND JSON_WRITER_FIELD_STRING status_field, writer, EVENTS_JSON_KEY_STATUS, EVENTS_JSON_KEY_STATUS_LEN, EVENTS_JSON_VALUE_STARTING, EVENTS_JSON_VALUE_STARTING_LEN
+    EXPAND JSON_WRITER_FIELD_NULL error_status, writer, EVENTS_JSON_KEY_ERROR, EVENTS_JSON_KEY_ERROR_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &EVENTS_EV_MCP_STARTUP, EVENTS_EV_MCP_STARTUP_LEN, writer)
+    !end_status
+    !error_status
+    !status_field
+    !name_status
+    !begin_status
+    !writer_status
+    !name_extract_status
+    !name_ptr
+    !name_len
+    !state_ptr
+    !body
+    !body_len
+    return 0

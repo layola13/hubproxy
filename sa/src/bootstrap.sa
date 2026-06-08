@@ -1,0 +1,93 @@
+@import "sa_std/io/print.sai"
+@import "deno.sal"
+@import "sa_http_server.sai"
+@import "config.sai"
+@import "http_dispatch.sai"
+@import "state.sai"
+
+@const LOG_INIT     = utf8:"[hubproxy] Initializing SA proxy...\n"
+@const LOG_LISTEN   = utf8:"[hubproxy] Listening on http://"
+
+#def LOG_INIT_LEN     = 36
+#def LOG_LISTEN_LEN   = 31
+
+@const ENV_PATH_ROOT = utf8:"../.env"
+@const ENV_PATH_CWD = utf8:".env"
+@const LISTEN_SUFFIX = utf8:"\n"
+
+#def ENV_PATH_ROOT_LEN = 7
+#def ENV_PATH_CWD_LEN = 4
+#def LISTEN_SUFFIX_LEN = 1
+
+@hubproxy_main() -> i32!:
+L_ENTRY:
+    call @sa_print_bytes(&LOG_INIT, LOG_INIT_LEN)
+
+    cfg_ptr = alloc CFG_SIZE
+    cfg_status = call @cfg_load(&ENV_PATH_ROOT, ENV_PATH_ROOT_LEN, &cfg_ptr)
+    cfg_ok = eq cfg_status, 0
+    br cfg_ok -> L_CFG_OK_PRIMARY, L_CFG_TRY_CWD_ENV
+
+L_CFG_TRY_CWD_ENV:
+    !cfg_ok
+    !cfg_status
+    cfg_status2 = call @cfg_load(&ENV_PATH_CWD, ENV_PATH_CWD_LEN, &cfg_ptr)
+    cfg_ok2 = eq cfg_status2, 0
+    br cfg_ok2 -> L_CFG_OK_FROM_CWD, L_CFG_FAIL
+
+L_CFG_OK_FROM_CWD:
+    !cfg_ok2
+    !cfg_status2
+    jmp L_CFG_OK
+
+L_CFG_FAIL:
+    !cfg_ok2
+    !cfg_status2
+    !cfg_ptr
+    return 1
+
+L_CFG_OK_PRIMARY:
+    !cfg_ok
+    !cfg_status
+    jmp L_CFG_OK
+
+L_CFG_OK:
+    data_dir_ptr = load cfg_ptr+CFG_DIR_PTR as ptr
+    data_dir_len = load cfg_ptr+CFG_DIR_LEN as u64
+    EXPAND DENO_MKDIR dir_status, data_dir_ptr, data_dir_len, 1
+    !dir_status
+
+    state_ptr = alloc ST_TOTAL
+    st_status = call @state_init(&state_ptr)
+    !st_status
+
+    port = call @cfg_get_port(&cfg_ptr)
+    host_ptr_slot = stack_alloc 8
+    host_len_slot = stack_alloc 8
+    call @cfg_get_host(&cfg_ptr, &host_ptr_slot, &host_len_slot)
+    host_ptr = load host_ptr_slot+0 as ptr
+    host_len = load host_len_slot+0 as u64
+
+    server_slot = stack_alloc 8
+    srv_status = call @sa_http_server_new(&server_slot)
+    server = load server_slot+0 as ptr
+
+    start_status = call @sa_http_server_start(server, &host_ptr, host_len, port)
+    !start_status
+    !srv_status
+
+    call @sa_print_bytes(&LOG_LISTEN, LOG_LISTEN_LEN)
+    call @sa_print_bytes(&host_ptr, host_len)
+    call @sa_print_bytes(&LISTEN_SUFFIX, LISTEN_SUFFIX_LEN)
+    !host_ptr
+    !host_len
+
+    req_slot = stack_alloc 8
+
+L_HTTP_LOOP:
+    loop_status = call @accept_and_handle_http_request(server, &req_slot, &state_ptr, &cfg_ptr)
+    !loop_status
+    jmp L_HTTP_LOOP
+
+L_EXIT:
+    return 0

@@ -1,0 +1,2119 @@
+// proxy.sa — shared proxy/plugin/normalize helpers for SA HubProxy
+@import "proxy.sai"
+@import "deno.sal"
+@import "sa_http_client.sai"
+@import "sa_std/encoding/json.sai"
+@import "json_support.sai"
+@import "rpc_emit.sai"
+@import "request_context.sai"
+@import "strings.sai"
+
+#def PROXY_FS_MAX_READ_BYTES = 16777216
+#def PROXY_SSE_BUF_SIZE = 8192
+
+@const PROXY_FB_KEY_TOOLS = utf8:"tools"
+@const PROXY_FB_KEY_MODEL = utf8:"model"
+@const PROXY_FB_KEY_NAME = utf8:"name"
+@const PROXY_FB_KEY_TYPE = utf8:"type"
+@const PROXY_FB_KEY_FUNCTION = utf8:"function"
+@const PROXY_FB_KEY_DESCRIPTION = utf8:"description"
+@const PROXY_FB_KEY_PARAMETERS = utf8:"parameters"
+@const PROXY_FB_KEY_STRICT = utf8:"strict"
+@const PROXY_FB_TYPE_FUNCTION = utf8:"function"
+@const PROXY_FB_TYPE_NAMESPACE = utf8:"namespace"
+@const PROXY_EMPTY_TEXT = utf8:""
+@const PROXY_CHAT_DROP_STORE = utf8:"store"
+@const PROXY_CHAT_DROP_PROMPT_CACHE_KEY = utf8:"prompt_cache_key"
+@const PROXY_CHAT_DROP_INCLUDE = utf8:"include"
+@const PROXY_CHAT_DROP_REASONING = utf8:"reasoning"
+@const PROXY_GEMINI_MODEL = utf8:"gemini"
+@const PROXY_GEMINI_PREFIX = utf8:"gemini-"
+@const PROXY_MODELS_GEMINI_PREFIX = utf8:"models/gemini-"
+@const PROXY_RESP_EVENT_COMPLETED_PREFIX = utf8:"event: response.completed\n"
+@const PROXY_RESP_TYPE_FUNCTION_CALL = utf8:"\"type\":\"function_call\""
+
+#def PROXY_FB_KEY_TOOLS_LEN = 5
+#def PROXY_FB_KEY_MODEL_LEN = 5
+#def PROXY_FB_KEY_NAME_LEN = 4
+#def PROXY_FB_KEY_TYPE_LEN = 4
+#def PROXY_FB_KEY_FUNCTION_LEN = 8
+#def PROXY_FB_KEY_DESCRIPTION_LEN = 11
+#def PROXY_FB_KEY_PARAMETERS_LEN = 10
+#def PROXY_FB_KEY_STRICT_LEN = 6
+#def PROXY_FB_TYPE_FUNCTION_LEN = 8
+#def PROXY_FB_TYPE_NAMESPACE_LEN = 9
+#def PROXY_CHAT_DROP_STORE_LEN = 5
+#def PROXY_CHAT_DROP_PROMPT_CACHE_KEY_LEN = 16
+#def PROXY_CHAT_DROP_INCLUDE_LEN = 7
+#def PROXY_CHAT_DROP_REASONING_LEN = 9
+#def PROXY_GEMINI_MODEL_LEN = 6
+#def PROXY_GEMINI_PREFIX_LEN = 7
+#def PROXY_MODELS_GEMINI_PREFIX_LEN = 14
+#def PROXY_RESP_EVENT_COMPLETED_PREFIX_LEN = 26
+#def PROXY_RESP_TYPE_FUNCTION_CALL_LEN = 22
+
+@ffi_wrapper plugin_buffer_to_owned_and_free(buf_ptr: ptr, buf_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out = call @bytes_to_owned(&buf_ptr, buf_len, &out_len)
+    free_status = call @sa_deno_plugin_free_buffer(buf_ptr, buf_len)
+    !free_status
+    store out_len+0, buf_len as u64
+    !out_len
+    !buf_ptr
+    !buf_len
+    return out
+
+@ffi_wrapper plugin_free_buffer(buf_ptr: ptr, buf_len: u64) -> u32:
+L_ENTRY:
+    status = call @sa_deno_plugin_free_buffer(buf_ptr, buf_len)
+    !buf_ptr
+    !buf_len
+    return status
+
+@ffi_wrapper plugin_random_uuid(&out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    status = call @sa_deno_plugin_random_uuid(&out_ptr, &out_len)
+    !out_ptr
+    !out_len
+    return status
+
+@ffi_wrapper plugin_date_now_iso(&out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    status = call @sa_deno_plugin_date_now_iso(&out_ptr, &out_len)
+    !out_ptr
+    !out_len
+    return status
+
+@ffi_wrapper http_response_read_all(resp: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    reader_slot = stack_alloc 8
+    reader_status = call @sa_http_client_resp_body_reader(resp, &reader_slot)
+    reader = load reader_slot+0 as ptr
+    body_buf = alloc PROXY_FS_MAX_READ_BYTES
+    chunk_buf = stack_alloc PROXY_SSE_BUF_SIZE
+    read_len_slot = stack_alloc 8
+    offset_slot = stack_alloc 8
+    store offset_slot+0, 0 as u64
+    !reader_status
+    jmp L_HTTP_READ_LOOP
+
+L_HTTP_READ_LOOP:
+    read_status = call @sa_http_client_resp_read_chunk(reader, &chunk_buf, PROXY_SSE_BUF_SIZE, &read_len_slot)
+    read_len = load read_len_slot+0 as u64
+    done = eq read_len, 0
+    br done -> L_HTTP_READ_DONE, L_HTTP_READ_APPEND
+
+L_HTTP_READ_APPEND:
+    !done
+    offset = load offset_slot+0 as u64
+    dst = ptr_add body_buf, offset
+    copied = call @copy_bytes_into(&dst, &chunk_buf, read_len)
+    next_offset = add offset, copied
+    store offset_slot+0, next_offset as u64
+    !next_offset
+    !copied
+    !dst
+    !offset
+    !read_status
+    !read_len
+    jmp L_HTTP_READ_LOOP
+
+L_HTTP_READ_DONE:
+    !done
+    !read_status
+    final_len = load offset_slot+0 as u64
+    store out_ptr+0, body_buf as ptr
+    store out_len+0, final_len as u64
+    free_status = call @sa_http_client_body_reader_free(^reader)
+    !free_status
+    !final_len
+    !body_buf
+    !read_len
+    !resp
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper normalize_responses_client_json_body(&body: ptr, body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    norm_ptr_slot = stack_alloc 8
+    norm_len_slot = stack_alloc 8
+    norm_status = call @sa_deno_plugin_responses_json_normalize(&body, body_len, &norm_ptr_slot, &norm_len_slot)
+    norm_ok = eq norm_status, 0
+    br norm_ok -> L_RESP_JSON_STD_CHECK_LEN, L_RESP_JSON_STD_COPY_ORIGINAL
+
+L_RESP_JSON_STD_CHECK_LEN:
+    !norm_ok
+    norm_ptr = load norm_ptr_slot+0 as ptr
+    norm_len = load norm_len_slot+0 as u64
+    norm_has_bytes = ugt norm_len, 0
+    br norm_has_bytes -> L_RESP_JSON_STD_COPY, L_RESP_JSON_STD_EMPTY_FALLBACK
+
+L_RESP_JSON_STD_COPY:
+    !norm_has_bytes
+    out_std = call @plugin_buffer_to_owned_and_free(norm_ptr, norm_len, &out_len)
+    !norm_ptr
+    !norm_len
+    !norm_status
+    !body
+    !body_len
+    !out_len
+    return out_std
+
+L_RESP_JSON_STD_EMPTY_FALLBACK:
+    !norm_has_bytes
+    empty_free_status = call @plugin_free_buffer(norm_ptr, norm_len)
+    !empty_free_status
+    !norm_ptr
+    !norm_len
+    !norm_status
+    out_copy_empty = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !out_len
+    return out_copy_empty
+
+L_RESP_JSON_STD_COPY_ORIGINAL:
+    !norm_ok
+    !norm_status
+    out_copy = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !out_len
+    return out_copy
+
+@ffi_wrapper normalize_chat_fallback_json_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    std_json_ptr_slot = stack_alloc 8
+    std_json_len_slot = stack_alloc 8
+    std_json_status = call @sa_deno_plugin_chat_json_to_responses(&body, body_len, &req_body, req_body_len, &std_json_ptr_slot, &std_json_len_slot)
+    std_json_ok = eq std_json_status, 0
+    br std_json_ok -> L_CHAT_JSON_STD_COPY, L_CHAT_JSON_STD_COPY_ORIGINAL
+
+L_CHAT_JSON_STD_COPY:
+    !std_json_ok
+    std_json_ptr = load std_json_ptr_slot+0 as ptr
+    std_json_len = load std_json_len_slot+0 as u64
+    out_std_json = call @plugin_buffer_to_owned_and_free(std_json_ptr, std_json_len, &out_len)
+    !std_json_ptr
+    !std_json_len
+    !std_json_status
+    !body
+    !body_len
+    !req_body
+    !req_body_len
+    !out_len
+    return out_std_json
+
+L_CHAT_JSON_STD_COPY_ORIGINAL:
+    !std_json_ok
+    !std_json_status
+    out_std_json_orig = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !req_body
+    !req_body_len
+    !out_len
+    return out_std_json_orig
+
+@ffi_wrapper normalize_responses_client_sse_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    norm_ptr_slot = stack_alloc 8
+    norm_len_slot = stack_alloc 8
+    norm_status = call @sa_deno_plugin_responses_sse_normalize(&body, body_len, &norm_ptr_slot, &norm_len_slot)
+    norm_ok = eq norm_status, 0
+    br norm_ok -> L_NATIVE_HAVE_NORM, L_NATIVE_COPY_ORIGINAL
+
+L_NATIVE_HAVE_NORM:
+    !norm_ok
+    norm_ptr = load norm_ptr_slot+0 as ptr
+    norm_len = load norm_len_slot+0 as u64
+    out = call @plugin_buffer_to_owned_and_free(norm_ptr, norm_len, &out_len)
+    inject_allowed = call @body_allows_progress_continuation(&req_body, req_body_len)
+    should_check_progress = eq inject_allowed, 1
+    br should_check_progress -> L_NATIVE_CHECK_PROGRESS, L_NATIVE_RETURN_NORM
+
+L_NATIVE_CHECK_PROGRESS:
+    is_progress = call @responses_sse_is_progress_message(&out, norm_len)
+    progress_match = eq is_progress, 1
+    br progress_match -> L_NATIVE_CHECK_TOOL_CALL, L_NATIVE_RETURN_NORM_AFTER_PROGRESS
+
+L_NATIVE_CHECK_TOOL_CALL:
+    tool_status = call @bytes_has(&out, norm_len, &PROXY_RESP_TYPE_FUNCTION_CALL, PROXY_RESP_TYPE_FUNCTION_CALL_LEN)
+    has_tool = eq tool_status, 1
+    br has_tool -> L_NATIVE_RETURN_NORM_AFTER_TOOL, L_NATIVE_INJECT_CONTINUATION
+
+L_NATIVE_INJECT_CONTINUATION:
+    !has_tool
+    !tool_status
+    cont_len_slot = stack_alloc 8
+    cont = call @build_native_progress_continuation(&cont_len_slot)
+    cont_len = load cont_len_slot+0 as u64
+    capacity_base = add norm_len, cont_len
+    capacity = add capacity_base, 128
+    buf = call @rpc_builder_new_capacity(capacity)
+    repl_status = call @append_with_replacement(&buf, &out, norm_len, &PROXY_RESP_EVENT_COMPLETED_PREFIX, PROXY_RESP_EVENT_COMPLETED_PREFIX_LEN, &cont, cont_len)
+    out_injected = call @rpc_builder_to_owned(buf, &out_len)
+    !repl_status
+    !buf
+    !capacity
+    !capacity_base
+    !cont
+    !cont_len
+    !progress_match
+    !is_progress
+    !should_check_progress
+    !inject_allowed
+    !norm_ptr
+    !norm_len
+    !norm_status
+    !req_body
+    !req_body_len
+    !body
+    !body_len
+    !out_len
+    return out_injected
+
+L_NATIVE_RETURN_NORM_AFTER_TOOL:
+    !has_tool
+    !tool_status
+    jmp L_NATIVE_RETURN_NORM_AFTER_PROGRESS
+
+L_NATIVE_RETURN_NORM_AFTER_PROGRESS:
+    !progress_match
+    !is_progress
+    jmp L_NATIVE_RETURN_NORM
+
+L_NATIVE_RETURN_NORM:
+    !should_check_progress
+    !inject_allowed
+    !norm_ptr
+    !norm_len
+    !norm_status
+    !req_body
+    !req_body_len
+    !body
+    !body_len
+    !out_len
+    return out
+
+L_NATIVE_COPY_ORIGINAL:
+    !norm_ok
+    !norm_status
+    out_orig = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !req_body
+    !req_body_len
+    !out_len
+    return out_orig
+
+@ffi_wrapper chat_proxy_is_tools_key(&key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    tools_raw = call @sa_bytes_eq(&key, key_len, &PROXY_FB_KEY_TOOLS, PROXY_FB_KEY_TOOLS_LEN)
+    tools_ok = eq tools_raw, 1
+    br tools_ok -> L_TOOLS_YES, L_TOOLS_NO
+
+L_TOOLS_YES:
+    !tools_ok
+    !tools_raw
+    !key
+    !key_len
+    return 1
+
+L_TOOLS_NO:
+    !tools_ok
+    !tools_raw
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper chat_proxy_is_drop_key(&key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    store_raw = call @sa_bytes_eq(&key, key_len, &PROXY_CHAT_DROP_STORE, PROXY_CHAT_DROP_STORE_LEN)
+    store_ok = eq store_raw, 1
+    br store_ok -> L_DROP_STORE, L_DROP_PROMPT
+
+L_DROP_STORE:
+    !store_ok
+    !store_raw
+    !key
+    !key_len
+    return 1
+
+L_DROP_PROMPT:
+    !store_ok
+    !store_raw
+    prompt_raw = call @sa_bytes_eq(&key, key_len, &PROXY_CHAT_DROP_PROMPT_CACHE_KEY, PROXY_CHAT_DROP_PROMPT_CACHE_KEY_LEN)
+    prompt_ok = eq prompt_raw, 1
+    br prompt_ok -> L_DROP_PROMPT_YES, L_DROP_INCLUDE
+
+L_DROP_PROMPT_YES:
+    !prompt_ok
+    !prompt_raw
+    !key
+    !key_len
+    return 1
+
+L_DROP_INCLUDE:
+    !prompt_ok
+    !prompt_raw
+    include_raw = call @sa_bytes_eq(&key, key_len, &PROXY_CHAT_DROP_INCLUDE, PROXY_CHAT_DROP_INCLUDE_LEN)
+    include_ok = eq include_raw, 1
+    br include_ok -> L_DROP_INCLUDE_YES, L_DROP_REASONING
+
+L_DROP_INCLUDE_YES:
+    !include_ok
+    !include_raw
+    !key
+    !key_len
+    return 1
+
+L_DROP_REASONING:
+    !include_ok
+    !include_raw
+    reasoning_raw = call @sa_bytes_eq(&key, key_len, &PROXY_CHAT_DROP_REASONING, PROXY_CHAT_DROP_REASONING_LEN)
+    reasoning_ok = eq reasoning_raw, 1
+    br reasoning_ok -> L_DROP_REASONING_YES, L_DROP_NO
+
+L_DROP_REASONING_YES:
+    !reasoning_ok
+    !reasoning_raw
+    !key
+    !key_len
+    return 1
+
+L_DROP_NO:
+    !reasoning_ok
+    !reasoning_raw
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper proxy_json_string_is_gemini_model(&model_ptr: ptr, model_len: u64) -> u32:
+L_ENTRY:
+    exact_raw = call @sa_bytes_eq(&model_ptr, model_len, &PROXY_GEMINI_MODEL, PROXY_GEMINI_MODEL_LEN)
+    exact_ok = eq exact_raw, 1
+    br exact_ok -> L_GEMINI_YES_EXACT, L_GEMINI_CHECK_PREFIX
+
+L_GEMINI_YES_EXACT:
+    !exact_ok
+    !exact_raw
+    !model_ptr
+    !model_len
+    return 1
+
+L_GEMINI_CHECK_PREFIX:
+    !exact_ok
+    !exact_raw
+    can_short = uge model_len, PROXY_GEMINI_PREFIX_LEN
+    br can_short -> L_GEMINI_SHORT_PREFIX, L_GEMINI_CHECK_MODELS
+
+L_GEMINI_SHORT_PREFIX:
+    !can_short
+    short_raw = call @sa_bytes_eq(&model_ptr, PROXY_GEMINI_PREFIX_LEN, &PROXY_GEMINI_PREFIX, PROXY_GEMINI_PREFIX_LEN)
+    short_ok = eq short_raw, 1
+    br short_ok -> L_GEMINI_YES_SHORT, L_GEMINI_SHORT_NO
+
+L_GEMINI_YES_SHORT:
+    !short_ok
+    !short_raw
+    !model_ptr
+    !model_len
+    return 1
+
+L_GEMINI_SHORT_NO:
+    !short_ok
+    !short_raw
+    jmp L_GEMINI_CHECK_MODELS_AFTER_SHORT
+
+L_GEMINI_CHECK_MODELS:
+    !can_short
+    jmp L_GEMINI_CHECK_MODELS_AFTER_SHORT
+
+L_GEMINI_CHECK_MODELS_AFTER_SHORT:
+    can_models = uge model_len, PROXY_MODELS_GEMINI_PREFIX_LEN
+    br can_models -> L_GEMINI_MODELS_PREFIX, L_GEMINI_NO
+
+L_GEMINI_MODELS_PREFIX:
+    !can_models
+    models_raw = call @sa_bytes_eq(&model_ptr, PROXY_MODELS_GEMINI_PREFIX_LEN, &PROXY_MODELS_GEMINI_PREFIX, PROXY_MODELS_GEMINI_PREFIX_LEN)
+    models_ok = eq models_raw, 1
+    br models_ok -> L_GEMINI_YES_MODELS, L_GEMINI_MODELS_NO
+
+L_GEMINI_YES_MODELS:
+    !models_ok
+    !models_raw
+    !model_ptr
+    !model_len
+    return 1
+
+L_GEMINI_MODELS_NO:
+    !models_ok
+    !models_raw
+    jmp L_GEMINI_NO_AFTER_MODELS
+
+L_GEMINI_NO:
+    !can_models
+    jmp L_GEMINI_NO_AFTER_MODELS
+
+L_GEMINI_NO_AFTER_MODELS:
+    !model_ptr
+    !model_len
+    return 0
+
+@ffi_wrapper body_is_gemini_responses_request(&body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_BODY_GEMINI_ROOT, L_BODY_GEMINI_NO_ROOT
+
+L_BODY_GEMINI_ROOT:
+    !has_root
+    model_slot = stack_alloc 8
+    model_status = call @sa_json_object_get(root, &PROXY_FB_KEY_MODEL, PROXY_FB_KEY_MODEL_LEN, &model_slot)
+    model_ok = eq model_status, 0
+    br model_ok -> L_BODY_GEMINI_MODEL, L_BODY_GEMINI_NO_MODEL
+
+L_BODY_GEMINI_MODEL:
+    !model_ok
+    model_node = load model_slot+0 as ptr
+    model_kind = call @sa_json_kind(model_node)
+    model_is_string = eq model_kind, SA_JSON_KIND_STRING
+    !model_kind
+    br model_is_string -> L_BODY_GEMINI_STRING, L_BODY_GEMINI_MODEL_BAD
+
+L_BODY_GEMINI_STRING:
+    !model_is_string
+    model_ptr = call @sa_json_string_ptr(model_node)
+    model_len = call @sa_json_string_len(model_node)
+    is_gemini = call @proxy_json_string_is_gemini_model(&model_ptr, model_len)
+    model_free = call @sa_json_free(^model_node)
+    !model_free
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !model_status
+    !body
+    !body_len
+    return is_gemini
+
+L_BODY_GEMINI_MODEL_BAD:
+    !model_is_string
+    model_free_bad = call @sa_json_free(^model_node)
+    !model_free_bad
+    jmp L_BODY_GEMINI_NO_MODEL_AFTER
+
+L_BODY_GEMINI_NO_MODEL:
+    !model_ok
+    jmp L_BODY_GEMINI_NO_MODEL_AFTER
+
+L_BODY_GEMINI_NO_MODEL_AFTER:
+    root_free_no_model = call @sa_json_free(^root)
+    !root_free_no_model
+    !model_status
+    !body
+    !body_len
+    return 0
+
+L_BODY_GEMINI_NO_ROOT:
+    !has_root
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper build_chat_fallback_body(&body: ptr, body_len: u64, &model_ptr: ptr, model_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    std_fb_ptr_slot = stack_alloc 8
+    std_fb_len_slot = stack_alloc 8
+    std_fb_status = call @sa_deno_plugin_responses_chat_fallback_request(&body, body_len, &model_ptr, model_len, 0, &std_fb_ptr_slot, &std_fb_len_slot)
+    std_fb_ok = eq std_fb_status, 0
+    br std_fb_ok -> L_CHAT_FB_STD_COPY, L_CHAT_FB_STD_FAIL
+
+L_CHAT_FB_STD_COPY:
+    !std_fb_ok
+    std_fb_ptr = load std_fb_ptr_slot+0 as ptr
+    std_fb_len = load std_fb_len_slot+0 as u64
+    out_std_fb = call @plugin_buffer_to_owned_and_free(std_fb_ptr, std_fb_len, &out_len)
+    !std_fb_ptr
+    !std_fb_len
+    !std_fb_status
+    !body
+    !body_len
+    !model_ptr
+    !model_len
+    !out_len
+    return out_std_fb
+
+L_CHAT_FB_STD_FAIL:
+    !std_fb_ok
+    !std_fb_status
+    store out_len+0, 0 as u64
+    out_empty = alloc 1
+    !body
+    !body_len
+    !model_ptr
+    !model_len
+    !out_len
+    return out_empty
+
+@ffi_wrapper responses_gemini_is_drop_key(&key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    store_raw = call @sa_bytes_eq(&key, key_len, &PROXY_CHAT_DROP_STORE, PROXY_CHAT_DROP_STORE_LEN)
+    store_ok = eq store_raw, 1
+    br store_ok -> L_RESP_DROP_STORE, L_RESP_DROP_PROMPT
+
+L_RESP_DROP_STORE:
+    !store_ok
+    !store_raw
+    !key
+    !key_len
+    return 1
+
+L_RESP_DROP_PROMPT:
+    !store_ok
+    !store_raw
+    prompt_raw = call @sa_bytes_eq(&key, key_len, &PROXY_CHAT_DROP_PROMPT_CACHE_KEY, PROXY_CHAT_DROP_PROMPT_CACHE_KEY_LEN)
+    prompt_ok = eq prompt_raw, 1
+    br prompt_ok -> L_RESP_DROP_PROMPT_YES, L_RESP_DROP_NO
+
+L_RESP_DROP_PROMPT_YES:
+    !prompt_ok
+    !prompt_raw
+    !key
+    !key_len
+    return 1
+
+L_RESP_DROP_NO:
+    !prompt_ok
+    !prompt_raw
+    !key
+    !key_len
+    return 0
+@ffi_wrapper json_writer_write_responses_tool_source(writer: ptr, tool_node: ptr, source_node: ptr, &prefix: ptr, prefix_len: u64) -> u32:
+L_ENTRY:
+    name_slot = stack_alloc 8
+    name_status = call @sa_json_object_get(source_node, &PROXY_FB_KEY_NAME, PROXY_FB_KEY_NAME_LEN, &name_slot)
+    name_ok = eq name_status, 0
+    br name_ok -> L_JW_RESP_TOOL_NAME, L_JW_RESP_TOOL_NO_NAME
+
+L_JW_RESP_TOOL_NAME:
+    !name_ok
+    name_node = load name_slot+0 as ptr
+    name_kind = call @sa_json_kind(name_node)
+    name_is_string = eq name_kind, SA_JSON_KIND_STRING
+    !name_kind
+    br name_is_string -> L_JW_RESP_TOOL_WRITE, L_JW_RESP_TOOL_NAME_BAD
+
+L_JW_RESP_TOOL_WRITE:
+    !name_is_string
+    name_ptr = call @sa_json_string_ptr(name_node)
+    name_len = call @sa_json_string_len(name_node)
+    full_name_len_slot = stack_alloc 8
+    full_name = call @namespace_tool_name_owned(&prefix, prefix_len, &name_ptr, name_len, &full_name_len_slot)
+    full_name_len = load full_name_len_slot+0 as u64
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING type_status, writer, PROXY_FB_KEY_TYPE, PROXY_FB_KEY_TYPE_LEN, PROXY_FB_TYPE_FUNCTION, PROXY_FB_TYPE_FUNCTION_LEN
+    EXPAND JSON_WRITER_FIELD_STRING name_field_status, writer, PROXY_FB_KEY_NAME, PROXY_FB_KEY_NAME_LEN, full_name, full_name_len
+    !type_status
+    !name_field_status
+    desc_slot = stack_alloc 8
+    desc_status = call @sa_json_object_get(source_node, &PROXY_FB_KEY_DESCRIPTION, PROXY_FB_KEY_DESCRIPTION_LEN, &desc_slot)
+    desc_ok = eq desc_status, 0
+    br desc_ok -> L_JW_RESP_TOOL_DESC, L_JW_RESP_TOOL_PARAMS_NO_DESC
+
+L_JW_RESP_TOOL_DESC:
+    !desc_ok
+    desc_node = load desc_slot+0 as ptr
+    desc_kind = call @sa_json_kind(desc_node)
+    desc_is_string = eq desc_kind, SA_JSON_KIND_STRING
+    !desc_kind
+    br desc_is_string -> L_JW_RESP_TOOL_DESC_WRITE, L_JW_RESP_TOOL_DESC_FREE
+
+L_JW_RESP_TOOL_DESC_WRITE:
+    !desc_is_string
+    desc_ptr = call @sa_json_string_ptr(desc_node)
+    desc_len = call @sa_json_string_len(desc_node)
+    EXPAND JSON_WRITER_FIELD_STRING desc_field_status, writer, PROXY_FB_KEY_DESCRIPTION, PROXY_FB_KEY_DESCRIPTION_LEN, desc_ptr, desc_len
+    !desc_field_status
+    !desc_ptr
+    !desc_len
+    jmp L_JW_RESP_TOOL_DESC_FREE_AFTER
+
+L_JW_RESP_TOOL_DESC_FREE:
+    !desc_is_string
+    jmp L_JW_RESP_TOOL_DESC_FREE_AFTER
+
+L_JW_RESP_TOOL_DESC_FREE_AFTER:
+    desc_free = call @sa_json_free(^desc_node)
+    !desc_free
+    !desc_status
+    jmp L_JW_RESP_TOOL_PARAMS
+
+L_JW_RESP_TOOL_PARAMS_NO_DESC:
+    !desc_ok
+    !desc_status
+    jmp L_JW_RESP_TOOL_PARAMS
+
+L_JW_RESP_TOOL_PARAMS:
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(source_node, &PROXY_FB_KEY_PARAMETERS, PROXY_FB_KEY_PARAMETERS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_JW_RESP_TOOL_PARAMS_WRITE, L_JW_RESP_TOOL_PARAMS_MISSING
+
+L_JW_RESP_TOOL_PARAMS_WRITE:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    params_field_status = call @sa_json_writer_field_node(writer, &PROXY_FB_KEY_PARAMETERS, PROXY_FB_KEY_PARAMETERS_LEN, params_node)
+    params_free = call @sa_json_free(^params_node)
+    !params_free
+    !params_field_status
+    !params_status
+    jmp L_JW_RESP_TOOL_STRICT_SOURCE
+
+L_JW_RESP_TOOL_PARAMS_MISSING:
+    !params_ok
+    !params_status
+    jmp L_JW_RESP_TOOL_STRICT_SOURCE
+
+L_JW_RESP_TOOL_STRICT_SOURCE:
+    strict_slot = stack_alloc 1
+    strict_tool_slot = stack_alloc 1
+    strict_status = call @sa_json_object_get_bool(source_node, &PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, &strict_slot)
+    strict_ok = eq strict_status, 0
+    br strict_ok -> L_JW_RESP_TOOL_STRICT_FROM_SOURCE, L_JW_RESP_TOOL_STRICT_FROM_TOOL_CHECK
+
+L_JW_RESP_TOOL_STRICT_FROM_SOURCE:
+    !strict_ok
+    strict_value = load strict_slot+0 as u8
+    EXPAND JSON_WRITER_FIELD_BOOL strict_field_status, writer, PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, strict_value
+    !strict_field_status
+    !strict_value
+    !strict_status
+    jmp L_JW_RESP_TOOL_DONE
+
+L_JW_RESP_TOOL_STRICT_FROM_TOOL_CHECK:
+    !strict_ok
+    !strict_status
+    strict_tool_status = call @sa_json_object_get_bool(tool_node, &PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, &strict_tool_slot)
+    strict_tool_ok = eq strict_tool_status, 0
+    br strict_tool_ok -> L_JW_RESP_TOOL_STRICT_FROM_TOOL, L_JW_RESP_TOOL_DONE_NO_STRICT
+
+L_JW_RESP_TOOL_STRICT_FROM_TOOL:
+    !strict_tool_ok
+    strict_tool_value = load strict_tool_slot+0 as u8
+    EXPAND JSON_WRITER_FIELD_BOOL strict_tool_field_status, writer, PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, strict_tool_value
+    !strict_tool_field_status
+    !strict_tool_value
+    !strict_tool_status
+    jmp L_JW_RESP_TOOL_DONE
+
+L_JW_RESP_TOOL_DONE_NO_STRICT:
+    !strict_tool_ok
+    !strict_tool_status
+    jmp L_JW_RESP_TOOL_DONE
+
+L_JW_RESP_TOOL_DONE:
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    name_free = call @sa_json_free(^name_node)
+    !name_free
+    !end_status
+    !begin_status
+    !full_name
+    !full_name_len
+    !name_ptr
+    !name_len
+    !name_status
+    !writer
+    !tool_node
+    !source_node
+    !prefix
+    !prefix_len
+    return 1
+
+L_JW_RESP_TOOL_NAME_BAD:
+    !name_is_string
+    name_free_bad = call @sa_json_free(^name_node)
+    !name_free_bad
+    !name_status
+    !writer
+    !tool_node
+    !source_node
+    !prefix
+    !prefix_len
+    return 0
+
+L_JW_RESP_TOOL_NO_NAME:
+    !name_ok
+    !name_status
+    !writer
+    !tool_node
+    !source_node
+    !prefix
+    !prefix_len
+    return 0
+
+@ffi_wrapper json_writer_write_responses_tool(writer: ptr, tool_node: ptr, &prefix: ptr, prefix_len: u64) -> u32:
+L_ENTRY:
+    type_slot = stack_alloc 8
+    type_status = call @sa_json_object_get(tool_node, &PROXY_FB_KEY_TYPE, PROXY_FB_KEY_TYPE_LEN, &type_slot)
+    has_type = eq type_status, 0
+    br has_type -> L_JW_RESP_TOOL_TYPE, L_JW_RESP_TOOL_AS_FUNCTION_NO_TYPE
+
+L_JW_RESP_TOOL_TYPE:
+    !has_type
+    type_node = load type_slot+0 as ptr
+    type_kind = call @sa_json_kind(type_node)
+    type_is_string = eq type_kind, SA_JSON_KIND_STRING
+    !type_kind
+    br type_is_string -> L_JW_RESP_TOOL_TYPE_COMPARE, L_JW_RESP_TOOL_TYPE_BAD
+
+L_JW_RESP_TOOL_TYPE_COMPARE:
+    !type_is_string
+    type_ptr = call @sa_json_string_ptr(type_node)
+    type_len = call @sa_json_string_len(type_node)
+    ns_raw = call @sa_bytes_eq(&type_ptr, type_len, &PROXY_FB_TYPE_NAMESPACE, PROXY_FB_TYPE_NAMESPACE_LEN)
+    is_ns = eq ns_raw, 1
+    !ns_raw
+    br is_ns -> L_JW_RESP_TOOL_NAMESPACE, L_JW_RESP_TOOL_TYPE_FUNCTION_CHECK
+
+L_JW_RESP_TOOL_NAMESPACE:
+    !is_ns
+    !type_ptr
+    !type_len
+    type_free_ns = call @sa_json_free(^type_node)
+    !type_free_ns
+    !type_status
+    ns_written = call @json_writer_write_responses_namespace_tools(writer, tool_node)
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return ns_written
+
+L_JW_RESP_TOOL_TYPE_FUNCTION_CHECK:
+    !is_ns
+    fn_raw = call @sa_bytes_eq(&type_ptr, type_len, &PROXY_FB_TYPE_FUNCTION, PROXY_FB_TYPE_FUNCTION_LEN)
+    is_fn = eq fn_raw, 1
+    !fn_raw
+    br is_fn -> L_JW_RESP_TOOL_TYPE_FUNCTION, L_JW_RESP_TOOL_TYPE_SKIP
+
+L_JW_RESP_TOOL_TYPE_FUNCTION:
+    !is_fn
+    !type_ptr
+    !type_len
+    type_free_fn = call @sa_json_free(^type_node)
+    !type_free_fn
+    !type_status
+    jmp L_JW_RESP_TOOL_AS_FUNCTION
+
+L_JW_RESP_TOOL_TYPE_SKIP:
+    !is_fn
+    !type_ptr
+    !type_len
+    type_free_skip = call @sa_json_free(^type_node)
+    !type_free_skip
+    !type_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return 0
+
+L_JW_RESP_TOOL_TYPE_BAD:
+    !type_is_string
+    type_free_bad = call @sa_json_free(^type_node)
+    !type_free_bad
+    !type_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return 0
+
+L_JW_RESP_TOOL_AS_FUNCTION_NO_TYPE:
+    !has_type
+    !type_status
+    jmp L_JW_RESP_TOOL_AS_FUNCTION
+
+L_JW_RESP_TOOL_AS_FUNCTION:
+    fn_slot = stack_alloc 8
+    fn_status = call @sa_json_object_get(tool_node, &PROXY_FB_KEY_FUNCTION, PROXY_FB_KEY_FUNCTION_LEN, &fn_slot)
+    has_fn = eq fn_status, 0
+    br has_fn -> L_JW_RESP_TOOL_FUNCTION_NODE, L_JW_RESP_TOOL_FLAT
+
+L_JW_RESP_TOOL_FUNCTION_NODE:
+    !has_fn
+    fn_node = load fn_slot+0 as ptr
+    wrote_fn = call @json_writer_write_responses_tool_source(writer, tool_node, fn_node, &prefix, prefix_len)
+    fn_free = call @sa_json_free(^fn_node)
+    !fn_free
+    !fn_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return wrote_fn
+
+L_JW_RESP_TOOL_FLAT:
+    !has_fn
+    wrote_flat = call @json_writer_write_responses_tool_source(writer, tool_node, tool_node, &prefix, prefix_len)
+    !fn_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return wrote_flat
+
+@ffi_wrapper json_writer_write_responses_namespace_tools(writer: ptr, ns_node: ptr) -> u32:
+L_ENTRY:
+    ns_name_slot = stack_alloc 8
+    ns_name_status = call @sa_json_object_get(ns_node, &PROXY_FB_KEY_NAME, PROXY_FB_KEY_NAME_LEN, &ns_name_slot)
+    ns_name_ok = eq ns_name_status, 0
+    br ns_name_ok -> L_JW_RESP_NS_NAME, L_JW_RESP_NS_NO_NAME
+
+L_JW_RESP_NS_NAME:
+    !ns_name_ok
+    ns_name_node = load ns_name_slot+0 as ptr
+    ns_name_kind = call @sa_json_kind(ns_name_node)
+    ns_name_is_string = eq ns_name_kind, SA_JSON_KIND_STRING
+    !ns_name_kind
+    br ns_name_is_string -> L_JW_RESP_NS_TOOLS, L_JW_RESP_NS_NAME_BAD
+
+L_JW_RESP_NS_TOOLS:
+    !ns_name_is_string
+    ns_prefix = call @sa_json_string_ptr(ns_name_node)
+    ns_prefix_len = call @sa_json_string_len(ns_name_node)
+    ns_tools_slot = stack_alloc 8
+    ns_tools_status = call @sa_json_object_get(ns_node, &PROXY_FB_KEY_TOOLS, PROXY_FB_KEY_TOOLS_LEN, &ns_tools_slot)
+    ns_has_tools = eq ns_tools_status, 0
+    br ns_has_tools -> L_JW_RESP_NS_LOOP_PREP, L_JW_RESP_NS_NO_TOOLS_FREE
+
+L_JW_RESP_NS_LOOP_PREP:
+    !ns_has_tools
+    ns_tools_node = load ns_tools_slot+0 as ptr
+    ns_count_slot = stack_alloc 8
+    ns_count_status = call @sa_json_value_count(ns_tools_node, &ns_count_slot)
+    ns_count_ok = eq ns_count_status, 0
+    br ns_count_ok -> L_JW_RESP_NS_LOOP_INIT, L_JW_RESP_NS_TOOLS_FREE_EMPTY
+
+L_JW_RESP_NS_LOOP_INIT:
+    !ns_count_ok
+    ns_count = load ns_count_slot+0 as u64
+    ns_index_slot = stack_alloc 8
+    ns_item_slot = stack_alloc 8
+    wrote_slot = stack_alloc 8
+    store ns_index_slot+0, 0 as u64
+    store wrote_slot+0, 0 as u64
+    jmp L_JW_RESP_NS_LOOP_COND
+
+L_JW_RESP_NS_LOOP_COND:
+    ns_index = load ns_index_slot+0 as u64
+    ns_has_next = ult ns_index, ns_count
+    br ns_has_next -> L_JW_RESP_NS_LOOP_BODY, L_JW_RESP_NS_LOOP_DONE
+
+L_JW_RESP_NS_LOOP_BODY:
+    !ns_has_next
+    ns_item_status = call @sa_json_array_get(ns_tools_node, ns_index, &ns_item_slot)
+    ns_item_ok = eq ns_item_status, 0
+    br ns_item_ok -> L_JW_RESP_NS_ITEM, L_JW_RESP_NS_ITEM_NEXT
+
+L_JW_RESP_NS_ITEM:
+    !ns_item_ok
+    ns_item_node = load ns_item_slot+0 as ptr
+    ns_append = call @json_writer_write_responses_tool(writer, ns_item_node, &ns_prefix, ns_prefix_len)
+    ns_append_ok = eq ns_append, 1
+    br ns_append_ok -> L_JW_RESP_NS_MARK_WROTE, L_JW_RESP_NS_NO_MARK
+
+L_JW_RESP_NS_MARK_WROTE:
+    !ns_append_ok
+    store wrote_slot+0, 1 as u64
+    jmp L_JW_RESP_NS_ITEM_FREE
+
+L_JW_RESP_NS_NO_MARK:
+    !ns_append_ok
+    jmp L_JW_RESP_NS_ITEM_FREE
+
+L_JW_RESP_NS_ITEM_FREE:
+    ns_item_free = call @sa_json_free(^ns_item_node)
+    !ns_item_free
+    !ns_append
+    !ns_item_status
+    jmp L_JW_RESP_NS_ITEM_ADVANCE
+
+L_JW_RESP_NS_ITEM_NEXT:
+    !ns_item_ok
+    !ns_item_status
+    jmp L_JW_RESP_NS_ITEM_ADVANCE
+
+L_JW_RESP_NS_ITEM_ADVANCE:
+    ns_next_index = add ns_index, 1
+    store ns_index_slot+0, ns_next_index as u64
+    !ns_next_index
+    !ns_index
+    jmp L_JW_RESP_NS_LOOP_COND
+
+L_JW_RESP_NS_LOOP_DONE:
+    !ns_has_next
+    !ns_index
+    wrote_any = load wrote_slot+0 as u64
+    ns_tools_free = call @sa_json_free(^ns_tools_node)
+    !ns_tools_free
+    ns_name_free = call @sa_json_free(^ns_name_node)
+    !ns_name_free
+    !ns_prefix
+    !ns_prefix_len
+    !ns_count
+    !ns_count_status
+    !ns_tools_status
+    !ns_name_status
+    !writer
+    !ns_node
+    return wrote_any
+
+L_JW_RESP_NS_TOOLS_FREE_EMPTY:
+    !ns_count_ok
+    ns_tools_free_empty = call @sa_json_free(^ns_tools_node)
+    !ns_tools_free_empty
+    ns_name_free_empty = call @sa_json_free(^ns_name_node)
+    !ns_name_free_empty
+    !ns_prefix
+    !ns_prefix_len
+    !ns_count_status
+    !ns_tools_status
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+L_JW_RESP_NS_NO_TOOLS_FREE:
+    !ns_has_tools
+    ns_name_free_no_tools = call @sa_json_free(^ns_name_node)
+    !ns_name_free_no_tools
+    !ns_prefix
+    !ns_prefix_len
+    !ns_tools_status
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+L_JW_RESP_NS_NAME_BAD:
+    !ns_name_is_string
+    ns_name_free_bad = call @sa_json_free(^ns_name_node)
+    !ns_name_free_bad
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+L_JW_RESP_NS_NO_NAME:
+    !ns_name_ok
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+@ffi_wrapper json_writer_field_normalized_responses_tools(writer: ptr, tools_node: ptr) -> u32:
+L_ENTRY:
+    tmp_buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED tmp_writer_status, tmp_writer
+    EXPAND JSON_WRITER_BEGIN_ARRAY tmp_begin_status, tmp_writer
+    count_slot = stack_alloc 8
+    index_slot = stack_alloc 8
+    item_slot = stack_alloc 8
+    wrote_slot = stack_alloc 8
+    empty_prefix = &PROXY_EMPTY_TEXT
+    store index_slot+0, 0 as u64
+    store wrote_slot+0, 0 as u64
+    count_status = call @sa_json_value_count(tools_node, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_JW_RESP_TOOLS_LOOP_INIT, L_JW_RESP_TOOLS_FINISH_EMPTY
+
+L_JW_RESP_TOOLS_LOOP_INIT:
+    !count_ok
+    count = load count_slot+0 as u64
+    jmp L_JW_RESP_TOOLS_LOOP_COND
+
+L_JW_RESP_TOOLS_LOOP_COND:
+    index = load index_slot+0 as u64
+    has_next = ult index, count
+    br has_next -> L_JW_RESP_TOOLS_LOOP_BODY, L_JW_RESP_TOOLS_LOOP_DONE
+
+L_JW_RESP_TOOLS_LOOP_BODY:
+    !has_next
+    item_status = call @sa_json_array_get(tools_node, index, &item_slot)
+    item_ok = eq item_status, 0
+    br item_ok -> L_JW_RESP_TOOLS_ITEM, L_JW_RESP_TOOLS_ITEM_NEXT
+
+L_JW_RESP_TOOLS_ITEM:
+    !item_ok
+    item_node = load item_slot+0 as ptr
+    wrote = call @json_writer_write_responses_tool(tmp_writer, item_node, &empty_prefix, 0)
+    wrote_ok = eq wrote, 1
+    br wrote_ok -> L_JW_RESP_TOOLS_MARK_WROTE, L_JW_RESP_TOOLS_ITEM_FREE_NO_MARK
+
+L_JW_RESP_TOOLS_MARK_WROTE:
+    !wrote_ok
+    store wrote_slot+0, 1 as u64
+    jmp L_JW_RESP_TOOLS_ITEM_FREE
+
+L_JW_RESP_TOOLS_ITEM_FREE_NO_MARK:
+    !wrote_ok
+    jmp L_JW_RESP_TOOLS_ITEM_FREE
+
+L_JW_RESP_TOOLS_ITEM_FREE:
+    item_free = call @sa_json_free(^item_node)
+    !item_free
+    !wrote
+    !item_status
+    jmp L_JW_RESP_TOOLS_ADVANCE
+
+L_JW_RESP_TOOLS_ITEM_NEXT:
+    !item_ok
+    !item_status
+    jmp L_JW_RESP_TOOLS_ADVANCE
+
+L_JW_RESP_TOOLS_ADVANCE:
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !index
+    jmp L_JW_RESP_TOOLS_LOOP_COND
+
+L_JW_RESP_TOOLS_LOOP_DONE:
+    !has_next
+    !index
+    !count
+    !count_status
+    jmp L_JW_RESP_TOOLS_FINISH
+
+L_JW_RESP_TOOLS_FINISH_EMPTY:
+    !count_ok
+    !count_status
+    jmp L_JW_RESP_TOOLS_FINISH
+
+L_JW_RESP_TOOLS_FINISH:
+    wrote_any = load wrote_slot+0 as u64
+    EXPAND JSON_WRITER_END_ARRAY tmp_end_status, tmp_writer
+    tmp_ptr_slot = stack_alloc 8
+    tmp_len_slot = stack_alloc 8
+    tmp_finish_status = call @json_writer_finish_view(tmp_writer, &tmp_buffer_slot, &tmp_ptr_slot, &tmp_len_slot)
+    tmp_buffer = load tmp_buffer_slot+0 as ptr
+    tmp_ptr = load tmp_ptr_slot+0 as ptr
+    tmp_len = load tmp_len_slot+0 as u64
+    has_tools = ne wrote_any, 0
+    br has_tools -> L_JW_RESP_TOOLS_FIELD_NODE, L_JW_RESP_TOOLS_FREE_EMPTY_NO_TOOLS
+
+L_JW_RESP_TOOLS_FIELD_NODE:
+    !has_tools
+    tools_array_node = call @sa_json_parse(&tmp_ptr, tmp_len)
+    has_tools_node = ne tools_array_node, 0
+    br has_tools_node -> L_JW_RESP_TOOLS_FIELD_WRITE, L_JW_RESP_TOOLS_FREE_EMPTY_AFTER_NODE
+
+L_JW_RESP_TOOLS_FIELD_WRITE:
+    !has_tools_node
+    field_status = call @sa_json_writer_field_node(writer, &PROXY_FB_KEY_TOOLS, PROXY_FB_KEY_TOOLS_LEN, tools_array_node)
+    tools_node_free = call @sa_json_free(^tools_array_node)
+    !tools_node_free
+    tmp_dispose_status = call @json_writer_dispose_finished(tmp_buffer, tmp_writer)
+    !tmp_dispose_status
+    !field_status
+    !tmp_ptr
+    !tmp_len
+    !wrote_any
+    !tmp_finish_status
+    !tmp_end_status
+    !tmp_begin_status
+    !tmp_writer_status
+    !writer
+    !tools_node
+    return 1
+
+L_JW_RESP_TOOLS_FREE_EMPTY_AFTER_NODE:
+    !has_tools_node
+    !tools_array_node
+    jmp L_JW_RESP_TOOLS_FREE_EMPTY
+
+L_JW_RESP_TOOLS_FREE_EMPTY_NO_TOOLS:
+    !has_tools
+    jmp L_JW_RESP_TOOLS_FREE_EMPTY
+
+L_JW_RESP_TOOLS_FREE_EMPTY:
+    tmp_dispose_status_empty = call @json_writer_dispose_finished(tmp_buffer, tmp_writer)
+    !tmp_dispose_status_empty
+    !tmp_ptr
+    !tmp_len
+    !wrote_any
+    !tmp_finish_status
+    !tmp_end_status
+    !tmp_begin_status
+    !tmp_writer_status
+    !writer
+    !tools_node
+    return 0
+
+@ffi_wrapper json_writer_write_chat_tool_source(writer: ptr, tool_node: ptr, source_node: ptr, &prefix: ptr, prefix_len: u64) -> u32:
+L_ENTRY:
+    name_slot = stack_alloc 8
+    name_status = call @sa_json_object_get(source_node, &PROXY_FB_KEY_NAME, PROXY_FB_KEY_NAME_LEN, &name_slot)
+    name_ok = eq name_status, 0
+    br name_ok -> L_JW_CHAT_TOOL_NAME, L_JW_CHAT_TOOL_NO_NAME
+
+L_JW_CHAT_TOOL_NAME:
+    !name_ok
+    name_node = load name_slot+0 as ptr
+    name_kind = call @sa_json_kind(name_node)
+    name_is_string = eq name_kind, SA_JSON_KIND_STRING
+    !name_kind
+    br name_is_string -> L_JW_CHAT_TOOL_WRITE, L_JW_CHAT_TOOL_NAME_BAD
+
+L_JW_CHAT_TOOL_WRITE:
+    !name_is_string
+    name_ptr = call @sa_json_string_ptr(name_node)
+    name_len = call @sa_json_string_len(name_node)
+    full_name_len_slot = stack_alloc 8
+    full_name = call @namespace_tool_name_owned(&prefix, prefix_len, &name_ptr, name_len, &full_name_len_slot)
+    full_name_len = load full_name_len_slot+0 as u64
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING type_status, writer, PROXY_FB_KEY_TYPE, PROXY_FB_KEY_TYPE_LEN, PROXY_FB_TYPE_FUNCTION, PROXY_FB_TYPE_FUNCTION_LEN
+    fn_begin_status = call @json_writer_begin_field_object(writer, &PROXY_FB_KEY_FUNCTION, PROXY_FB_KEY_FUNCTION_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING name_field_status, writer, PROXY_FB_KEY_NAME, PROXY_FB_KEY_NAME_LEN, full_name, full_name_len
+    !type_status
+    !fn_begin_status
+    !name_field_status
+    desc_slot = stack_alloc 8
+    desc_status = call @sa_json_object_get(source_node, &PROXY_FB_KEY_DESCRIPTION, PROXY_FB_KEY_DESCRIPTION_LEN, &desc_slot)
+    desc_ok = eq desc_status, 0
+    br desc_ok -> L_JW_CHAT_TOOL_DESC, L_JW_CHAT_TOOL_PARAMS_NO_DESC
+
+L_JW_CHAT_TOOL_DESC:
+    !desc_ok
+    desc_node = load desc_slot+0 as ptr
+    desc_kind = call @sa_json_kind(desc_node)
+    desc_is_string = eq desc_kind, SA_JSON_KIND_STRING
+    !desc_kind
+    br desc_is_string -> L_JW_CHAT_TOOL_DESC_WRITE, L_JW_CHAT_TOOL_DESC_FREE
+
+L_JW_CHAT_TOOL_DESC_WRITE:
+    !desc_is_string
+    desc_ptr = call @sa_json_string_ptr(desc_node)
+    desc_len = call @sa_json_string_len(desc_node)
+    EXPAND JSON_WRITER_FIELD_STRING desc_field_status, writer, PROXY_FB_KEY_DESCRIPTION, PROXY_FB_KEY_DESCRIPTION_LEN, desc_ptr, desc_len
+    !desc_field_status
+    !desc_ptr
+    !desc_len
+    jmp L_JW_CHAT_TOOL_DESC_FREE_AFTER
+
+L_JW_CHAT_TOOL_DESC_FREE:
+    !desc_is_string
+    jmp L_JW_CHAT_TOOL_DESC_FREE_AFTER
+
+L_JW_CHAT_TOOL_DESC_FREE_AFTER:
+    desc_free = call @sa_json_free(^desc_node)
+    !desc_free
+    !desc_status
+    jmp L_JW_CHAT_TOOL_PARAMS
+
+L_JW_CHAT_TOOL_PARAMS_NO_DESC:
+    !desc_ok
+    !desc_status
+    jmp L_JW_CHAT_TOOL_PARAMS
+
+L_JW_CHAT_TOOL_PARAMS:
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(source_node, &PROXY_FB_KEY_PARAMETERS, PROXY_FB_KEY_PARAMETERS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_JW_CHAT_TOOL_PARAMS_WRITE, L_JW_CHAT_TOOL_PARAMS_MISSING
+
+L_JW_CHAT_TOOL_PARAMS_WRITE:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    params_field_status = call @sa_json_writer_field_node(writer, &PROXY_FB_KEY_PARAMETERS, PROXY_FB_KEY_PARAMETERS_LEN, params_node)
+    params_free = call @sa_json_free(^params_node)
+    !params_free
+    !params_field_status
+    !params_status
+    jmp L_JW_CHAT_TOOL_STRICT_SOURCE
+
+L_JW_CHAT_TOOL_PARAMS_MISSING:
+    !params_ok
+    !params_status
+    jmp L_JW_CHAT_TOOL_STRICT_SOURCE
+
+L_JW_CHAT_TOOL_STRICT_SOURCE:
+    strict_slot = stack_alloc 1
+    strict_tool_slot = stack_alloc 1
+    strict_status = call @sa_json_object_get_bool(source_node, &PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, &strict_slot)
+    strict_ok = eq strict_status, 0
+    br strict_ok -> L_JW_CHAT_TOOL_STRICT_FROM_SOURCE, L_JW_CHAT_TOOL_STRICT_FROM_TOOL_CHECK
+
+L_JW_CHAT_TOOL_STRICT_FROM_SOURCE:
+    !strict_ok
+    strict_value = load strict_slot+0 as u8
+    EXPAND JSON_WRITER_FIELD_BOOL strict_field_status, writer, PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, strict_value
+    !strict_field_status
+    !strict_value
+    !strict_status
+    jmp L_JW_CHAT_TOOL_DONE
+
+L_JW_CHAT_TOOL_STRICT_FROM_TOOL_CHECK:
+    !strict_ok
+    !strict_status
+    strict_tool_status = call @sa_json_object_get_bool(tool_node, &PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, &strict_tool_slot)
+    strict_tool_ok = eq strict_tool_status, 0
+    br strict_tool_ok -> L_JW_CHAT_TOOL_STRICT_FROM_TOOL, L_JW_CHAT_TOOL_DONE_NO_STRICT
+
+L_JW_CHAT_TOOL_STRICT_FROM_TOOL:
+    !strict_tool_ok
+    strict_tool_value = load strict_tool_slot+0 as u8
+    EXPAND JSON_WRITER_FIELD_BOOL strict_tool_field_status, writer, PROXY_FB_KEY_STRICT, PROXY_FB_KEY_STRICT_LEN, strict_tool_value
+    !strict_tool_field_status
+    !strict_tool_value
+    !strict_tool_status
+    jmp L_JW_CHAT_TOOL_DONE
+
+L_JW_CHAT_TOOL_DONE_NO_STRICT:
+    !strict_tool_ok
+    !strict_tool_status
+    jmp L_JW_CHAT_TOOL_DONE
+
+L_JW_CHAT_TOOL_DONE:
+    EXPAND JSON_WRITER_END_OBJECT fn_end_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    name_free = call @sa_json_free(^name_node)
+    !name_free
+    !fn_end_status
+    !end_status
+    !begin_status
+    !full_name
+    !full_name_len
+    !name_ptr
+    !name_len
+    !name_status
+    !writer
+    !tool_node
+    !source_node
+    !prefix
+    !prefix_len
+    return 1
+
+L_JW_CHAT_TOOL_NAME_BAD:
+    !name_is_string
+    name_free_bad = call @sa_json_free(^name_node)
+    !name_free_bad
+    !name_status
+    !writer
+    !tool_node
+    !source_node
+    !prefix
+    !prefix_len
+    return 0
+
+L_JW_CHAT_TOOL_NO_NAME:
+    !name_ok
+    !name_status
+    !writer
+    !tool_node
+    !source_node
+    !prefix
+    !prefix_len
+    return 0
+
+@ffi_wrapper json_writer_write_chat_tool(writer: ptr, tool_node: ptr, &prefix: ptr, prefix_len: u64) -> u32:
+L_ENTRY:
+    type_slot = stack_alloc 8
+    type_status = call @sa_json_object_get(tool_node, &PROXY_FB_KEY_TYPE, PROXY_FB_KEY_TYPE_LEN, &type_slot)
+    has_type = eq type_status, 0
+    br has_type -> L_JW_CHAT_TOOL_TYPE, L_JW_CHAT_TOOL_AS_FUNCTION_NO_TYPE
+
+L_JW_CHAT_TOOL_TYPE:
+    !has_type
+    type_node = load type_slot+0 as ptr
+    type_kind = call @sa_json_kind(type_node)
+    type_is_string = eq type_kind, SA_JSON_KIND_STRING
+    !type_kind
+    br type_is_string -> L_JW_CHAT_TOOL_TYPE_COMPARE, L_JW_CHAT_TOOL_TYPE_BAD
+
+L_JW_CHAT_TOOL_TYPE_COMPARE:
+    !type_is_string
+    type_ptr = call @sa_json_string_ptr(type_node)
+    type_len = call @sa_json_string_len(type_node)
+    ns_raw = call @sa_bytes_eq(&type_ptr, type_len, &PROXY_FB_TYPE_NAMESPACE, PROXY_FB_TYPE_NAMESPACE_LEN)
+    is_ns = eq ns_raw, 1
+    !ns_raw
+    br is_ns -> L_JW_CHAT_TOOL_NAMESPACE, L_JW_CHAT_TOOL_TYPE_FUNCTION_CHECK
+
+L_JW_CHAT_TOOL_NAMESPACE:
+    !is_ns
+    !type_ptr
+    !type_len
+    type_free_ns = call @sa_json_free(^type_node)
+    !type_free_ns
+    !type_status
+    ns_written = call @json_writer_write_chat_namespace_tools(writer, tool_node)
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return ns_written
+
+L_JW_CHAT_TOOL_TYPE_FUNCTION_CHECK:
+    !is_ns
+    fn_raw = call @sa_bytes_eq(&type_ptr, type_len, &PROXY_FB_TYPE_FUNCTION, PROXY_FB_TYPE_FUNCTION_LEN)
+    is_fn = eq fn_raw, 1
+    !fn_raw
+    br is_fn -> L_JW_CHAT_TOOL_TYPE_FUNCTION, L_JW_CHAT_TOOL_TYPE_SKIP
+
+L_JW_CHAT_TOOL_TYPE_FUNCTION:
+    !is_fn
+    !type_ptr
+    !type_len
+    type_free_fn = call @sa_json_free(^type_node)
+    !type_free_fn
+    !type_status
+    jmp L_JW_CHAT_TOOL_AS_FUNCTION
+
+L_JW_CHAT_TOOL_TYPE_SKIP:
+    !is_fn
+    !type_ptr
+    !type_len
+    type_free_skip = call @sa_json_free(^type_node)
+    !type_free_skip
+    !type_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return 0
+
+L_JW_CHAT_TOOL_TYPE_BAD:
+    !type_is_string
+    type_free_bad = call @sa_json_free(^type_node)
+    !type_free_bad
+    !type_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return 0
+
+L_JW_CHAT_TOOL_AS_FUNCTION_NO_TYPE:
+    !has_type
+    !type_status
+    jmp L_JW_CHAT_TOOL_AS_FUNCTION
+
+L_JW_CHAT_TOOL_AS_FUNCTION:
+    fn_slot = stack_alloc 8
+    fn_status = call @sa_json_object_get(tool_node, &PROXY_FB_KEY_FUNCTION, PROXY_FB_KEY_FUNCTION_LEN, &fn_slot)
+    has_fn = eq fn_status, 0
+    br has_fn -> L_JW_CHAT_TOOL_FUNCTION_NODE, L_JW_CHAT_TOOL_FLAT
+
+L_JW_CHAT_TOOL_FUNCTION_NODE:
+    !has_fn
+    fn_node = load fn_slot+0 as ptr
+    wrote_fn = call @json_writer_write_chat_tool_source(writer, tool_node, fn_node, &prefix, prefix_len)
+    fn_free = call @sa_json_free(^fn_node)
+    !fn_free
+    !fn_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return wrote_fn
+
+L_JW_CHAT_TOOL_FLAT:
+    !has_fn
+    wrote_flat = call @json_writer_write_chat_tool_source(writer, tool_node, tool_node, &prefix, prefix_len)
+    !fn_status
+    !writer
+    !tool_node
+    !prefix
+    !prefix_len
+    return wrote_flat
+
+@ffi_wrapper json_writer_write_chat_namespace_tools(writer: ptr, ns_node: ptr) -> u32:
+L_ENTRY:
+    ns_name_slot = stack_alloc 8
+    ns_name_status = call @sa_json_object_get(ns_node, &PROXY_FB_KEY_NAME, PROXY_FB_KEY_NAME_LEN, &ns_name_slot)
+    ns_name_ok = eq ns_name_status, 0
+    br ns_name_ok -> L_JW_CHAT_NS_NAME, L_JW_CHAT_NS_NO_NAME
+
+L_JW_CHAT_NS_NAME:
+    !ns_name_ok
+    ns_name_node = load ns_name_slot+0 as ptr
+    ns_name_kind = call @sa_json_kind(ns_name_node)
+    ns_name_is_string = eq ns_name_kind, SA_JSON_KIND_STRING
+    !ns_name_kind
+    br ns_name_is_string -> L_JW_CHAT_NS_TOOLS, L_JW_CHAT_NS_NAME_BAD
+
+L_JW_CHAT_NS_TOOLS:
+    !ns_name_is_string
+    ns_prefix = call @sa_json_string_ptr(ns_name_node)
+    ns_prefix_len = call @sa_json_string_len(ns_name_node)
+    ns_tools_slot = stack_alloc 8
+    ns_tools_status = call @sa_json_object_get(ns_node, &PROXY_FB_KEY_TOOLS, PROXY_FB_KEY_TOOLS_LEN, &ns_tools_slot)
+    ns_has_tools = eq ns_tools_status, 0
+    br ns_has_tools -> L_JW_CHAT_NS_LOOP_PREP, L_JW_CHAT_NS_NO_TOOLS_FREE
+
+L_JW_CHAT_NS_LOOP_PREP:
+    !ns_has_tools
+    ns_tools_node = load ns_tools_slot+0 as ptr
+    ns_count_slot = stack_alloc 8
+    ns_count_status = call @sa_json_value_count(ns_tools_node, &ns_count_slot)
+    ns_count_ok = eq ns_count_status, 0
+    br ns_count_ok -> L_JW_CHAT_NS_LOOP_INIT, L_JW_CHAT_NS_TOOLS_FREE_EMPTY
+
+L_JW_CHAT_NS_LOOP_INIT:
+    !ns_count_ok
+    ns_count = load ns_count_slot+0 as u64
+    ns_index_slot = stack_alloc 8
+    ns_item_slot = stack_alloc 8
+    wrote_slot = stack_alloc 8
+    store ns_index_slot+0, 0 as u64
+    store wrote_slot+0, 0 as u64
+    jmp L_JW_CHAT_NS_LOOP_COND
+
+L_JW_CHAT_NS_LOOP_COND:
+    ns_index = load ns_index_slot+0 as u64
+    ns_has_next = ult ns_index, ns_count
+    br ns_has_next -> L_JW_CHAT_NS_LOOP_BODY, L_JW_CHAT_NS_LOOP_DONE
+
+L_JW_CHAT_NS_LOOP_BODY:
+    !ns_has_next
+    ns_item_status = call @sa_json_array_get(ns_tools_node, ns_index, &ns_item_slot)
+    ns_item_ok = eq ns_item_status, 0
+    br ns_item_ok -> L_JW_CHAT_NS_ITEM, L_JW_CHAT_NS_ITEM_NEXT
+
+L_JW_CHAT_NS_ITEM:
+    !ns_item_ok
+    ns_item_node = load ns_item_slot+0 as ptr
+    ns_append = call @json_writer_write_chat_tool(writer, ns_item_node, &ns_prefix, ns_prefix_len)
+    ns_append_ok = eq ns_append, 1
+    br ns_append_ok -> L_JW_CHAT_NS_MARK_WROTE, L_JW_CHAT_NS_NO_MARK
+
+L_JW_CHAT_NS_MARK_WROTE:
+    !ns_append_ok
+    store wrote_slot+0, 1 as u64
+    jmp L_JW_CHAT_NS_ITEM_FREE
+
+L_JW_CHAT_NS_NO_MARK:
+    !ns_append_ok
+    jmp L_JW_CHAT_NS_ITEM_FREE
+
+L_JW_CHAT_NS_ITEM_FREE:
+    ns_item_free = call @sa_json_free(^ns_item_node)
+    !ns_item_free
+    !ns_append
+    !ns_item_status
+    jmp L_JW_CHAT_NS_ITEM_ADVANCE
+
+L_JW_CHAT_NS_ITEM_NEXT:
+    !ns_item_ok
+    !ns_item_status
+    jmp L_JW_CHAT_NS_ITEM_ADVANCE
+
+L_JW_CHAT_NS_ITEM_ADVANCE:
+    ns_next_index = add ns_index, 1
+    store ns_index_slot+0, ns_next_index as u64
+    !ns_next_index
+    !ns_index
+    jmp L_JW_CHAT_NS_LOOP_COND
+
+L_JW_CHAT_NS_LOOP_DONE:
+    !ns_has_next
+    !ns_index
+    wrote_any = load wrote_slot+0 as u64
+    ns_tools_free = call @sa_json_free(^ns_tools_node)
+    !ns_tools_free
+    ns_name_free = call @sa_json_free(^ns_name_node)
+    !ns_name_free
+    !ns_prefix
+    !ns_prefix_len
+    !ns_count
+    !ns_count_status
+    !ns_tools_status
+    !ns_name_status
+    !writer
+    !ns_node
+    return wrote_any
+
+L_JW_CHAT_NS_TOOLS_FREE_EMPTY:
+    !ns_count_ok
+    ns_tools_free_empty = call @sa_json_free(^ns_tools_node)
+    !ns_tools_free_empty
+    ns_name_free_empty = call @sa_json_free(^ns_name_node)
+    !ns_name_free_empty
+    !ns_prefix
+    !ns_prefix_len
+    !ns_count_status
+    !ns_tools_status
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+L_JW_CHAT_NS_NO_TOOLS_FREE:
+    !ns_has_tools
+    ns_name_free_no_tools = call @sa_json_free(^ns_name_node)
+    !ns_name_free_no_tools
+    !ns_prefix
+    !ns_prefix_len
+    !ns_tools_status
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+L_JW_CHAT_NS_NAME_BAD:
+    !ns_name_is_string
+    ns_name_free_bad = call @sa_json_free(^ns_name_node)
+    !ns_name_free_bad
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+L_JW_CHAT_NS_NO_NAME:
+    !ns_name_ok
+    !ns_name_status
+    !writer
+    !ns_node
+    return 0
+
+@ffi_wrapper json_writer_field_normalized_chat_tools(writer: ptr, tools_node: ptr) -> u32:
+L_ENTRY:
+    tmp_buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED tmp_writer_status, tmp_writer
+    EXPAND JSON_WRITER_BEGIN_ARRAY tmp_begin_status, tmp_writer
+    count_slot = stack_alloc 8
+    index_slot = stack_alloc 8
+    item_slot = stack_alloc 8
+    wrote_slot = stack_alloc 8
+    empty_prefix = &PROXY_EMPTY_TEXT
+    store index_slot+0, 0 as u64
+    store wrote_slot+0, 0 as u64
+    count_status = call @sa_json_value_count(tools_node, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_JW_CHAT_TOOLS_LOOP_INIT, L_JW_CHAT_TOOLS_FINISH_EMPTY
+
+L_JW_CHAT_TOOLS_LOOP_INIT:
+    !count_ok
+    count = load count_slot+0 as u64
+    jmp L_JW_CHAT_TOOLS_LOOP_COND
+
+L_JW_CHAT_TOOLS_LOOP_COND:
+    index = load index_slot+0 as u64
+    has_next = ult index, count
+    br has_next -> L_JW_CHAT_TOOLS_LOOP_BODY, L_JW_CHAT_TOOLS_LOOP_DONE
+
+L_JW_CHAT_TOOLS_LOOP_BODY:
+    !has_next
+    item_status = call @sa_json_array_get(tools_node, index, &item_slot)
+    item_ok = eq item_status, 0
+    br item_ok -> L_JW_CHAT_TOOLS_ITEM, L_JW_CHAT_TOOLS_ITEM_NEXT
+
+L_JW_CHAT_TOOLS_ITEM:
+    !item_ok
+    item_node = load item_slot+0 as ptr
+    wrote = call @json_writer_write_chat_tool(tmp_writer, item_node, &empty_prefix, 0)
+    wrote_ok = eq wrote, 1
+    br wrote_ok -> L_JW_CHAT_TOOLS_MARK_WROTE, L_JW_CHAT_TOOLS_ITEM_FREE_NO_MARK
+
+L_JW_CHAT_TOOLS_MARK_WROTE:
+    !wrote_ok
+    store wrote_slot+0, 1 as u64
+    jmp L_JW_CHAT_TOOLS_ITEM_FREE
+
+L_JW_CHAT_TOOLS_ITEM_FREE_NO_MARK:
+    !wrote_ok
+    jmp L_JW_CHAT_TOOLS_ITEM_FREE
+
+L_JW_CHAT_TOOLS_ITEM_FREE:
+    item_free = call @sa_json_free(^item_node)
+    !item_free
+    !wrote
+    !item_status
+    jmp L_JW_CHAT_TOOLS_ADVANCE
+
+L_JW_CHAT_TOOLS_ITEM_NEXT:
+    !item_ok
+    !item_status
+    jmp L_JW_CHAT_TOOLS_ADVANCE
+
+L_JW_CHAT_TOOLS_ADVANCE:
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !index
+    jmp L_JW_CHAT_TOOLS_LOOP_COND
+
+L_JW_CHAT_TOOLS_LOOP_DONE:
+    !has_next
+    !index
+    !count
+    !count_status
+    jmp L_JW_CHAT_TOOLS_FINISH
+
+L_JW_CHAT_TOOLS_FINISH_EMPTY:
+    !count_ok
+    !count_status
+    jmp L_JW_CHAT_TOOLS_FINISH
+
+L_JW_CHAT_TOOLS_FINISH:
+    wrote_any = load wrote_slot+0 as u64
+    EXPAND JSON_WRITER_END_ARRAY tmp_end_status, tmp_writer
+    tmp_ptr_slot = stack_alloc 8
+    tmp_len_slot = stack_alloc 8
+    tmp_finish_status = call @json_writer_finish_view(tmp_writer, &tmp_buffer_slot, &tmp_ptr_slot, &tmp_len_slot)
+    tmp_buffer = load tmp_buffer_slot+0 as ptr
+    tmp_ptr = load tmp_ptr_slot+0 as ptr
+    tmp_len = load tmp_len_slot+0 as u64
+    has_tools = ne wrote_any, 0
+    br has_tools -> L_JW_CHAT_TOOLS_FIELD_NODE, L_JW_CHAT_TOOLS_FREE_EMPTY_NO_TOOLS
+
+L_JW_CHAT_TOOLS_FIELD_NODE:
+    !has_tools
+    tools_array_node = call @sa_json_parse(&tmp_ptr, tmp_len)
+    has_tools_node = ne tools_array_node, 0
+    br has_tools_node -> L_JW_CHAT_TOOLS_FIELD_WRITE, L_JW_CHAT_TOOLS_FREE_EMPTY_AFTER_NODE
+
+L_JW_CHAT_TOOLS_FIELD_WRITE:
+    !has_tools_node
+    field_status = call @sa_json_writer_field_node(writer, &PROXY_FB_KEY_TOOLS, PROXY_FB_KEY_TOOLS_LEN, tools_array_node)
+    tools_node_free = call @sa_json_free(^tools_array_node)
+    !tools_node_free
+    tmp_dispose_status = call @json_writer_dispose_finished(tmp_buffer, tmp_writer)
+    !tmp_dispose_status
+    !field_status
+    !tmp_ptr
+    !tmp_len
+    !wrote_any
+    !tmp_finish_status
+    !tmp_end_status
+    !tmp_begin_status
+    !tmp_writer_status
+    !writer
+    !tools_node
+    return 1
+
+L_JW_CHAT_TOOLS_FREE_EMPTY_AFTER_NODE:
+    !has_tools_node
+    !tools_array_node
+    jmp L_JW_CHAT_TOOLS_FREE_EMPTY
+
+L_JW_CHAT_TOOLS_FREE_EMPTY_NO_TOOLS:
+    !has_tools
+    jmp L_JW_CHAT_TOOLS_FREE_EMPTY
+
+L_JW_CHAT_TOOLS_FREE_EMPTY:
+    tmp_dispose_status_empty = call @json_writer_dispose_finished(tmp_buffer, tmp_writer)
+    !tmp_dispose_status_empty
+    !tmp_ptr
+    !tmp_len
+    !wrote_any
+    !tmp_finish_status
+    !tmp_end_status
+    !tmp_begin_status
+    !tmp_writer_status
+    !writer
+    !tools_node
+    return 0
+
+@ffi_wrapper build_responses_proxy_body(&body: ptr, body_len: u64, is_gemini: u32, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_RESP_PROXY_ROOT, L_RESP_PROXY_COPY_ORIGINAL_NO_ROOT
+
+L_RESP_PROXY_ROOT:
+    !has_root
+    root_kind = call @sa_json_kind(root)
+    root_is_object = eq root_kind, SA_JSON_KIND_OBJECT
+    !root_kind
+    br root_is_object -> L_RESP_PROXY_WRITER_INIT, L_RESP_PROXY_ROOT_BAD_KIND
+
+L_RESP_PROXY_WRITER_INIT:
+    !root_is_object
+    buffer_slot = stack_alloc 8
+    count_slot = stack_alloc 8
+    index_slot = stack_alloc 8
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    tools_slot = stack_alloc 8
+    value_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    count_status = call @sa_json_value_count(root, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_RESP_PROXY_LOOP_INIT, L_RESP_PROXY_COUNT_BAD
+
+L_RESP_PROXY_COUNT_BAD:
+    !count_ok
+    !count_status
+    EXPAND JSON_WRITER_END_OBJECT end_status_bad_count, writer
+    data_ptr_slot_bad_count = stack_alloc 8
+    data_len_slot_bad_count = stack_alloc 8
+    finish_status_bad_count = call @json_writer_finish_view(writer, &buffer_slot, &data_ptr_slot_bad_count, &data_len_slot_bad_count)
+    buffer_bad_count = load buffer_slot+0 as ptr
+    data_ptr_bad_count = load data_ptr_slot_bad_count+0 as ptr
+    data_len_bad_count = load data_len_slot_bad_count+0 as u64
+    out_bad_count = call @json_buffer_to_owned_and_free(buffer_bad_count, &data_ptr_bad_count, data_len_bad_count, &out_len)
+    writer_dispose_bad_count = call @json_writer_dispose(writer)
+    root_free_bad_count = call @sa_json_free(^root)
+    !root_free_bad_count
+    !writer_dispose_bad_count
+    !finish_status_bad_count
+    !end_status_bad_count
+    !begin_status
+    !writer_status
+    !is_gemini
+    !body
+    !body_len
+    !out_len
+    return out_bad_count
+
+L_RESP_PROXY_LOOP_INIT:
+    !count_ok
+    count = load count_slot+0 as u64
+    store index_slot+0, 0 as u64
+    jmp L_RESP_PROXY_LOOP_COND
+
+L_RESP_PROXY_LOOP_COND:
+    index = load index_slot+0 as u64
+    has_next = ult index, count
+    br has_next -> L_RESP_PROXY_LOOP_BODY, L_RESP_PROXY_DONE
+
+L_RESP_PROXY_LOOP_BODY:
+    !has_next
+    key_status = call @sa_json_object_key_at(root, index, &key_ptr_slot, &key_len_slot)
+    key_ok = eq key_status, 0
+    br key_ok -> L_RESP_PROXY_KEY, L_RESP_PROXY_NEXT_BAD_KEY
+
+L_RESP_PROXY_KEY:
+    !key_ok
+    key_ptr = load key_ptr_slot+0 as ptr
+    key_len = load key_len_slot+0 as u64
+    gemini_drop_enabled = eq is_gemini, 1
+    br gemini_drop_enabled -> L_RESP_PROXY_CHECK_DROP_KEY, L_RESP_PROXY_KEEP_FIELD_NO_DROP
+
+L_RESP_PROXY_CHECK_DROP_KEY:
+    !gemini_drop_enabled
+    is_drop = call @responses_gemini_is_drop_key(&key_ptr, key_len)
+    drop_ok = eq is_drop, 1
+    br drop_ok -> L_RESP_PROXY_SKIP_KEY, L_RESP_PROXY_COPY_FIELD
+
+L_RESP_PROXY_KEEP_FIELD_NO_DROP:
+    !gemini_drop_enabled
+    jmp L_RESP_PROXY_CHECK_TOOLS_FIELD
+
+L_RESP_PROXY_COPY_FIELD:
+    !drop_ok
+    !is_drop
+    jmp L_RESP_PROXY_CHECK_TOOLS_FIELD
+
+L_RESP_PROXY_CHECK_TOOLS_FIELD:
+    is_tools = call @chat_proxy_is_tools_key(&key_ptr, key_len)
+    tools_ok = eq is_tools, 1
+    br tools_ok -> L_RESP_PROXY_TOOLS_FIELD, L_RESP_PROXY_COPY_NORMAL_FIELD
+
+L_RESP_PROXY_TOOLS_FIELD:
+    !tools_ok
+    !is_tools
+    tools_status = call @sa_json_object_get(root, &PROXY_FB_KEY_TOOLS, PROXY_FB_KEY_TOOLS_LEN, &tools_slot)
+    tools_found = eq tools_status, 0
+    br tools_found -> L_RESP_PROXY_TOOLS_NODE, L_RESP_PROXY_TOOLS_MISSING
+
+L_RESP_PROXY_TOOLS_NODE:
+    !tools_found
+    tools_node = load tools_slot+0 as ptr
+    tools_append = call @json_writer_field_normalized_responses_tools(writer, tools_node)
+    tools_free = call @sa_json_free(^tools_node)
+    !tools_free
+    !tools_append
+    !tools_status
+    jmp L_RESP_PROXY_NEXT_KEY
+
+L_RESP_PROXY_TOOLS_MISSING:
+    !tools_found
+    !tools_status
+    jmp L_RESP_PROXY_NEXT_KEY
+
+L_RESP_PROXY_COPY_NORMAL_FIELD:
+    !tools_ok
+    !is_tools
+    value_status = call @sa_json_object_get(root, &key_ptr, key_len, &value_slot)
+    value_ok = eq value_status, 0
+    br value_ok -> L_RESP_PROXY_VALUE, L_RESP_PROXY_VALUE_MISSING
+
+L_RESP_PROXY_VALUE:
+    !value_ok
+    value_node = load value_slot+0 as ptr
+    field_status = call @sa_json_writer_field_node(writer, &key_ptr, key_len, value_node)
+    value_free = call @sa_json_free(^value_node)
+    !value_free
+    !field_status
+    !value_status
+    jmp L_RESP_PROXY_NEXT_KEY
+
+L_RESP_PROXY_VALUE_MISSING:
+    !value_ok
+    !value_status
+    jmp L_RESP_PROXY_NEXT_KEY
+
+L_RESP_PROXY_SKIP_KEY:
+    !drop_ok
+    !is_drop
+    jmp L_RESP_PROXY_NEXT_KEY
+
+L_RESP_PROXY_NEXT_BAD_KEY:
+    !key_ok
+    !key_status
+    jmp L_RESP_PROXY_ADVANCE
+
+L_RESP_PROXY_NEXT_KEY:
+    !key_ptr
+    !key_len
+    !key_status
+    jmp L_RESP_PROXY_ADVANCE
+
+L_RESP_PROXY_ADVANCE:
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !index
+    jmp L_RESP_PROXY_LOOP_COND
+
+L_RESP_PROXY_DONE:
+    !has_next
+    !index
+    !count
+    !count_status
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    data_ptr_slot = stack_alloc 8
+    data_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_ptr_slot, &data_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data_ptr = load data_ptr_slot+0 as ptr
+    data_len = load data_len_slot+0 as u64
+    out = call @json_buffer_to_owned_and_free(buffer, &data_ptr, data_len, &out_len)
+    writer_dispose = call @json_writer_dispose(writer)
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !writer_dispose
+    !finish_status
+    !end_status
+    !begin_status
+    !writer_status
+    !is_gemini
+    !body
+    !body_len
+    !out_len
+    return out
+
+L_RESP_PROXY_ROOT_BAD_KIND:
+    !root_is_object
+    root_free_bad = call @sa_json_free(^root)
+    !root_free_bad
+    !is_gemini
+    out_bad = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !out_len
+    return out_bad
+
+L_RESP_PROXY_COPY_ORIGINAL_NO_ROOT:
+    !has_root
+    !root
+    out_orig = call @copy_bytes_owned(&body, body_len, &out_len)
+    !is_gemini
+    !body
+    !body_len
+    !out_len
+    return out_orig
+
+@ffi_wrapper build_chat_proxy_body(&body: ptr, body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_CHAT_PROXY_ROOT, L_CHAT_PROXY_COPY_ORIGINAL
+
+L_CHAT_PROXY_ROOT:
+    !has_root
+    root_kind = call @sa_json_kind(root)
+    root_is_object = eq root_kind, SA_JSON_KIND_OBJECT
+    !root_kind
+    br root_is_object -> L_CHAT_PROXY_WRITER_INIT, L_CHAT_PROXY_ROOT_BAD_KIND
+
+L_CHAT_PROXY_WRITER_INIT:
+    !root_is_object
+    buffer_slot = stack_alloc 8
+    count_slot = stack_alloc 8
+    index_slot = stack_alloc 8
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    tools_slot = stack_alloc 8
+    value_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    count_status = call @sa_json_value_count(root, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_CHAT_PROXY_LOOP_INIT, L_CHAT_PROXY_ROOT_BAD
+
+L_CHAT_PROXY_LOOP_INIT:
+    !count_ok
+    count = load count_slot+0 as u64
+    store index_slot+0, 0 as u64
+    jmp L_CHAT_PROXY_LOOP_COND
+
+L_CHAT_PROXY_LOOP_COND:
+    index = load index_slot+0 as u64
+    has_next = ult index, count
+    br has_next -> L_CHAT_PROXY_LOOP_BODY, L_CHAT_PROXY_DONE
+
+L_CHAT_PROXY_LOOP_BODY:
+    !has_next
+    key_status = call @sa_json_object_key_at(root, index, &key_ptr_slot, &key_len_slot)
+    key_ok = eq key_status, 0
+    br key_ok -> L_CHAT_PROXY_KEY, L_CHAT_PROXY_NEXT_BAD_KEY
+
+L_CHAT_PROXY_KEY:
+    !key_ok
+    key_ptr = load key_ptr_slot+0 as ptr
+    key_len = load key_len_slot+0 as u64
+    is_drop = call @chat_proxy_is_drop_key(&key_ptr, key_len)
+    drop_ok = eq is_drop, 1
+    br drop_ok -> L_CHAT_PROXY_SKIP_KEY, L_CHAT_PROXY_CHECK_TOOLS
+
+L_CHAT_PROXY_CHECK_TOOLS:
+    !drop_ok
+    !is_drop
+    is_tools = call @chat_proxy_is_tools_key(&key_ptr, key_len)
+    tools_ok = eq is_tools, 1
+    br tools_ok -> L_CHAT_PROXY_TOOLS_FIELD, L_CHAT_PROXY_COPY_FIELD
+
+L_CHAT_PROXY_TOOLS_FIELD:
+    !tools_ok
+    !is_tools
+    tools_status = call @sa_json_object_get(root, &PROXY_FB_KEY_TOOLS, PROXY_FB_KEY_TOOLS_LEN, &tools_slot)
+    tools_found = eq tools_status, 0
+    br tools_found -> L_CHAT_PROXY_TOOLS_NODE, L_CHAT_PROXY_TOOLS_MISSING
+
+L_CHAT_PROXY_TOOLS_NODE:
+    !tools_found
+    tools_node = load tools_slot+0 as ptr
+    tools_append = call @json_writer_field_normalized_chat_tools(writer, tools_node)
+    tools_free = call @sa_json_free(^tools_node)
+    !tools_free
+    !tools_append
+    !tools_status
+    jmp L_CHAT_PROXY_NEXT_KEY
+
+L_CHAT_PROXY_TOOLS_MISSING:
+    !tools_found
+    !tools_status
+    jmp L_CHAT_PROXY_NEXT_KEY
+
+L_CHAT_PROXY_COPY_FIELD:
+    !tools_ok
+    !is_tools
+    value_status = call @sa_json_object_get(root, &key_ptr, key_len, &value_slot)
+    value_ok = eq value_status, 0
+    br value_ok -> L_CHAT_PROXY_VALUE, L_CHAT_PROXY_VALUE_MISSING
+
+L_CHAT_PROXY_VALUE:
+    !value_ok
+    value_node = load value_slot+0 as ptr
+    field_status = call @sa_json_writer_field_node(writer, &key_ptr, key_len, value_node)
+    value_free = call @sa_json_free(^value_node)
+    !value_free
+    !field_status
+    !value_status
+    jmp L_CHAT_PROXY_NEXT_KEY
+
+L_CHAT_PROXY_VALUE_MISSING:
+    !value_ok
+    !value_status
+    jmp L_CHAT_PROXY_NEXT_KEY
+
+L_CHAT_PROXY_SKIP_KEY:
+    !drop_ok
+    !is_drop
+    jmp L_CHAT_PROXY_NEXT_KEY
+
+L_CHAT_PROXY_NEXT_BAD_KEY:
+    !key_ok
+    !key_status
+    jmp L_CHAT_PROXY_ADVANCE
+
+L_CHAT_PROXY_NEXT_KEY:
+    !key_ptr
+    !key_len
+    !key_status
+    jmp L_CHAT_PROXY_ADVANCE
+
+L_CHAT_PROXY_ADVANCE:
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !index
+    jmp L_CHAT_PROXY_LOOP_COND
+
+L_CHAT_PROXY_DONE:
+    !has_next
+    !index
+    !count
+    !count_status
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    data_ptr_slot = stack_alloc 8
+    data_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_ptr_slot, &data_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data_ptr = load data_ptr_slot+0 as ptr
+    data_len = load data_len_slot+0 as u64
+    out = call @json_buffer_to_owned_and_free(buffer, &data_ptr, data_len, &out_len)
+    writer_dispose = call @json_writer_dispose(writer)
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !writer_dispose
+    !finish_status
+    !end_status
+    !begin_status
+    !writer_status
+    !body
+    !body_len
+    !out_len
+    return out
+
+L_CHAT_PROXY_ROOT_BAD:
+    !count_ok
+    writer_dispose_bad_count = call @json_writer_dispose(writer)
+    !writer_dispose_bad_count
+    root_free_bad = call @sa_json_free(^root)
+    !root_free_bad
+    !count_status
+    !begin_status
+    !writer_status
+    out_bad = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !out_len
+    return out_bad
+
+L_CHAT_PROXY_ROOT_BAD_KIND:
+    !root_is_object
+    root_free_bad_kind = call @sa_json_free(^root)
+    !root_free_bad_kind
+    out_bad_kind = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !out_len
+    return out_bad_kind
+
+L_CHAT_PROXY_COPY_ORIGINAL:
+    !has_root
+    !root
+    out_orig = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !out_len
+    return out_orig

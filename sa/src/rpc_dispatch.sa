@@ -1,0 +1,2803 @@
+// rpc_dispatch.sa — top-level JSON-RPC method dispatcher for SA HubProxy
+@import "rpc_dispatch.sai"
+@import "sa_std/io/print.sai"
+@import "sa_std/io.sai"
+@import "sa_std/process.sai"
+@import "sa_std/process.sal"
+@import "sa_std/fmt.sai"
+@import "sa_std/time.sai"
+@import "sa_std/string.sai"
+@import "sa_std/encoding/json.sa"
+@import "deno.sal"
+@import "config.sai"
+@import "events.sai"
+@import "json_support.sai"
+@import "proxy.sai"
+@import "rpc_emit.sai"
+@import "rpc_parse.sai"
+@import "rpc_session.sai"
+@import "rpc_system.sai"
+@import "request_context.sai"
+@import "state.sai"
+@import "strings.sai"
+
+@extern sa_bytes_find(&hay: ptr, hay_len: u64, &needle: ptr, needle_len: u64) -> i64
+
+#def RPC_JSON_BUF_SIZE = 65536
+#def ID_BUF_SIZE = 32
+#def RPC_ID_BUF_SIZE = 4096
+#def FS_MAX_READ_BYTES = 16777216
+#def FS_MAX_DIR_ENTRIES = 4096
+
+@const J_NULL_ID = utf8:"null"
+@const J_ERR_NOT_FOUND = utf8:"method not found"
+@const J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED = utf8:"unsupported method: mcpServer/resource/list"
+@const J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED = utf8:"unsupported method: mcpServer/resource/templates"
+@const J_ERR_THREAD_NOT_FOUND = utf8:"thread not found"
+@const J_ERR_TURN_NOT_FOUND = utf8:"turn not found"
+@const J_ERR_INVALID_PARAMS = utf8:"invalid params"
+@const J_ERR_FS = utf8:"fs operation failed"
+@const J_NAME_KEY = utf8:"\"name\":\""
+@const J_PREVIEW_KEY = utf8:"\"preview\":\""
+@const J_WATCH_ID_KEY = utf8:"\"watchId\":\""
+@const J_TURN_STATUS_IN_PROGRESS = utf8:"inProgress"
+@const J_TURN_STATUS_INTERRUPTED = utf8:"interrupted"
+@const J_TURN_STATUS_COMPLETED = utf8:"completed"
+@const J_GOAL_STATUS_ACTIVE = utf8:"active"
+@const J_GOAL_STATUS_PAUSED = utf8:"paused"
+@const J_GOAL_STATUS_BLOCKED = utf8:"blocked"
+@const J_GOAL_STATUS_USAGE_LIMITED = utf8:"usageLimited"
+@const J_GOAL_STATUS_BUDGET_LIMITED = utf8:"budgetLimited"
+@const J_GOAL_STATUS_COMPLETE = utf8:"complete"
+@const J_ACCOUNT_DEFAULT_EMAIL = utf8:"user@example.com"
+@const J_PLUGIN_NAME_KEY = utf8:"\"pluginName\":\""
+@const J_REMOTE_MARKETPLACE_KEY = utf8:"\"remoteMarketplaceName\":\""
+@const J_MARKETPLACE_NAME_KEY = utf8:"\"marketplaceName\":\""
+@const J_MARKETPLACE_PATH_KEY = utf8:"\"marketplacePath\":\""
+@const J_REMOTE_PLUGIN_ID_KEY = utf8:"\"remotePluginId\":\""
+@const J_TYPE_KEY = utf8:"\"type\":\""
+@const J_SOURCE_KEY = utf8:"\"source\":\""
+@const J_COMMAND_KEY = utf8:"\"command\":\""
+@const J_MESSAGE_KEY = utf8:"\"message\":\""
+@const J_TOOL_KEY = utf8:"\"tool\":\""
+@const J_SERVER_KEY = utf8:"\"server\":\""
+@const J_ITEMID_KEY = utf8:"\"itemId\":\""
+@const J_AUDIO_KEY = utf8:"\"audio\":\""
+@const J_TEXT_KEY = utf8:"\"text\":\""
+@const J_ROLE_KEY = utf8:"\"role\":\""
+@const J_EMAIL_KEY = utf8:"\"email\":\""
+@const J_MEMORY_MODE_KEY = utf8:"\"memoryMode\":\""
+@const J_MODE_KEY = utf8:"\"mode\":\""
+@const J_REQUEST_ID_KEY = utf8:"\"requestId\":\""
+@const J_SESSION_ID_KEY = utf8:"\"sessionId\":\""
+@const J_QUERY_KEY = utf8:"\"query\":\""
+@const J_URI_KEY = utf8:"\"uri\":\""
+@const J_SERVER_NAME_KEY = utf8:"\"serverName\":\""
+@const J_INSTALLATION_ID_KEY = utf8:"\"installationId\":\""
+@const J_ENVIRONMENT_ID_KEY = utf8:"\"environmentId\":\""
+@const J_SHELL_WARNING_PREFIX = utf8:"shell command queued: "
+@const FB_KEY_VALUE = utf8:"value"
+@const CHAT_PROXY_COLON = utf8:":"
+@const DEFAULT_LOCAL = utf8:"local"
+@const DEFAULT_INSTALLATION = utf8:"local-installation"
+@const DEFAULT_PLAN_PLUS = utf8:"plus"
+@const DEFAULT_API_KEY = utf8:"apiKey"
+@const DEFAULT_MARKETPLACE = utf8:"default"
+@const DEFAULT_CALLED = utf8:"called"
+@const FB_KEY_MODEL = utf8:"model"
+@const FB_KEY_NAME = utf8:"name"
+@const FB_KEY_PATH = utf8:"path"
+@const FB_KEY_THREADID = utf8:"threadId"
+@const FB_KEY_TOOLS = utf8:"tools"
+@const FB_KEY_TYPE = utf8:"type"
+@const FB_KEY_ITEMS = utf8:"items"
+@const FB_KEY_PARAMS = utf8:"params"
+@const FB_KEY_FUNCTION = utf8:"function"
+@const FB_KEY_DESCRIPTION = utf8:"description"
+@const FB_KEY_PARAMETERS = utf8:"parameters"
+@const FB_KEY_STRICT = utf8:"strict"
+@const FB_KEY_PRINCIPALS = utf8:"principals"
+@const FB_KEY_ENABLEMENT = utf8:"enablement"
+@const FB_KEY_GITINFO = utf8:"gitInfo"
+@const FB_KEY_COLLAB_MODE_KIND = utf8:"collaborationModeKind"
+@const FB_VALUE_PLAN = utf8:"plan"
+@const FB_VALUE_GOAL = utf8:"goal"
+@const FB_VALUE_CODE = utf8:"code"
+@const RPC_KEY_JSONRPC = utf8:"jsonrpc"
+@const RPC_VALUE_2_0 = utf8:"2.0"
+@const RPC_KEY_ID = utf8:"id"
+@const RPC_KEY_RESULT = utf8:"result"
+@const RPC_KEY_ERROR = utf8:"error"
+@const JSON_KEY_EXIT_CODE = utf8:"exitCode"
+@const JSON_KEY_STDOUT = utf8:"stdout"
+@const JSON_KEY_STDOUT_CAP = utf8:"stdoutCapReached"
+@const JSON_KEY_STDERR = utf8:"stderr"
+@const JSON_KEY_STDERR_CAP = utf8:"stderrCapReached"
+@const JSON_KEY_PROCESS_HANDLE = utf8:"processHandle"
+@const JSON_KEY_PROCESS_ID = utf8:"processId"
+@const JSON_KEY_STREAM = utf8:"stream"
+@const JSON_KEY_DELTA_BASE64 = utf8:"deltaBase64"
+@const JSON_KEY_CAP_REACHED = utf8:"capReached"
+@const JSON_KEY_GOAL = utf8:"goal"
+@const JSON_KEY_THREAD_ID = utf8:"threadId"
+@const JSON_KEY_OBJECTIVE = utf8:"objective"
+@const JSON_KEY_STATUS = utf8:"status"
+@const JSON_KEY_RESPONSE = utf8:"response"
+@const JSON_KEY_TOKEN_BUDGET = utf8:"tokenBudget"
+@const JSON_KEY_TOKENS_USED = utf8:"tokensUsed"
+@const JSON_KEY_TIME_USED_SECONDS = utf8:"timeUsedSeconds"
+@const JSON_KEY_CREATED_AT = utf8:"createdAt"
+@const JSON_KEY_UPDATED_AT = utf8:"updatedAt"
+@const JSON_KEY_ACCOUNT = utf8:"account"
+@const JSON_KEY_EMAIL = utf8:"email"
+@const JSON_KEY_PLAN_TYPE = utf8:"planType"
+@const JSON_KEY_REQUIRES_OPENAI_AUTH = utf8:"requiresOpenaiAuth"
+@const JSON_KEY_CONFIG = utf8:"config"
+@const JSON_KEY_HOST = utf8:"host"
+@const JSON_KEY_PORT = utf8:"port"
+@const JSON_KEY_RESPONSES_BASE_URL = utf8:"responsesBaseUrl"
+@const JSON_KEY_CHAT_BASE_URL = utf8:"chatBaseUrl"
+@const JSON_KEY_DEFAULT_MODEL = utf8:"defaultModel"
+@const JSON_KEY_IMAGE_GENERATION = utf8:"imageGeneration"
+@const JSON_KEY_NAMESPACE_TOOLS = utf8:"namespaceTools"
+@const JSON_KEY_WEB_SEARCH = utf8:"webSearch"
+@const JSON_KEY_AUTH_TOKEN = utf8:"authToken"
+@const JSON_KEY_LAYERS = utf8:"layers"
+@const JSON_KEY_ORIGINS = utf8:"origins"
+@const JSON_KEY_DATA = utf8:"data"
+@const JSON_KEY_OBJECT = utf8:"object"
+@const JSON_KEY_CWD = utf8:"cwd"
+@const JSON_KEY_MODEL = utf8:"model"
+@const JSON_KEY_SERVICE_TIER = utf8:"serviceTier"
+@const JSON_KEY_INSTRUCTION_SOURCES = utf8:"instructionSources"
+@const JSON_KEY_APPROVAL_POLICY = utf8:"approvalPolicy"
+@const JSON_KEY_APPROVALS_REVIEWER = utf8:"approvalsReviewer"
+@const JSON_KEY_SANDBOX = utf8:"sandbox"
+@const JSON_KEY_REASONING_EFFORT = utf8:"reasoningEffort"
+@const JSON_KEY_REASONING_EFFORT_SNAKE = utf8:"reasoning_effort"
+@const JSON_KEY_ACTIVE_PERMISSION_PROFILE = utf8:"activePermissionProfile"
+@const JSON_KEY_FORKED_FROM_ID = utf8:"forkedFromId"
+@const JSON_KEY_PREVIEW = utf8:"preview"
+@const JSON_KEY_MODEL_PROVIDER = utf8:"modelProvider"
+@const JSON_KEY_CLI_VERSION = utf8:"cliVersion"
+@const JSON_KEY_SOURCE = utf8:"source"
+@const JSON_KEY_THREAD_SOURCE = utf8:"threadSource"
+@const JSON_KEY_AGENT_NICKNAME = utf8:"agentNickname"
+@const JSON_KEY_AGENT_ROLE = utf8:"agentRole"
+@const JSON_KEY_GIT_INFO = utf8:"gitInfo"
+@const JSON_KEY_THREAD = utf8:"thread"
+@const JSON_KEY_TURNS = utf8:"turns"
+@const JSON_KEY_ERROR = utf8:"error"
+@const JSON_KEY_BODY = utf8:"body"
+@const JSON_KEY_AUTHORIZATION = utf8:"authorization"
+@const JSON_KEY_CONTENT_TYPE = utf8:"content-type"
+@const JSON_KEY_BACKWARDS_CURSOR = utf8:"backwardsCursor"
+@const JSON_KEY_DIFF = utf8:"diff"
+@const JSON_KEY_PLAN = utf8:"plan"
+@const JSON_KEY_EXPLANATION = utf8:"explanation"
+@const JSON_KEY_STARTED_AT_MS = utf8:"startedAtMs"
+@const JSON_KEY_COMPLETED_AT_MS = utf8:"completedAtMs"
+@const JSON_KEY_ERRORS = utf8:"errors"
+@const JSON_KEY_HOOKS = utf8:"hooks"
+@const JSON_KEY_WARNINGS = utf8:"warnings"
+@const JSON_KEY_RATE_LIMITS = utf8:"rateLimits"
+@const JSON_KEY_USED_PERCENT = utf8:"usedPercent"
+@const JSON_KEY_CREDITS = utf8:"credits"
+@const JSON_KEY_LIMIT_ID = utf8:"limitId"
+@const JSON_KEY_LIMIT_NAME = utf8:"limitName"
+@const JSON_KEY_PRIMARY = utf8:"primary"
+@const JSON_KEY_RATE_LIMIT_REACHED_TYPE = utf8:"rateLimitReachedType"
+@const JSON_KEY_SECONDARY = utf8:"secondary"
+@const JSON_KEY_RATE_LIMITS_BY_LIMIT_ID = utf8:"rateLimitsByLimitId"
+@const JSON_KEY_REFRESHED = utf8:"refreshed"
+@const JSON_KEY_REFRESHED_AT = utf8:"refreshedAt"
+@const JSON_KEY_PLUGIN = utf8:"plugin"
+@const JSON_KEY_APPS = utf8:"apps"
+@const JSON_KEY_DESCRIPTION = utf8:"description"
+@const JSON_KEY_MARKETPLACE_NAME = utf8:"marketplaceName"
+@const JSON_KEY_MARKETPLACE_PATH = utf8:"marketplacePath"
+@const JSON_KEY_MCP_SERVERS = utf8:"mcpServers"
+@const JSON_KEY_SKILLS = utf8:"skills"
+@const JSON_KEY_SUMMARY = utf8:"summary"
+@const JSON_KEY_NAME = utf8:"name"
+@const JSON_KEY_UNINSTALLED = utf8:"uninstalled"
+@const JSON_KEY_PLUGIN_NAME = utf8:"pluginName"
+@const JSON_KEY_REMOTE_PLUGIN_ID = utf8:"remotePluginId"
+@const JSON_KEY_SHARE_URL = utf8:"shareUrl"
+@const JSON_KEY_DISCOVERABILITY = utf8:"discoverability"
+@const JSON_KEY_PRINCIPALS = utf8:"principals"
+@const JSON_KEY_CHECKED_OUT = utf8:"checkedOut"
+@const JSON_KEY_DELETED = utf8:"deleted"
+@const JSON_KEY_ALREADY_ADDED = utf8:"alreadyAdded"
+@const JSON_KEY_INSTALLED_ROOT = utf8:"installedRoot"
+@const JSON_KEY_SELECTED_MARKETPLACES = utf8:"selectedMarketplaces"
+@const JSON_KEY_UPGRADED_ROOTS = utf8:"upgradedRoots"
+@const JSON_KEY_STARTED = utf8:"started"
+@const JSON_KEY_ADDED = utf8:"added"
+@const JSON_KEY_PATH = utf8:"path"
+@const JSON_KEY_REVIEW_THREAD_ID = utf8:"reviewThreadId"
+@const JSON_KEY_AUTHORIZATION_URL = utf8:"authorizationUrl"
+@const JSON_KEY_ECHOED = utf8:"echoed"
+@const JSON_KEY_THREAD_ID_CAMEL = utf8:"threadId"
+@const JSON_KEY_INJECTED_COUNT = utf8:"injectedCount"
+@const JSON_KEY_QUEUED = utf8:"queued"
+@const JSON_KEY_COMMAND = utf8:"command"
+@const JSON_KEY_CMD = utf8:"cmd"
+@const JSON_KEY_CALL_ID = utf8:"call_id"
+@const JSON_KEY_ARGUMENTS = utf8:"arguments"
+@const JSON_KEY_MEMORY_MODE = utf8:"memoryMode"
+@const JSON_KEY_TOKEN = utf8:"token"
+@const JSON_KEY_CONTENT_ITEMS = utf8:"contentItems"
+@const JSON_KEY_TEXT = utf8:"text"
+@const JSON_KEY_SUCCESS = utf8:"success"
+@const JSON_KEY_STRUCTURED_CONTENT = utf8:"structuredContent"
+@const JSON_KEY_OK = utf8:"ok"
+@const JSON_KEY_TOOL = utf8:"tool"
+@const JSON_KEY_SERVER = utf8:"server"
+@const JSON_KEY_IS_ERROR = utf8:"isError"
+@const JSON_KEY_META = utf8:"meta"
+@const JSON_KEY_TURN_ID = utf8:"turnId"
+@const JSON_KEY_ITEM_ID = utf8:"itemId"
+@const JSON_KEY_NUM_TURNS = utf8:"numTurns"
+@const JSON_KEY_RELOADED = utf8:"reloaded"
+@const JSON_KEY_TOOLS = utf8:"tools"
+@const JSON_KEY_RESOURCES = utf8:"resources"
+@const JSON_KEY_RESOURCE_TEMPLATES = utf8:"resourceTemplates"
+@const JSON_KEY_AUTH_STATUS = utf8:"authStatus"
+@const JSON_KEY_NEXT_CURSOR = utf8:"nextCursor"
+@const JSON_KEY_CONTENTS = utf8:"contents"
+@const JSON_KEY_CONTENT = utf8:"content"
+@const JSON_KEY_URI = utf8:"uri"
+@const JSON_KEY_MIME_TYPE = utf8:"mimeType"
+@const JSON_KEY_FILE_PATH = utf8:"filePath"
+@const JSON_KEY_VERSION = utf8:"version"
+@const JSON_KEY_ITEM_TYPE = utf8:"itemType"
+@const JSON_KEY_DETAILS = utf8:"details"
+@const JSON_KEY_EXISTS = utf8:"exists"
+@const JSON_KEY_IMPORTED = utf8:"imported"
+@const JSON_KEY_IMPORTED_AT = utf8:"importedAt"
+@const JSON_KEY_ENABLEMENT = utf8:"enablement"
+@const JSON_KEY_TURN = utf8:"turn"
+@const JSON_KEY_ITEMS = utf8:"items"
+@const JSON_KEY_ITEMS_VIEW = utf8:"itemsView"
+@const JSON_KEY_STARTED_AT = utf8:"startedAt"
+@const JSON_KEY_COMPLETED_AT = utf8:"completedAt"
+@const JSON_KEY_DURATION_MS = utf8:"durationMs"
+@const JSON_KEY_KIND = utf8:"kind"
+@const JSON_KEY_COLLABORATION_MODE = utf8:"collaborationMode"
+@const JSON_KEY_APPENDED = utf8:"appended"
+@const JSON_KEY_STOPPED = utf8:"stopped"
+@const JSON_KEY_FILES = utf8:"files"
+@const JSON_KEY_QUERY = utf8:"query"
+@const JSON_KEY_SCORE = utf8:"score"
+@const JSON_KEY_SESSION_ID = utf8:"sessionId"
+@const JSON_KEY_RESOLVED = utf8:"resolved"
+@const JSON_KEY_WARNED = utf8:"warned"
+@const JSON_KEY_MODE = utf8:"mode"
+@const JSON_KEY_USER_AGENT = utf8:"userAgent"
+@const JSON_KEY_CODEX_HOME = utf8:"codexHome"
+@const JSON_KEY_PLATFORM_FAMILY = utf8:"platformFamily"
+@const JSON_KEY_PLATFORM_OS = utf8:"platformOs"
+@const JSON_KEY_SERVER_NAME = utf8:"serverName"
+@const JSON_KEY_INSTALLATION_ID = utf8:"installationId"
+@const JSON_KEY_ENVIRONMENT_ID = utf8:"environmentId"
+@const JSON_KEY_REQUEST_ID = utf8:"requestId"
+@const JSON_KEY_WATCH_ID = utf8:"watchId"
+@const JSON_KEY_CHANGED_PATHS = utf8:"changedPaths"
+@const JSON_KEY_MESSAGE = utf8:"message"
+@const JSON_KEY_CODE = utf8:"code"
+@const JSON_KEY_REALTIME_SESSION_ID = utf8:"realtimeSessionId"
+@const JSON_KEY_QUESTIONS = utf8:"questions"
+@const JSON_KEY_HEADER = utf8:"header"
+@const JSON_KEY_QUESTION = utf8:"question"
+@const JSON_KEY_IS_OTHER = utf8:"isOther"
+@const JSON_KEY_IS_SECRET = utf8:"isSecret"
+@const JSON_KEY_OPTIONS = utf8:"options"
+@const JSON_KEY_LABEL = utf8:"label"
+@const JSON_KEY_REQUEST = utf8:"request"
+@const JSON_KEY_REQUESTED_SCHEMA = utf8:"requestedSchema"
+@const JSON_KEY_SCHEMA = utf8:"$schema"
+@const JSON_KEY_PROPERTIES = utf8:"properties"
+@const JSON_KEY_REQUIRED = utf8:"required"
+@const JSON_KEY_INSTRUCTIONS = utf8:"instructions"
+@const JSON_KEY_DELTA = utf8:"delta"
+@const JSON_KEY_ROLE = utf8:"role"
+@const JSON_KEY_AUDIO = utf8:"audio"
+@const JSON_KEY_ITEM = utf8:"item"
+@const JSON_KEY_COMPACTED = utf8:"compacted"
+@const JSON_KEY_APPROVED = utf8:"approved"
+@const JSON_KEY_CLEANED = utf8:"cleaned"
+@const JSON_KEY_DATA_BASE64 = utf8:"dataBase64"
+@const JSON_KEY_ENTRIES = utf8:"entries"
+@const JSON_KEY_COUNT = utf8:"count"
+@const JSON_KEY_PAUSED = utf8:"paused"
+@const JSON_KEY_ARCHIVED = utf8:"archived"
+@const JSON_KEY_INTERRUPTED = utf8:"interrupted"
+@const JSON_KEY_RESET = utf8:"reset"
+@const JSON_KEY_NOTIFICATION = utf8:"notification"
+@const JSON_KEY_METHOD = utf8:"method"
+@const JSON_KEY_PARAMS = utf8:"params"
+@const JSON_KEY_CLEARED = utf8:"cleared"
+@const JSON_KEY_REQUIREMENTS = utf8:"requirements"
+@const JSON_KEY_ALLOWED_APPROVAL_POLICIES = utf8:"allowedApprovalPolicies"
+@const JSON_KEY_ALLOWED_APPROVALS_REVIEWERS = utf8:"allowedApprovalsReviewers"
+@const JSON_KEY_ALLOWED_SANDBOX_MODES = utf8:"allowedSandboxModes"
+@const JSON_KEY_ALLOWED_WEB_SEARCH_MODES = utf8:"allowedWebSearchModes"
+@const JSON_KEY_ALLOW_MANAGED_HOOKS_ONLY = utf8:"allowManagedHooksOnly"
+@const JSON_KEY_FEATURE_REQUIREMENTS = utf8:"featureRequirements"
+@const JSON_KEY_ENFORCE_RESIDENCY = utf8:"enforceResidency"
+@const JSON_KEY_NETWORK = utf8:"network"
+@const JSON_KEY_FEATURED_PLUGIN_IDS = utf8:"featuredPluginIds"
+@const JSON_KEY_MARKETPLACE_LOAD_ERRORS = utf8:"marketplaceLoadErrors"
+@const JSON_KEY_MARKETPLACES = utf8:"marketplaces"
+@const JSON_KEY_APPS_NEEDING_AUTH = utf8:"appsNeedingAuth"
+@const JSON_KEY_AUTH_POLICY = utf8:"authPolicy"
+@const JSON_KEY_STAGE = utf8:"stage"
+@const JSON_KEY_DISPLAY_NAME = utf8:"displayName"
+@const JSON_KEY_ANNOUNCEMENT = utf8:"announcement"
+@const JSON_KEY_ENABLED = utf8:"enabled"
+@const JSON_KEY_DEFAULT_ENABLED = utf8:"defaultEnabled"
+@const JSON_KEY_CANCELED = utf8:"canceled"
+@const JSON_KEY_LOGGED_OUT = utf8:"loggedOut"
+@const JSON_KEY_DECISION = utf8:"decision"
+@const JSON_KEY_ACTION = utf8:"action"
+@const JSON_KEY_PERMISSIONS = utf8:"permissions"
+@const JSON_KEY_SCOPE = utf8:"scope"
+@const JSON_KEY_STRICT_AUTO_REVIEW = utf8:"strictAutoReview"
+@const JSON_KEY_ANSWERS = utf8:"answers"
+@const JSON_KEY_VOICES = utf8:"voices"
+@const JSON_KEY_SAMPLE_PATHS = utf8:"samplePaths"
+@const JSON_KEY_EXTRA_COUNT = utf8:"extraCount"
+@const JSON_KEY_FAILED_SCAN = utf8:"failedScan"
+@const JSON_VALUE_CHATGPT = utf8:"chatgpt"
+@const JSON_VALUE_MODEL = utf8:"model"
+@const JSON_VALUE_LIST = utf8:"list"
+@const JSON_VALUE_DEFAULT = utf8:"default"
+@const JSON_VALUE_MEDIUM = utf8:"medium"
+@const JSON_VALUE_HUBPROXY_CLI = utf8:"hubproxy-sa-0.1.0"
+@const JSON_VALUE_APP_SERVER = utf8:"appServer"
+@const JSON_VALUE_IDLE = utf8:"idle"
+@const JSON_VALUE_IN_PROGRESS = utf8:"inProgress"
+@const JSON_VALUE_UNLISTED = utf8:"UNLISTED"
+@const JSON_VALUE_UNSUPPORTED = utf8:"unsupported"
+@const JSON_VALUE_TEXT_PLAIN = utf8:"text/plain"
+@const JSON_VALUE_TEXT = utf8:"text"
+@const JSON_VALUE_AUDIO = utf8:"audio"
+@const JSON_VALUE_OK = utf8:"ok"
+@const JSON_VALUE_STOPPED = utf8:"stopped"
+@const JSON_VALUE_COMPLETED = utf8:"completed"
+@const JSON_VALUE_FULL = utf8:"full"
+@const JSON_VALUE_AGENTS_MD = utf8:"AGENTS_MD"
+@const JSON_VALUE_CONFIG = utf8:"CONFIG"
+@const JSON_VALUE_CONFIG_VERSION = utf8:"1"
+@const JSON_VALUE_SENT = utf8:"sent"
+@const JSON_VALUE_V2 = utf8:"v2"
+@const JSON_VALUE_INPUT_HEADER = utf8:"Input"
+@const JSON_VALUE_PROVIDE_INPUT = utf8:"Provide input"
+@const JSON_VALUE_CONTINUE = utf8:"Continue"
+@const JSON_VALUE_CONTINUE_DESCRIPTION = utf8:"Provide a value and continue."
+@const JSON_VALUE_FORM = utf8:"form"
+@const JSON_VALUE_JSON_SCHEMA_2020 = utf8:"https://json-schema.org/draft/2020-12/schema"
+@const JSON_VALUE_OBJECT = utf8:"object"
+@const JSON_VALUE_PROVIDE_VALUE = utf8:"Provide a value to continue."
+@const JSON_VALUE_NOT_AVAILABLE = utf8:"NOT_AVAILABLE"
+@const JSON_VALUE_STABLE = utf8:"stable"
+@const JSON_VALUE_REASONING_TITLE = utf8:"Reasoning"
+@const JSON_VALUE_REASONING_DESCRIPTION = utf8:"Reasoning item formatting."
+@const JSON_VALUE_ACCEPT = utf8:"accept"
+@const JSON_VALUE_TURN = utf8:"turn"
+@const JSON_VALUE_CONTINUE_LOWER = utf8:"continue"
+@const JSON_VALUE_ALLOY = utf8:"alloy"
+@const JSON_VALUE_ALLOY_NAME = utf8:"Alloy"
+@const JSON_VALUE_ECHO = utf8:"echo"
+@const JSON_VALUE_ECHO_NAME = utf8:"Echo"
+@const JSON_VALUE_FABLE = utf8:"fable"
+@const JSON_VALUE_FABLE_NAME = utf8:"Fable"
+@const JSON_VALUE_ONYX = utf8:"onyx"
+@const JSON_VALUE_ONYX_NAME = utf8:"Onyx"
+@const JSON_VALUE_NOVA = utf8:"nova"
+@const JSON_VALUE_NOVA_NAME = utf8:"Nova"
+@const JSON_VALUE_SHIMMER = utf8:"shimmer"
+@const JSON_VALUE_SHIMMER_NAME = utf8:"Shimmer"
+@const JSON_VALUE_NOT_SUBSCRIBED = utf8:"notSubscribed"
+@const JSON_VALUE_NOT_LOADED = utf8:"notLoaded"
+@const JSON_VALUE_READY = utf8:"ready"
+@const JSON_VALUE_UNAUTHORIZED = utf8:"unauthorized"
+@const JSON_VALUE_NOT_FOUND = utf8:"not found"
+@const JSON_VALUE_HTTP_400 = utf8:"400"
+@const JSON_VALUE_EMPTY_BODY_MESSAGE = utf8:"Request body must be a non-empty JSON document."
+@const JSON_VALUE_BAD_REQUEST = utf8:"BadRequest"
+@const JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION = utf8:"missing upstream configuration"
+@const JSON_VALUE_BAD_GATEWAY = utf8:"bad gateway"
+@const JSON_VALUE_UNELEVATED = utf8:"unelevated"
+@const JSON_VALUE_STARTING = utf8:"starting"
+@const STRING_REMOTE_PREFIX = utf8:"remote_"
+@const STRING_HTTP_PREFIX = utf8:"http://"
+@const STRING_SHARE_SUFFIX = utf8:"/share"
+@const STRING_OAUTH_SUFFIX = utf8:"/oauth"
+@const STRING_USER_AGENT_PREFIX = utf8:"hubproxy/"
+@const STRING_ATTEST_PREFIX = utf8:"attest_"
+@const STRING_AGENTS_DESC = utf8:"Agents.md in repository root"
+@const STRING_CONFIG_DESC = utf8:".env configuration"
+@const STRING_AGENTS_PATH_SUFFIX = utf8:"/Agents.md"
+@const STRING_ENV_PATH_SUFFIX = utf8:"/.env"
+@const CHAT_DROP_STORE = utf8:"store"
+@const CHAT_DROP_PROMPT_CACHE_KEY = utf8:"prompt_cache_key"
+@const CHAT_DROP_INCLUDE = utf8:"include"
+@const CHAT_DROP_REASONING = utf8:"reasoning"
+@const GEMINI_MODEL = utf8:"gemini"
+@const GEMINI_PREFIX = utf8:"gemini-"
+@const MODELS_GEMINI_PREFIX = utf8:"models/gemini-"
+@const FB_TYPE_FUNCTION = utf8:"function"
+@const FB_TYPE_NAMESPACE = utf8:"namespace"
+@const TOOL_NAME_EXEC_KEY = utf8:"\"name\":\"exec_command\""
+@const TOOL_NAME_EXEC = utf8:"exec_command"
+@const BODY_GOAL_CONTEXT = utf8:"<goal_context>"
+@const BODY_GOAL_CONTEXT_TEXT = utf8:"Continue working toward the active thread goal"
+@const BODY_MODE_PLAN = utf8:"\"mode\":\"plan\""
+@const BODY_KIND_PLAN = utf8:"\"kind\":\"plan\""
+@const BODY_COLLAB_PLAN = utf8:"\"collaborationModeKind\":\"plan\""
+@const BODY_MODE_GOAL = utf8:"\"mode\":\"goal\""
+@const BODY_KIND_GOAL = utf8:"\"kind\":\"goal\""
+@const BODY_COLLAB_GOAL = utf8:"\"collaborationModeKind\":\"goal\""
+@const BODY_MODE_CODE = utf8:"\"mode\":\"code\""
+@const BODY_KIND_CODE = utf8:"\"kind\":\"code\""
+@const BODY_COLLAB_CODE = utf8:"\"collaborationModeKind\":\"code\""
+@const BODY_COLLAB_DEFAULT_TEXT = utf8:"# Collaboration Mode: Default"
+@const BODY_COLLAB_CODE_TEXT = utf8:"# Collaboration Mode: Code"
+@const BODY_PLAN_TEXT = utf8:"# Plan Mode (Conversational)"
+@const CHAT_PROGRESS_EN_LET_ME = utf8:"Let me"
+@const CHAT_PROGRESS_EN_CHECK = utf8:"check"
+@const CHAT_PROGRESS_EN_INSPECT = utf8:"inspect"
+@const CHAT_PROGRESS_EN_READ = utf8:"read"
+@const CHAT_PROGRESS_CN_WOHUI = utf8:"我会"
+@const CHAT_PROGRESS_CN_JIXU = utf8:"继续"
+@const CHAT_PROGRESS_CN_READ = utf8:"读取"
+@const CHAT_PROGRESS_CN_CHECK = utf8:"检查"
+@const CHAT_PROGRESS_CN_RUN = utf8:"运行"
+@const CHAT_FINAL_CN_DONE = utf8:"我已完成"
+@const CHAT_PROPOSED_PLAN = utf8:"<proposed_plan>"
+@const RESP_EVENT_COMPLETED_PREFIX = utf8:"event: response.completed\n"
+@const RESP_EVENT_OUTPUT_ITEM_DONE = utf8:"response.output_item.done"
+@const RESP_EVENT_DONE = utf8:"response.done"
+@const RESP_ID_CHAT_CONTINUE = utf8:"tc_chat_continue"
+@const RESP_CALL_ID_CHAT_CONTINUE = utf8:"call_chat_continue"
+@const RESP_ID_CHAT_FB = utf8:"resp_chat_fb"
+@const RESP_CONTINUATION_CMD = utf8:"printf '%s\n' 'Progress-only message received in chat fallback. Continue now: call a read-only tool if more evidence is needed, otherwise provide the final answer.'"
+@const RESP_TYPE_FUNCTION_CALL = utf8:"function_call"
+@const RESP_TYPE_CUSTOM_TOOL_CALL = utf8:"custom_tool_call"
+@const RESP_TYPE_TOOL_SEARCH_CALL = utf8:"tool_search_call"
+@const RESP_TYPE_MCP_TOOL_CALL = utf8:"mcp_tool_call"
+@const RESP_TYPE_FUNCTION_OUTPUT = utf8:"function_call_output"
+@const RESP_TYPE_CUSTOM_OUTPUT = utf8:"custom_tool_call_output"
+@const RESP_TYPE_TOOL_SEARCH_OUTPUT = utf8:"tool_search_output"
+@const RESP_TYPE_MCP_OUTPUT = utf8:"mcp_tool_call_output"
+#def FB_KEY_MODEL_LEN = 5
+#def FB_KEY_NAME_LEN = 4
+#def FB_KEY_PATH_LEN = 4
+#def FB_KEY_THREADID_LEN = 8
+#def FB_KEY_TOOLS_LEN = 5
+#def FB_KEY_TYPE_LEN = 4
+#def FB_KEY_ITEMS_LEN = 5
+#def FB_KEY_PARAMS_LEN = 6
+#def FB_KEY_FUNCTION_LEN = 8
+#def FB_KEY_DESCRIPTION_LEN = 11
+#def FB_KEY_PARAMETERS_LEN = 10
+#def FB_KEY_STRICT_LEN = 6
+#def FB_KEY_PRINCIPALS_LEN = 10
+#def FB_KEY_ENABLEMENT_LEN = 10
+#def FB_KEY_GITINFO_LEN = 7
+#def FB_KEY_COLLAB_MODE_KIND_LEN = 21
+#def FB_VALUE_PLAN_LEN = 4
+#def FB_VALUE_GOAL_LEN = 4
+#def FB_VALUE_CODE_LEN = 4
+#def RPC_KEY_JSONRPC_LEN = 7
+#def RPC_VALUE_2_0_LEN = 3
+#def RPC_KEY_ID_LEN = 2
+#def RPC_KEY_RESULT_LEN = 6
+#def RPC_KEY_ERROR_LEN = 5
+#def JSON_KEY_EXIT_CODE_LEN = 8
+#def JSON_KEY_STDOUT_LEN = 6
+#def JSON_KEY_STDOUT_CAP_LEN = 16
+#def JSON_KEY_STDERR_LEN = 6
+#def JSON_KEY_STDERR_CAP_LEN = 16
+#def JSON_KEY_PROCESS_HANDLE_LEN = 13
+#def JSON_KEY_PROCESS_ID_LEN = 9
+#def JSON_KEY_STREAM_LEN = 6
+#def JSON_KEY_DELTA_BASE64_LEN = 11
+#def JSON_KEY_CAP_REACHED_LEN = 10
+#def JSON_KEY_GOAL_LEN = 4
+#def JSON_KEY_THREAD_ID_LEN = 8
+#def JSON_KEY_OBJECTIVE_LEN = 9
+#def JSON_KEY_STATUS_LEN = 6
+#def JSON_KEY_RESPONSE_LEN = 8
+#def JSON_KEY_TOKEN_BUDGET_LEN = 11
+#def JSON_KEY_TOKENS_USED_LEN = 10
+#def JSON_KEY_TIME_USED_SECONDS_LEN = 15
+#def JSON_KEY_CREATED_AT_LEN = 9
+#def JSON_KEY_UPDATED_AT_LEN = 9
+#def JSON_KEY_ACCOUNT_LEN = 7
+#def JSON_KEY_EMAIL_LEN = 5
+#def JSON_KEY_PLAN_TYPE_LEN = 8
+#def JSON_KEY_REQUIRES_OPENAI_AUTH_LEN = 20
+#def JSON_KEY_CONFIG_LEN = 6
+#def JSON_KEY_HOST_LEN = 4
+#def JSON_KEY_PORT_LEN = 4
+#def JSON_KEY_RESPONSES_BASE_URL_LEN = 16
+#def JSON_KEY_CHAT_BASE_URL_LEN = 11
+#def JSON_KEY_DEFAULT_MODEL_LEN = 12
+#def JSON_KEY_IMAGE_GENERATION_LEN = 15
+#def JSON_KEY_NAMESPACE_TOOLS_LEN = 14
+#def JSON_KEY_WEB_SEARCH_LEN = 9
+#def JSON_KEY_AUTH_TOKEN_LEN = 9
+#def JSON_KEY_LAYERS_LEN = 6
+#def JSON_KEY_ORIGINS_LEN = 7
+#def JSON_KEY_DATA_LEN = 4
+#def JSON_KEY_OBJECT_LEN = 6
+#def JSON_KEY_CWD_LEN = 3
+#def JSON_KEY_MODEL_LEN = 5
+#def JSON_KEY_SERVICE_TIER_LEN = 11
+#def JSON_KEY_INSTRUCTION_SOURCES_LEN = 18
+#def JSON_KEY_APPROVAL_POLICY_LEN = 14
+#def JSON_KEY_APPROVALS_REVIEWER_LEN = 17
+#def JSON_KEY_SANDBOX_LEN = 7
+#def JSON_KEY_REASONING_EFFORT_LEN = 15
+#def JSON_KEY_REASONING_EFFORT_SNAKE_LEN = 16
+#def JSON_KEY_ACTIVE_PERMISSION_PROFILE_LEN = 23
+#def JSON_KEY_FORKED_FROM_ID_LEN = 12
+#def JSON_KEY_PREVIEW_LEN = 7
+#def JSON_KEY_MODEL_PROVIDER_LEN = 13
+#def JSON_KEY_CLI_VERSION_LEN = 10
+#def JSON_KEY_SOURCE_LEN = 6
+#def JSON_KEY_THREAD_SOURCE_LEN = 12
+#def JSON_KEY_AGENT_NICKNAME_LEN = 13
+#def JSON_KEY_AGENT_ROLE_LEN = 9
+#def JSON_KEY_GIT_INFO_LEN = 7
+#def JSON_KEY_THREAD_LEN = 6
+#def JSON_KEY_TURNS_LEN = 5
+#def JSON_KEY_ERROR_LEN = 5
+#def JSON_KEY_BODY_LEN = 4
+#def JSON_KEY_AUTHORIZATION_LEN = 13
+#def JSON_KEY_CONTENT_TYPE_LEN = 12
+#def JSON_KEY_BACKWARDS_CURSOR_LEN = 15
+#def JSON_KEY_DIFF_LEN = 4
+#def JSON_KEY_PLAN_LEN = 4
+#def JSON_KEY_EXPLANATION_LEN = 11
+#def JSON_KEY_STARTED_AT_MS_LEN = 11
+#def JSON_KEY_COMPLETED_AT_MS_LEN = 13
+#def JSON_KEY_ERRORS_LEN = 6
+#def JSON_KEY_HOOKS_LEN = 5
+#def JSON_KEY_WARNINGS_LEN = 8
+#def JSON_KEY_RATE_LIMITS_LEN = 10
+#def JSON_KEY_USED_PERCENT_LEN = 11
+#def JSON_KEY_CREDITS_LEN = 7
+#def JSON_KEY_LIMIT_ID_LEN = 7
+#def JSON_KEY_LIMIT_NAME_LEN = 9
+#def JSON_KEY_PRIMARY_LEN = 7
+#def JSON_KEY_RATE_LIMIT_REACHED_TYPE_LEN = 20
+#def JSON_KEY_SECONDARY_LEN = 9
+#def JSON_KEY_RATE_LIMITS_BY_LIMIT_ID_LEN = 20
+#def JSON_KEY_REFRESHED_LEN = 9
+#def JSON_KEY_REFRESHED_AT_LEN = 11
+#def JSON_KEY_PLUGIN_LEN = 6
+#def JSON_KEY_APPS_LEN = 4
+#def JSON_KEY_DESCRIPTION_LEN = 11
+#def JSON_KEY_MARKETPLACE_NAME_LEN = 15
+#def JSON_KEY_MARKETPLACE_PATH_LEN = 15
+#def JSON_KEY_MCP_SERVERS_LEN = 10
+#def JSON_KEY_SKILLS_LEN = 6
+#def JSON_KEY_SUMMARY_LEN = 7
+#def JSON_KEY_NAME_LEN = 4
+#def JSON_KEY_UNINSTALLED_LEN = 11
+#def JSON_KEY_PLUGIN_NAME_LEN = 10
+#def JSON_KEY_REMOTE_PLUGIN_ID_LEN = 14
+#def JSON_KEY_SHARE_URL_LEN = 8
+#def JSON_KEY_DISCOVERABILITY_LEN = 15
+#def JSON_KEY_PRINCIPALS_LEN = 10
+#def JSON_KEY_CHECKED_OUT_LEN = 10
+#def JSON_KEY_DELETED_LEN = 7
+#def JSON_KEY_ALREADY_ADDED_LEN = 12
+#def JSON_KEY_INSTALLED_ROOT_LEN = 13
+#def JSON_KEY_SELECTED_MARKETPLACES_LEN = 20
+#def JSON_KEY_UPGRADED_ROOTS_LEN = 13
+#def JSON_KEY_STARTED_LEN = 7
+#def JSON_KEY_ADDED_LEN = 5
+#def JSON_KEY_PATH_LEN = 4
+#def JSON_KEY_REVIEW_THREAD_ID_LEN = 14
+#def JSON_KEY_AUTHORIZATION_URL_LEN = 16
+#def JSON_KEY_ECHOED_LEN = 6
+#def JSON_KEY_THREAD_ID_CAMEL_LEN = 8
+#def JSON_KEY_INJECTED_COUNT_LEN = 13
+#def JSON_KEY_QUEUED_LEN = 6
+#def JSON_KEY_COMMAND_LEN = 7
+#def JSON_KEY_CMD_LEN = 3
+#def JSON_KEY_CALL_ID_LEN = 7
+#def JSON_KEY_ARGUMENTS_LEN = 9
+#def JSON_KEY_MEMORY_MODE_LEN = 10
+#def JSON_KEY_TOKEN_LEN = 5
+#def JSON_KEY_CONTENT_ITEMS_LEN = 12
+#def JSON_KEY_TEXT_LEN = 4
+#def JSON_KEY_SUCCESS_LEN = 7
+#def JSON_KEY_STRUCTURED_CONTENT_LEN = 17
+#def JSON_KEY_OK_LEN = 2
+#def JSON_KEY_TOOL_LEN = 4
+#def JSON_KEY_SERVER_LEN = 6
+#def JSON_KEY_IS_ERROR_LEN = 7
+#def JSON_KEY_META_LEN = 4
+#def JSON_KEY_TURN_ID_LEN = 6
+#def JSON_KEY_ITEM_ID_LEN = 6
+#def JSON_KEY_NUM_TURNS_LEN = 8
+#def JSON_KEY_RELOADED_LEN = 8
+#def JSON_KEY_TOOLS_LEN = 5
+#def JSON_KEY_RESOURCES_LEN = 9
+#def JSON_KEY_RESOURCE_TEMPLATES_LEN = 17
+#def JSON_KEY_AUTH_STATUS_LEN = 10
+#def JSON_KEY_NEXT_CURSOR_LEN = 10
+#def JSON_KEY_CONTENTS_LEN = 8
+#def JSON_KEY_CONTENT_LEN = 7
+#def JSON_KEY_URI_LEN = 3
+#def JSON_KEY_MIME_TYPE_LEN = 8
+#def JSON_KEY_FILE_PATH_LEN = 8
+#def JSON_KEY_VERSION_LEN = 7
+#def JSON_KEY_ITEM_TYPE_LEN = 8
+#def JSON_KEY_DETAILS_LEN = 7
+#def JSON_KEY_EXISTS_LEN = 6
+#def JSON_KEY_IMPORTED_LEN = 8
+#def JSON_KEY_IMPORTED_AT_LEN = 10
+#def JSON_KEY_ENABLEMENT_LEN = 10
+#def JSON_KEY_TURN_LEN = 4
+#def JSON_KEY_ITEMS_LEN = 5
+#def JSON_KEY_ITEMS_VIEW_LEN = 9
+#def JSON_KEY_STARTED_AT_LEN = 9
+#def JSON_KEY_COMPLETED_AT_LEN = 11
+#def JSON_KEY_DURATION_MS_LEN = 10
+#def JSON_KEY_KIND_LEN = 4
+#def JSON_KEY_COLLABORATION_MODE_LEN = 17
+#def JSON_KEY_APPENDED_LEN = 8
+#def JSON_KEY_STOPPED_LEN = 7
+#def JSON_KEY_FILES_LEN = 5
+#def JSON_KEY_QUERY_LEN = 5
+#def JSON_KEY_SCORE_LEN = 5
+#def JSON_KEY_SESSION_ID_LEN = 9
+#def JSON_KEY_RESOLVED_LEN = 8
+#def JSON_KEY_WARNED_LEN = 6
+#def JSON_KEY_MODE_LEN = 4
+#def JSON_KEY_USER_AGENT_LEN = 9
+#def JSON_KEY_CODEX_HOME_LEN = 9
+#def JSON_KEY_PLATFORM_FAMILY_LEN = 14
+#def JSON_KEY_PLATFORM_OS_LEN = 10
+#def JSON_KEY_SERVER_NAME_LEN = 10
+#def JSON_KEY_INSTALLATION_ID_LEN = 14
+#def JSON_KEY_ENVIRONMENT_ID_LEN = 13
+#def JSON_KEY_REQUEST_ID_LEN = 9
+#def JSON_KEY_WATCH_ID_LEN = 7
+#def JSON_KEY_CHANGED_PATHS_LEN = 12
+#def JSON_KEY_MESSAGE_LEN = 7
+#def JSON_KEY_CODE_LEN = 4
+#def JSON_KEY_REALTIME_SESSION_ID_LEN = 17
+#def JSON_KEY_QUESTIONS_LEN = 9
+#def JSON_KEY_HEADER_LEN = 6
+#def JSON_KEY_QUESTION_LEN = 8
+#def JSON_KEY_IS_OTHER_LEN = 7
+#def JSON_KEY_IS_SECRET_LEN = 8
+#def JSON_KEY_OPTIONS_LEN = 7
+#def JSON_KEY_LABEL_LEN = 5
+#def JSON_KEY_REQUEST_LEN = 7
+#def JSON_KEY_REQUESTED_SCHEMA_LEN = 15
+#def JSON_KEY_SCHEMA_LEN = 7
+#def JSON_KEY_PROPERTIES_LEN = 10
+#def JSON_KEY_REQUIRED_LEN = 8
+#def JSON_KEY_INSTRUCTIONS_LEN = 12
+#def JSON_KEY_DELTA_LEN = 5
+#def JSON_KEY_ROLE_LEN = 4
+#def JSON_KEY_AUDIO_LEN = 5
+#def JSON_KEY_ITEM_LEN = 4
+#def JSON_KEY_COMPACTED_LEN = 9
+#def JSON_KEY_APPROVED_LEN = 8
+#def JSON_KEY_CLEANED_LEN = 7
+#def JSON_KEY_DATA_BASE64_LEN = 10
+#def JSON_KEY_ENTRIES_LEN = 7
+#def JSON_KEY_COUNT_LEN = 5
+#def JSON_KEY_PAUSED_LEN = 6
+#def JSON_KEY_ARCHIVED_LEN = 8
+#def JSON_KEY_INTERRUPTED_LEN = 11
+#def JSON_KEY_RESET_LEN = 5
+#def JSON_KEY_NOTIFICATION_LEN = 12
+#def JSON_KEY_METHOD_LEN = 6
+#def JSON_KEY_PARAMS_LEN = 6
+#def JSON_KEY_CLEARED_LEN = 7
+#def JSON_KEY_REQUIREMENTS_LEN = 12
+#def JSON_KEY_ALLOWED_APPROVAL_POLICIES_LEN = 23
+#def JSON_KEY_ALLOWED_APPROVALS_REVIEWERS_LEN = 25
+#def JSON_KEY_ALLOWED_SANDBOX_MODES_LEN = 19
+#def JSON_KEY_ALLOWED_WEB_SEARCH_MODES_LEN = 21
+#def JSON_KEY_ALLOW_MANAGED_HOOKS_ONLY_LEN = 21
+#def JSON_KEY_FEATURE_REQUIREMENTS_LEN = 19
+#def JSON_KEY_ENFORCE_RESIDENCY_LEN = 16
+#def JSON_KEY_NETWORK_LEN = 7
+#def JSON_KEY_FEATURED_PLUGIN_IDS_LEN = 17
+#def JSON_KEY_MARKETPLACE_LOAD_ERRORS_LEN = 21
+#def JSON_KEY_MARKETPLACES_LEN = 12
+#def JSON_KEY_APPS_NEEDING_AUTH_LEN = 15
+#def JSON_KEY_AUTH_POLICY_LEN = 10
+#def JSON_KEY_STAGE_LEN = 5
+#def JSON_KEY_DISPLAY_NAME_LEN = 11
+#def JSON_KEY_ANNOUNCEMENT_LEN = 12
+#def JSON_KEY_ENABLED_LEN = 7
+#def JSON_KEY_DEFAULT_ENABLED_LEN = 14
+#def JSON_KEY_CANCELED_LEN = 8
+#def JSON_KEY_LOGGED_OUT_LEN = 9
+#def JSON_KEY_DECISION_LEN = 8
+#def JSON_KEY_ACTION_LEN = 6
+#def JSON_KEY_PERMISSIONS_LEN = 11
+#def JSON_KEY_SCOPE_LEN = 5
+#def JSON_KEY_STRICT_AUTO_REVIEW_LEN = 16
+#def JSON_KEY_ANSWERS_LEN = 7
+#def JSON_KEY_VOICES_LEN = 6
+#def JSON_KEY_SAMPLE_PATHS_LEN = 11
+#def JSON_KEY_EXTRA_COUNT_LEN = 10
+#def JSON_KEY_FAILED_SCAN_LEN = 10
+#def JSON_VALUE_HUBPROXY_CLI_LEN = 17
+#def JSON_VALUE_APP_SERVER_LEN = 9
+#def JSON_VALUE_IDLE_LEN = 4
+#def JSON_VALUE_IN_PROGRESS_LEN = 10
+#def JSON_VALUE_UNLISTED_LEN = 8
+#def JSON_VALUE_UNSUPPORTED_LEN = 11
+#def JSON_VALUE_TEXT_PLAIN_LEN = 10
+#def JSON_VALUE_TEXT_LEN = 4
+#def JSON_VALUE_AUDIO_LEN = 5
+#def JSON_VALUE_OK_LEN = 2
+#def JSON_VALUE_STOPPED_LEN = 7
+#def JSON_VALUE_COMPLETED_LEN = 9
+#def JSON_VALUE_FULL_LEN = 4
+#def JSON_VALUE_AGENTS_MD_LEN = 9
+#def JSON_VALUE_CONFIG_LEN = 6
+#def JSON_VALUE_CONFIG_VERSION_LEN = 1
+#def JSON_VALUE_SENT_LEN = 4
+#def JSON_VALUE_V2_LEN = 2
+#def JSON_VALUE_INPUT_HEADER_LEN = 5
+#def JSON_VALUE_PROVIDE_INPUT_LEN = 13
+#def JSON_VALUE_CONTINUE_LEN = 8
+#def JSON_VALUE_CONTINUE_DESCRIPTION_LEN = 29
+#def JSON_VALUE_FORM_LEN = 4
+#def JSON_VALUE_JSON_SCHEMA_2020_LEN = 44
+#def JSON_VALUE_OBJECT_LEN = 6
+#def JSON_VALUE_PROVIDE_VALUE_LEN = 28
+#def JSON_VALUE_NOT_AVAILABLE_LEN = 13
+#def JSON_VALUE_STABLE_LEN = 6
+#def JSON_VALUE_REASONING_TITLE_LEN = 9
+#def JSON_VALUE_REASONING_DESCRIPTION_LEN = 26
+#def JSON_VALUE_ACCEPT_LEN = 6
+#def JSON_VALUE_TURN_LEN = 4
+#def JSON_VALUE_CONTINUE_LOWER_LEN = 8
+#def JSON_VALUE_ALLOY_LEN = 5
+#def JSON_VALUE_ALLOY_NAME_LEN = 5
+#def JSON_VALUE_ECHO_LEN = 4
+#def JSON_VALUE_ECHO_NAME_LEN = 4
+#def JSON_VALUE_FABLE_LEN = 5
+#def JSON_VALUE_FABLE_NAME_LEN = 5
+#def JSON_VALUE_ONYX_LEN = 4
+#def JSON_VALUE_ONYX_NAME_LEN = 4
+#def JSON_VALUE_NOVA_LEN = 4
+#def JSON_VALUE_NOVA_NAME_LEN = 4
+#def JSON_VALUE_SHIMMER_LEN = 7
+#def JSON_VALUE_SHIMMER_NAME_LEN = 7
+#def JSON_VALUE_NOT_SUBSCRIBED_LEN = 13
+#def JSON_VALUE_NOT_LOADED_LEN = 9
+#def JSON_VALUE_READY_LEN = 5
+#def JSON_VALUE_UNAUTHORIZED_LEN = 12
+#def JSON_VALUE_NOT_FOUND_LEN = 9
+#def JSON_VALUE_HTTP_400_LEN = 3
+#def JSON_VALUE_EMPTY_BODY_MESSAGE_LEN = 47
+#def JSON_VALUE_BAD_REQUEST_LEN = 10
+#def JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION_LEN = 30
+#def JSON_VALUE_BAD_GATEWAY_LEN = 11
+#def JSON_VALUE_UNELEVATED_LEN = 10
+#def JSON_VALUE_STARTING_LEN = 8
+#def STRING_REMOTE_PREFIX_LEN = 7
+#def STRING_HTTP_PREFIX_LEN = 7
+#def STRING_SHARE_SUFFIX_LEN = 6
+#def STRING_OAUTH_SUFFIX_LEN = 6
+#def STRING_USER_AGENT_PREFIX_LEN = 9
+#def STRING_ATTEST_PREFIX_LEN = 7
+#def STRING_AGENTS_DESC_LEN = 28
+#def STRING_CONFIG_DESC_LEN = 18
+#def STRING_AGENTS_PATH_SUFFIX_LEN = 10
+#def STRING_ENV_PATH_SUFFIX_LEN = 5
+#def JSON_VALUE_CHATGPT_LEN = 7
+#def JSON_VALUE_MODEL_LEN = 5
+#def JSON_VALUE_LIST_LEN = 4
+#def JSON_VALUE_DEFAULT_LEN = 7
+#def JSON_VALUE_MEDIUM_LEN = 6
+#def CHAT_DROP_STORE_LEN = 5
+#def CHAT_DROP_PROMPT_CACHE_KEY_LEN = 16
+#def CHAT_DROP_INCLUDE_LEN = 7
+#def CHAT_DROP_REASONING_LEN = 9
+#def GEMINI_MODEL_LEN = 6
+#def GEMINI_PREFIX_LEN = 7
+#def MODELS_GEMINI_PREFIX_LEN = 14
+#def FB_TYPE_FUNCTION_LEN = 8
+#def FB_TYPE_NAMESPACE_LEN = 9
+#def RESP_TYPE_FUNCTION_CALL_LEN = 13
+#def RESP_TYPE_CUSTOM_TOOL_CALL_LEN = 16
+#def RESP_TYPE_TOOL_SEARCH_CALL_LEN = 16
+#def RESP_TYPE_MCP_TOOL_CALL_LEN = 13
+#def RESP_TYPE_FUNCTION_OUTPUT_LEN = 20
+#def RESP_TYPE_CUSTOM_OUTPUT_LEN = 23
+#def RESP_TYPE_TOOL_SEARCH_OUTPUT_LEN = 18
+#def RESP_TYPE_MCP_OUTPUT_LEN = 20
+@const J_PATH_KEY = utf8:"\"path\":\""
+@const J_DATA_BASE64_KEY = utf8:"\"dataBase64\":\""
+@const J_SOURCE_PATH_KEY = utf8:"\"sourcePath\":\""
+@const J_DESTINATION_PATH_KEY = utf8:"\"destinationPath\":\""
+@const J_PROCESS_ID_KEY = utf8:"\"processId\":\""
+@const J_PROCESS_HANDLE_KEY = utf8:"\"processHandle\":\""
+@const JSON_ESC_BACKSLASH = utf8:"\\\\"
+@const JSON_ESC_QUOTE = utf8:"\\\""
+@const JSON_ESC_N = utf8:"\\n"
+@const JSON_ESC_R = utf8:"\\r"
+@const JSON_ESC_T = utf8:"\\t"
+@const B64_ALPHABET = utf8:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+@const DEFAULT_PROCESS_ID = utf8:"sa-command"
+@const DEFAULT_PROCESS_HANDLE = utf8:"sa-process"
+@const DEFAULT_CWD = utf8:"."
+@const DEFAULT_TRUE = utf8:"true"
+@const DEFAULT_ASSISTANT = utf8:"assistant"
+@const DEFAULT_APPROVAL = utf8:"never"
+@const DEFAULT_REVIEWER = utf8:"user"
+@const DEFAULT_SANDBOX = utf8:"danger-full-access"
+@const STREAM_STDOUT = utf8:"stdout"
+@const STREAM_STDERR = utf8:"stderr"
+@const STATUS_CONNECTED = utf8:"connected"
+@const STATUS_DISABLED = utf8:"disabled"
+@const J_THREADID_KEY = utf8:"\"threadId\":\""
+@const J_APPROVAL_POLICY_KEY = utf8:"\"approvalPolicy\":\""
+@const J_APPROVALS_REVIEWER_KEY = utf8:"\"approvalsReviewer\":\""
+@const J_SANDBOX_KEY = utf8:"\"sandbox\":\""
+@const J_TURNID_KEY = utf8:"\"turnId\":\""
+@const J_EXPECTED_TURNID_KEY = utf8:"\"expectedTurnId\":\""
+@const J_NUM_TURNS_KEY = utf8:"\"numTurns\":\""
+@const J_STATUS_KEY = utf8:"\"status\":\""
+@const J_COMMA = utf8:","
+@const J_THREAD_ID_ALL = utf8:"*"
+@const J_EVT_ITEM_STARTED_B1 = utf8:"\",\"startedAtMs\":"
+@const J_EVT_ITEM_RAW_B = utf8:"\",\"item\":"
+@const J_EVT_ITEM_COMPLETED_B1 = utf8:"\",\"completedAtMs\":"
+
+@const EV_THREAD_STARTED = utf8:"thread/started"
+@const EV_THREAD_STATUS = utf8:"thread/status/changed"
+@const EV_THREAD_ARCHIVED = utf8:"thread/archived"
+@const EV_THREAD_UNARCHIVED = utf8:"thread/unarchived"
+@const EV_THREAD_CLOSED = utf8:"thread/closed"
+@const EV_THREAD_NAME_UPDATED = utf8:"thread/name/updated"
+@const EV_TURN_STARTED = utf8:"turn/started"
+@const EV_TURN_COMPLETED = utf8:"turn/completed"
+@const EV_TURN_DIFF = utf8:"turn/diff/updated"
+@const EV_TURN_PLAN = utf8:"turn/plan/updated"
+@const EV_ITEM_STARTED = utf8:"item/started"
+@const EV_RAW_ITEM_COMPLETED = utf8:"rawResponseItem/completed"
+@const EV_ITEM_COMPLETED = utf8:"item/completed"
+@const EV_FS_CHANGED = utf8:"fs/changed"
+@const EV_CMD_OUTPUT = utf8:"command/exec/outputDelta"
+@const EV_PROCESS_OUTPUT = utf8:"process/outputDelta"
+@const EV_PROCESS_EXITED = utf8:"process/exited"
+@const EV_RT_STARTED = utf8:"thread/realtime/started"
+@const EV_RT_ITEM = utf8:"thread/realtime/itemAdded"
+@const EV_RT_TRANSCRIPT_DELTA = utf8:"thread/realtime/transcript/delta"
+@const EV_RT_TRANSCRIPT_DONE = utf8:"thread/realtime/transcript/done"
+@const EV_RT_AUDIO_DELTA = utf8:"thread/realtime/outputAudio/delta"
+@const EV_RT_CLOSED = utf8:"thread/realtime/closed"
+@const EV_MCP_TOOL_PROGRESS = utf8:"item/mcpToolCall/progress"
+@const EV_USER_INPUT = utf8:"item/tool/requestUserInput"
+@const EV_MCP_ELICITATION = utf8:"mcpServer/elicitation/request"
+@const EV_FUZZY_UPDATED = utf8:"fuzzyFileSearch/sessionUpdated"
+@const EV_FUZZY_COMPLETED = utf8:"fuzzyFileSearch/sessionCompleted"
+@const EV_WORLD_WARN = utf8:"windows/worldWritableWarning"
+@const EV_SANDBOX_SETUP = utf8:"windowsSandbox/setupCompleted"
+@const EV_EXTERNAL_IMPORT = utf8:"externalAgentConfig/import/completed"
+@const EV_REMOTE_STATUS = utf8:"remoteControl/status/changed"
+@const EV_MCP_STARTUP = utf8:"mcpServer/startupStatus/updated"
+@const EV_SERVER_RESOLVED = utf8:"serverRequest/resolved"
+@const J_EVT_RT_DELTA_B2 = utf8:",\"delta\":"
+@const J_EVT_RT_DONE_B2 = utf8:",\"text\":"
+#def J_NULL_ID_LEN = 4
+#def J_ERR_NOT_FOUND_LEN = 16
+#def J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED_LEN = 43
+#def J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED_LEN = 48
+#def J_ERR_THREAD_NOT_FOUND_LEN = 16
+#def J_ERR_TURN_NOT_FOUND_LEN = 14
+#def J_ERR_INVALID_PARAMS_LEN = 14
+#def J_ERR_FS_LEN = 19
+#def J_TURN_STATUS_IN_PROGRESS_LEN = 10
+#def J_TURN_STATUS_INTERRUPTED_LEN = 11
+#def J_TURN_STATUS_COMPLETED_LEN = 9
+#def J_GOAL_STATUS_ACTIVE_LEN = 6
+#def J_GOAL_STATUS_PAUSED_LEN = 6
+#def J_GOAL_STATUS_BLOCKED_LEN = 7
+#def J_GOAL_STATUS_USAGE_LIMITED_LEN = 12
+#def J_GOAL_STATUS_BUDGET_LIMITED_LEN = 13
+#def J_GOAL_STATUS_COMPLETE_LEN = 8
+#def J_ACCOUNT_DEFAULT_EMAIL_LEN = 16
+#def J_PLUGIN_NAME_KEY_LEN = 14
+#def J_REMOTE_MARKETPLACE_KEY_LEN = 25
+#def J_MARKETPLACE_NAME_KEY_LEN = 19
+#def J_MARKETPLACE_PATH_KEY_LEN = 19
+#def J_REMOTE_PLUGIN_ID_KEY_LEN = 18
+#def J_TYPE_KEY_LEN = 8
+#def J_SOURCE_KEY_LEN = 10
+#def J_COMMAND_KEY_LEN = 11
+#def J_MESSAGE_KEY_LEN = 11
+#def J_TOOL_KEY_LEN = 8
+#def J_SERVER_KEY_LEN = 10
+#def J_ITEMID_KEY_LEN = 10
+#def J_AUDIO_KEY_LEN = 9
+#def J_TEXT_KEY_LEN = 8
+#def J_ROLE_KEY_LEN = 8
+#def J_EMAIL_KEY_LEN = 9
+#def J_MEMORY_MODE_KEY_LEN = 14
+#def J_MODE_KEY_LEN = 8
+#def J_REQUEST_ID_KEY_LEN = 13
+#def J_SESSION_ID_KEY_LEN = 13
+#def J_QUERY_KEY_LEN = 9
+#def J_URI_KEY_LEN = 7
+#def J_SERVER_NAME_KEY_LEN = 14
+#def J_INSTALLATION_ID_KEY_LEN = 18
+#def J_ENVIRONMENT_ID_KEY_LEN = 17
+#def J_SHELL_WARNING_PREFIX_LEN = 22
+#def FB_KEY_VALUE_LEN = 5
+#def CHAT_PROXY_COLON_LEN = 1
+#def DEFAULT_LOCAL_LEN = 5
+#def DEFAULT_INSTALLATION_LEN = 18
+#def DEFAULT_PLAN_PLUS_LEN = 4
+#def DEFAULT_API_KEY_LEN = 6
+#def DEFAULT_MARKETPLACE_LEN = 7
+#def DEFAULT_CALLED_LEN = 6
+#def TOOL_NAME_EXEC_KEY_LEN = 21
+#def BODY_GOAL_CONTEXT_LEN = 14
+#def BODY_GOAL_CONTEXT_TEXT_LEN = 46
+#def BODY_MODE_PLAN_LEN = 13
+#def BODY_KIND_PLAN_LEN = 13
+#def BODY_COLLAB_PLAN_LEN = 30
+#def BODY_MODE_GOAL_LEN = 13
+#def BODY_KIND_GOAL_LEN = 13
+#def BODY_COLLAB_GOAL_LEN = 30
+#def BODY_MODE_CODE_LEN = 13
+#def BODY_KIND_CODE_LEN = 13
+#def BODY_COLLAB_CODE_LEN = 30
+#def BODY_COLLAB_DEFAULT_TEXT_LEN = 29
+#def BODY_COLLAB_CODE_TEXT_LEN = 26
+#def BODY_PLAN_TEXT_LEN = 28
+#def CHAT_PROGRESS_EN_LET_ME_LEN = 6
+#def CHAT_PROGRESS_EN_CHECK_LEN = 5
+#def CHAT_PROGRESS_EN_INSPECT_LEN = 7
+#def CHAT_PROGRESS_EN_READ_LEN = 4
+#def CHAT_PROGRESS_CN_WOHUI_LEN = 6
+#def CHAT_PROGRESS_CN_JIXU_LEN = 6
+#def CHAT_PROGRESS_CN_READ_LEN = 6
+#def CHAT_PROGRESS_CN_CHECK_LEN = 6
+#def CHAT_PROGRESS_CN_RUN_LEN = 6
+#def CHAT_FINAL_CN_DONE_LEN = 12
+#def CHAT_PROPOSED_PLAN_LEN = 15
+#def RESP_EVENT_COMPLETED_PREFIX_LEN = 26
+#def RESP_EVENT_OUTPUT_ITEM_DONE_LEN = 25
+#def RESP_EVENT_DONE_LEN = 13
+#def RESP_ID_CHAT_CONTINUE_LEN = 16
+#def RESP_CALL_ID_CHAT_CONTINUE_LEN = 18
+#def RESP_ID_CHAT_FB_LEN = 12
+#def RESP_CONTINUATION_CMD_LEN = 164
+#def TOOL_NAME_EXEC_LEN = 12
+#def J_NAME_KEY_LEN = 8
+#def J_PREVIEW_KEY_LEN = 11
+#def J_WATCH_ID_KEY_LEN = 11
+#def J_PATH_KEY_LEN = 8
+#def J_DATA_BASE64_KEY_LEN = 14
+#def J_SOURCE_PATH_KEY_LEN = 14
+#def J_DESTINATION_PATH_KEY_LEN = 19
+#def J_PROCESS_ID_KEY_LEN = 13
+#def J_PROCESS_HANDLE_KEY_LEN = 17
+#def JSON_ESC_BACKSLASH_LEN = 2
+#def JSON_ESC_QUOTE_LEN = 2
+#def JSON_ESC_N_LEN = 2
+#def JSON_ESC_R_LEN = 2
+#def JSON_ESC_T_LEN = 2
+#def DEFAULT_PROCESS_ID_LEN = 10
+#def DEFAULT_PROCESS_HANDLE_LEN = 10
+#def DEFAULT_CWD_LEN = 1
+#def DEFAULT_TRUE_LEN = 4
+#def DEFAULT_ASSISTANT_LEN = 9
+#def DEFAULT_APPROVAL_LEN = 5
+#def DEFAULT_REVIEWER_LEN = 4
+#def DEFAULT_SANDBOX_LEN = 18
+#def STREAM_STDOUT_LEN = 6
+#def STREAM_STDERR_LEN = 6
+#def STATUS_CONNECTED_LEN = 9
+#def STATUS_DISABLED_LEN = 8
+#def J_THREADID_KEY_LEN = 12
+#def J_APPROVAL_POLICY_KEY_LEN = 18
+#def J_APPROVALS_REVIEWER_KEY_LEN = 21
+#def J_SANDBOX_KEY_LEN = 11
+#def J_TURNID_KEY_LEN = 10
+#def J_EXPECTED_TURNID_KEY_LEN = 18
+#def J_NUM_TURNS_KEY_LEN = 12
+#def J_STATUS_KEY_LEN = 10
+#def J_COMMA_LEN = 1
+#def J_THREAD_ID_ALL_LEN = 1
+#def J_EVT_ITEM_STARTED_B1_LEN = 16
+#def J_EVT_ITEM_RAW_B_LEN = 9
+#def J_EVT_ITEM_COMPLETED_B1_LEN = 18
+
+#def EV_THREAD_STARTED_LEN = 14
+#def EV_THREAD_STATUS_LEN = 21
+#def EV_THREAD_ARCHIVED_LEN = 15
+#def EV_THREAD_UNARCHIVED_LEN = 17
+#def EV_THREAD_CLOSED_LEN = 13
+#def EV_THREAD_NAME_UPDATED_LEN = 19
+#def EV_TURN_STARTED_LEN = 12
+#def EV_TURN_COMPLETED_LEN = 14
+#def EV_TURN_DIFF_LEN = 17
+#def EV_TURN_PLAN_LEN = 17
+#def EV_ITEM_STARTED_LEN = 12
+#def EV_RAW_ITEM_COMPLETED_LEN = 25
+#def EV_ITEM_COMPLETED_LEN = 14
+#def EV_FS_CHANGED_LEN = 10
+#def EV_CMD_OUTPUT_LEN = 24
+#def EV_PROCESS_OUTPUT_LEN = 19
+#def EV_PROCESS_EXITED_LEN = 14
+#def EV_RT_STARTED_LEN = 23
+#def EV_RT_ITEM_LEN = 25
+#def EV_RT_TRANSCRIPT_DELTA_LEN = 32
+#def EV_RT_TRANSCRIPT_DONE_LEN = 31
+#def EV_RT_AUDIO_DELTA_LEN = 33
+#def EV_RT_CLOSED_LEN = 22
+#def EV_MCP_TOOL_PROGRESS_LEN = 25
+#def EV_USER_INPUT_LEN = 26
+#def EV_MCP_ELICITATION_LEN = 29
+#def EV_FUZZY_UPDATED_LEN = 30
+#def EV_FUZZY_COMPLETED_LEN = 32
+#def EV_WORLD_WARN_LEN = 28
+#def EV_SANDBOX_SETUP_LEN = 29
+#def EV_EXTERNAL_IMPORT_LEN = 36
+#def EV_REMOTE_STATUS_LEN = 28
+#def EV_MCP_STARTUP_LEN = 31
+#def EV_SERVER_RESOLVED_LEN = 22
+#def J_EVT_RT_DELTA_B2_LEN = 9
+#def J_EVT_RT_DONE_B2_LEN = 8
+
+#def CMD_ARGV_MAX = 4
+#def CMD_ARGV_BUF_SIZE = 64
+#def CMD_ARG_MAX_LEN = 1024
+#def CMD_ARG_STORAGE_SIZE = 4096
+#def CMD_OUTPUT_BUF_SIZE = 16384
+
+// --- RPC method constants ---
+@const RPC_M_INIT = utf8:"\"initialize\""
+@const RPC_M_THR_START = utf8:"\"thread/start\""
+@const RPC_M_THR_LIST = utf8:"\"thread/list\""
+@const RPC_M_THR_LOADED_LIST = utf8:"\"thread/loaded/list\""
+@const RPC_M_THR_READ = utf8:"\"thread/read\""
+@const RPC_INCLUDE_TURNS_TRUE = utf8:"\"includeTurns\":true"
+@const RPC_M_THR_ARCH = utf8:"\"thread/archive\""
+@const RPC_M_THR_UNARCH = utf8:"\"thread/unarchive\""
+@const RPC_M_THR_NAME_SET = utf8:"\"thread/name/set\""
+@const RPC_M_THR_METADATA_UPDATE = utf8:"\"thread/metadata/update\""
+@const RPC_M_THR_FORK = utf8:"\"thread/fork\""
+@const RPC_M_THR_RESUME = utf8:"\"thread/resume\""
+@const RPC_M_THR_ROLLBACK = utf8:"\"thread/rollback\""
+@const RPC_M_THR_TURNS = utf8:"\"thread/turns/list\""
+@const RPC_M_THR_TURN_ITEMS = utf8:"\"thread/turns/items/list\""
+@const RPC_M_THR_INJECT_ITEMS = utf8:"\"thread/inject_items\""
+@const RPC_M_THR_INC_ELICITATION = utf8:"\"thread/increment_elicitation\""
+@const RPC_M_THR_DEC_ELICITATION = utf8:"\"thread/decrement_elicitation\""
+@const RPC_M_THR_COMPACT_START = utf8:"\"thread/compact/start\""
+@const RPC_M_THR_SHELL_COMMAND = utf8:"\"thread/shellCommand\""
+@const RPC_M_THR_APPROVE_GUARDIAN = utf8:"\"thread/approveGuardianDeniedAction\""
+@const RPC_M_THR_BG_CLEAN = utf8:"\"thread/backgroundTerminals/clean\""
+@const RPC_M_THR_MEMORY_MODE_SET = utf8:"\"thread/memoryMode/set\""
+@const RPC_M_TURN_START = utf8:"\"turn/start\""
+@const RPC_M_TURN_STEER = utf8:"\"turn/steer\""
+@const RPC_M_TURN_INTERRUPT = utf8:"\"turn/interrupt\""
+@const RPC_M_GOAL_SET = utf8:"\"thread/goal/set\""
+@const RPC_M_GOAL_GET = utf8:"\"thread/goal/get\""
+@const RPC_M_GOAL_CLEAR = utf8:"\"thread/goal/clear\""
+@const RPC_M_ACCOUNT_READ = utf8:"\"account/read\""
+@const RPC_M_MODEL_LIST = utf8:"\"model/list\""
+@const RPC_M_CONFIG_REQ = utf8:"\"configRequirements/read\""
+@const RPC_M_THREAD_UNSUB = utf8:"\"thread/unsubscribe\""
+@const RPC_M_MEMORY_RESET = utf8:"\"memory/reset\""
+@const RPC_M_HOOKS_LIST = utf8:"\"hooks/list\""
+@const RPC_M_SKILLS_LIST = utf8:"\"skills/list\""
+@const RPC_M_PLUGIN_LIST = utf8:"\"plugin/list\""
+@const RPC_M_PLUGIN_INSTALLED = utf8:"\"plugin/installed\""
+@const RPC_M_PLUGIN_READ = utf8:"\"plugin/read\""
+@const RPC_M_PLUGIN_SKILL_READ = utf8:"\"plugin/skill/read\""
+@const RPC_M_PLUGIN_INSTALL = utf8:"\"plugin/install\""
+@const RPC_M_PLUGIN_UNINSTALL = utf8:"\"plugin/uninstall\""
+@const RPC_M_MARKETPLACE_ADD = utf8:"\"marketplace/add\""
+@const RPC_M_MARKETPLACE_REMOVE = utf8:"\"marketplace/remove\""
+@const RPC_M_MARKETPLACE_UPGRADE = utf8:"\"marketplace/upgrade\""
+@const RPC_M_PLUGIN_SHARE_LIST = utf8:"\"plugin/share/list\""
+@const RPC_M_PLUGIN_SHARE_SAVE = utf8:"\"plugin/share/save\""
+@const RPC_M_PLUGIN_SHARE_UPDATE = utf8:"\"plugin/share/updateTargets\""
+@const RPC_M_PLUGIN_SHARE_CHECKOUT = utf8:"\"plugin/share/checkout\""
+@const RPC_M_PLUGIN_SHARE_DELETE = utf8:"\"plugin/share/delete\""
+@const RPC_M_MODEL_CAP = utf8:"\"modelProvider/capabilities/read\""
+@const RPC_M_APP_LIST = utf8:"\"app/list\""
+@const RPC_M_EXPERIMENTAL_FEATURE_LIST = utf8:"\"experimentalFeature/list\""
+@const RPC_M_COLLAB_LIST = utf8:"\"collaborationMode/list\""
+@const RPC_M_REMOTE_STATUS = utf8:"\"remoteControl/status/read\""
+@const RPC_M_WINDOWS_READY = utf8:"\"windowsSandbox/readiness\""
+@const RPC_M_CONFIG_READ = utf8:"\"config/read\""
+@const RPC_M_ACCOUNT_LOGIN_START = utf8:"\"account/login/start\""
+@const RPC_M_ACCOUNT_LOGIN_CANCEL = utf8:"\"account/login/cancel\""
+@const RPC_M_ACCOUNT_LOGOUT = utf8:"\"account/logout\""
+@const RPC_M_ACCOUNT_RATE_LIMITS = utf8:"\"account/rateLimits/read\""
+@const RPC_M_ACCOUNT_SEND_CREDITS = utf8:"\"account/sendAddCreditsNudgeEmail\""
+@const RPC_M_ACCOUNT_TOKENS_REFRESH = utf8:"\"account/chatgptAuthTokens/refresh\""
+@const RPC_M_ATTESTATION_GENERATE = utf8:"\"attestation/generate\""
+@const RPC_M_ITEM_CMD_APPROVAL = utf8:"\"item/commandExecution/requestApproval\""
+@const RPC_M_ITEM_FILE_APPROVAL = utf8:"\"item/fileChange/requestApproval\""
+@const RPC_M_ITEM_TOOL_USER_INPUT = utf8:"\"item/tool/requestUserInput\""
+@const RPC_M_MCP_ELICITATION = utf8:"\"mcpServer/elicitation/request\""
+@const RPC_M_ITEM_PERMISSIONS_APPROVAL = utf8:"\"item/permissions/requestApproval\""
+@const RPC_M_ITEM_TOOL_RUN = utf8:"\"item/tool/call\""
+@const RPC_M_FEEDBACK_UPLOAD = utf8:"\"feedback/upload\""
+@const RPC_M_CONFIG_VALUE_WRITE = utf8:"\"config/value/write\""
+@const RPC_M_CONFIG_BATCH_WRITE = utf8:"\"config/batchWrite\""
+@const RPC_M_SKILLS_CONFIG_WRITE = utf8:"\"skills/config/write\""
+@const RPC_M_ENVIRONMENT_ADD = utf8:"\"environment/add\""
+@const RPC_M_REVIEW_START = utf8:"\"review/start\""
+@const RPC_M_MCP_OAUTH_LOGIN = utf8:"\"mcpServer/oauth/login\""
+@const RPC_M_MOCK_EXPERIMENTAL = utf8:"\"mock/experimentalMethod\""
+@const RPC_M_REALTIME_START = utf8:"\"thread/realtime/start\""
+@const RPC_M_REALTIME_APPEND_AUDIO = utf8:"\"thread/realtime/appendAudio\""
+@const RPC_M_REALTIME_APPEND_TEXT = utf8:"\"thread/realtime/appendText\""
+@const RPC_M_REALTIME_STOP = utf8:"\"thread/realtime/stop\""
+@const RPC_M_REALTIME_VOICES = utf8:"\"thread/realtime/listVoices\""
+@const RPC_M_CONFIG_MCP_RELOAD = utf8:"\"config/mcpServer/reload\""
+@const RPC_M_MCP_STATUS_LIST = utf8:"\"mcpServerStatus/list\""
+@const RPC_M_MCP_RESOURCE_READ = utf8:"\"mcpServer/resource/read\""
+@const RPC_M_MCP_RESOURCE_LIST = utf8:"\"mcpServer/resource/list\""
+@const RPC_M_MCP_RESOURCE_TEMPLATES = utf8:"\"mcpServer/resource/templates\""
+@const RPC_M_MCP_TOOL_RUN = utf8:"\"mcpServer/tool/call\""
+@const RPC_M_WINDOWS_SETUP_START = utf8:"\"windowsSandbox/setupStart\""
+@const RPC_M_REMOTE_ENABLE = utf8:"\"remoteControl/enable\""
+@const RPC_M_REMOTE_DISABLE = utf8:"\"remoteControl/disable\""
+@const RPC_M_EXTERNAL_DETECT = utf8:"\"externalAgentConfig/detect\""
+@const RPC_M_EXTERNAL_IMPORT = utf8:"\"externalAgentConfig/import\""
+@const RPC_M_EXPERIMENTAL_ENABLEMENT_SET = utf8:"\"experimentalFeature/enablement/set\""
+@const RPC_M_FUZZY_SEARCH = utf8:"\"fuzzyFileSearch\""
+@const RPC_M_FUZZY_SESSION_START = utf8:"\"fuzzyFileSearch/sessionStart\""
+@const RPC_M_FUZZY_SESSION_UPDATE = utf8:"\"fuzzyFileSearch/sessionUpdate\""
+@const RPC_M_FUZZY_SESSION_STOP = utf8:"\"fuzzyFileSearch/sessionStop\""
+@const RPC_M_SERVER_REQUEST_RESOLVED = utf8:"\"serverRequest/resolved\""
+@const RPC_M_WORLD_WRITABLE_WARNING = utf8:"\"windows/worldWritableWarning\""
+@const RPC_M_FS_READ = utf8:"\"fs/readFile\""
+@const RPC_M_FS_WRITE = utf8:"\"fs/writeFile\""
+@const RPC_M_FS_MKDIR = utf8:"\"fs/createDirectory\""
+@const RPC_M_FS_READDIR = utf8:"\"fs/readDirectory\""
+@const RPC_M_FS_METADATA = utf8:"\"fs/getMetadata\""
+@const RPC_M_FS_REMOVE = utf8:"\"fs/remove\""
+@const RPC_M_FS_COPY = utf8:"\"fs/copy\""
+@const RPC_M_FS_WATCH = utf8:"\"fs/watch\""
+@const RPC_M_FS_UNWATCH = utf8:"\"fs/unwatch\""
+@const RPC_M_COMMAND_EXEC = utf8:"\"command/exec\""
+@const RPC_M_COMMAND_WRITE = utf8:"\"command/exec/write\""
+@const RPC_M_COMMAND_TERMINATE = utf8:"\"command/exec/terminate\""
+@const RPC_M_COMMAND_RESIZE = utf8:"\"command/exec/resize\""
+@const RPC_M_PROCESS_SPAWN = utf8:"\"process/spawn\""
+@const RPC_M_PROCESS_WRITE_STDIN = utf8:"\"process/writeStdin\""
+@const RPC_M_PROCESS_KILL = utf8:"\"process/kill\""
+@const RPC_M_PROCESS_RESIZE = utf8:"\"process/resizePty\""
+
+#def RPC_M_INIT_LEN = 12
+#def RPC_M_THR_START_LEN = 14
+#def RPC_M_THR_LIST_LEN = 13
+#def RPC_M_THR_LOADED_LIST_LEN = 20
+#def RPC_M_THR_READ_LEN = 13
+#def RPC_INCLUDE_TURNS_TRUE_LEN = 19
+#def RPC_M_THR_ARCH_LEN = 16
+#def RPC_M_THR_UNARCH_LEN = 18
+#def RPC_M_THR_NAME_SET_LEN = 17
+#def RPC_M_THR_METADATA_UPDATE_LEN = 24
+#def RPC_M_THR_FORK_LEN = 13
+#def RPC_M_THR_RESUME_LEN = 15
+#def RPC_M_THR_ROLLBACK_LEN = 17
+#def RPC_M_THR_TURNS_LEN = 19
+#def RPC_M_THR_TURN_ITEMS_LEN = 25
+#def RPC_M_THR_INJECT_ITEMS_LEN = 21
+#def RPC_M_THR_INC_ELICITATION_LEN = 30
+#def RPC_M_THR_DEC_ELICITATION_LEN = 30
+#def RPC_M_THR_COMPACT_START_LEN = 22
+#def RPC_M_THR_SHELL_COMMAND_LEN = 21
+#def RPC_M_THR_APPROVE_GUARDIAN_LEN = 36
+#def RPC_M_THR_BG_CLEAN_LEN = 34
+#def RPC_M_THR_MEMORY_MODE_SET_LEN = 23
+#def RPC_M_TURN_START_LEN = 12
+#def RPC_M_TURN_STEER_LEN = 12
+#def RPC_M_TURN_INTERRUPT_LEN = 16
+#def RPC_M_GOAL_SET_LEN = 17
+#def RPC_M_GOAL_GET_LEN = 17
+#def RPC_M_GOAL_CLEAR_LEN = 19
+#def RPC_M_ACCOUNT_READ_LEN = 14
+#def RPC_M_MODEL_LIST_LEN = 12
+#def RPC_M_CONFIG_REQ_LEN = 25
+#def RPC_M_THREAD_UNSUB_LEN = 20
+#def RPC_M_MEMORY_RESET_LEN = 14
+#def RPC_M_HOOKS_LIST_LEN = 12
+#def RPC_M_SKILLS_LIST_LEN = 13
+#def RPC_M_PLUGIN_LIST_LEN = 13
+#def RPC_M_PLUGIN_INSTALLED_LEN = 18
+#def RPC_M_PLUGIN_READ_LEN = 13
+#def RPC_M_PLUGIN_SKILL_READ_LEN = 19
+#def RPC_M_PLUGIN_INSTALL_LEN = 16
+#def RPC_M_PLUGIN_UNINSTALL_LEN = 18
+#def RPC_M_MARKETPLACE_ADD_LEN = 17
+#def RPC_M_MARKETPLACE_REMOVE_LEN = 20
+#def RPC_M_MARKETPLACE_UPGRADE_LEN = 21
+#def RPC_M_PLUGIN_SHARE_LIST_LEN = 19
+#def RPC_M_PLUGIN_SHARE_SAVE_LEN = 19
+#def RPC_M_PLUGIN_SHARE_UPDATE_LEN = 28
+#def RPC_M_PLUGIN_SHARE_CHECKOUT_LEN = 23
+#def RPC_M_PLUGIN_SHARE_DELETE_LEN = 21
+#def RPC_M_MODEL_CAP_LEN = 33
+#def RPC_M_APP_LIST_LEN = 10
+#def RPC_M_EXPERIMENTAL_FEATURE_LIST_LEN = 26
+#def RPC_M_COLLAB_LIST_LEN = 24
+#def RPC_M_REMOTE_STATUS_LEN = 27
+#def RPC_M_WINDOWS_READY_LEN = 26
+#def RPC_M_CONFIG_READ_LEN = 13
+#def RPC_M_ACCOUNT_LOGIN_START_LEN = 21
+#def RPC_M_ACCOUNT_LOGIN_CANCEL_LEN = 22
+#def RPC_M_ACCOUNT_LOGOUT_LEN = 16
+#def RPC_M_ACCOUNT_RATE_LIMITS_LEN = 25
+#def RPC_M_ACCOUNT_SEND_CREDITS_LEN = 34
+#def RPC_M_ACCOUNT_TOKENS_REFRESH_LEN = 35
+#def RPC_M_ATTESTATION_GENERATE_LEN = 22
+#def RPC_M_ITEM_CMD_APPROVAL_LEN = 39
+#def RPC_M_ITEM_FILE_APPROVAL_LEN = 33
+#def RPC_M_ITEM_TOOL_USER_INPUT_LEN = 28
+#def RPC_M_MCP_ELICITATION_LEN = 31
+#def RPC_M_ITEM_PERMISSIONS_APPROVAL_LEN = 34
+#def RPC_M_ITEM_TOOL_RUN_LEN = 16
+#def RPC_M_FEEDBACK_UPLOAD_LEN = 17
+#def RPC_M_CONFIG_VALUE_WRITE_LEN = 20
+#def RPC_M_CONFIG_BATCH_WRITE_LEN = 19
+#def RPC_M_SKILLS_CONFIG_WRITE_LEN = 21
+#def RPC_M_ENVIRONMENT_ADD_LEN = 17
+#def RPC_M_REVIEW_START_LEN = 14
+#def RPC_M_MCP_OAUTH_LOGIN_LEN = 23
+#def RPC_M_MOCK_EXPERIMENTAL_LEN = 25
+#def RPC_M_REALTIME_START_LEN = 23
+#def RPC_M_REALTIME_APPEND_AUDIO_LEN = 29
+#def RPC_M_REALTIME_APPEND_TEXT_LEN = 28
+#def RPC_M_REALTIME_STOP_LEN = 22
+#def RPC_M_REALTIME_VOICES_LEN = 28
+#def RPC_M_CONFIG_MCP_RELOAD_LEN = 25
+#def RPC_M_MCP_STATUS_LIST_LEN = 22
+#def RPC_M_MCP_RESOURCE_READ_LEN = 25
+#def RPC_M_MCP_RESOURCE_LIST_LEN = 25
+#def RPC_M_MCP_RESOURCE_TEMPLATES_LEN = 30
+#def RPC_M_MCP_TOOL_RUN_LEN = 21
+#def RPC_M_WINDOWS_SETUP_START_LEN = 27
+#def RPC_M_REMOTE_ENABLE_LEN = 22
+#def RPC_M_REMOTE_DISABLE_LEN = 23
+#def RPC_M_EXTERNAL_DETECT_LEN = 28
+#def RPC_M_EXTERNAL_IMPORT_LEN = 28
+#def RPC_M_EXPERIMENTAL_ENABLEMENT_SET_LEN = 36
+#def RPC_M_FUZZY_SEARCH_LEN = 17
+#def RPC_M_FUZZY_SESSION_START_LEN = 30
+#def RPC_M_FUZZY_SESSION_UPDATE_LEN = 31
+#def RPC_M_FUZZY_SESSION_STOP_LEN = 29
+#def RPC_M_SERVER_REQUEST_RESOLVED_LEN = 24
+#def RPC_M_WORLD_WRITABLE_WARNING_LEN = 30
+#def RPC_M_FS_READ_LEN = 13
+#def RPC_M_FS_WRITE_LEN = 14
+#def RPC_M_FS_MKDIR_LEN = 20
+#def RPC_M_FS_READDIR_LEN = 18
+#def RPC_M_FS_METADATA_LEN = 16
+#def RPC_M_FS_REMOVE_LEN = 11
+#def RPC_M_FS_COPY_LEN = 9
+#def RPC_M_FS_WATCH_LEN = 10
+#def RPC_M_FS_UNWATCH_LEN = 12
+#def RPC_M_COMMAND_EXEC_LEN = 14
+#def RPC_M_COMMAND_WRITE_LEN = 20
+#def RPC_M_COMMAND_TERMINATE_LEN = 24
+#def RPC_M_COMMAND_RESIZE_LEN = 21
+#def RPC_M_PROCESS_SPAWN_LEN = 15
+#def RPC_M_PROCESS_WRITE_STDIN_LEN = 20
+#def RPC_M_PROCESS_KILL_LEN = 14
+#def RPC_M_PROCESS_RESIZE_LEN = 19
+
+// ============================================================
+// Helper: handle_rpc_request(req, body, len, state, cfg)
+// Dispatches JSON-RPC methods used by the Codex bridge.
+// ============================================================
+@ffi_wrapper handle_rpc_request(&req: ptr, &rpc_body_ptr: ptr, rpc_body_len: u64, &state_ptr: ptr, &cfg_ptr: ptr) -> u32:
+L_ENTRY:
+    rpc_id_buf = stack_alloc RPC_ID_BUF_SIZE
+    rpc_id_ptr_slot = stack_alloc 8
+    rpc_id_len_slot = stack_alloc 8
+    rpc_id_status = call @rpc_extract_id_token(&rpc_body_ptr, rpc_body_len, &rpc_id_buf, RPC_ID_BUF_SIZE, &rpc_id_ptr_slot, &rpc_id_len_slot)
+    !rpc_id_status
+    rpc_id_ptr = load rpc_id_ptr_slot+0 as ptr
+    rpc_id_len = load rpc_id_len_slot+0 as u64
+    m_init_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_INIT, RPC_M_INIT_LEN)
+    m_init_ok = sge m_init_idx, 0
+    !m_init_idx
+    br m_init_ok -> L_RPC_INIT, L_RPC_TRY_THR_START
+
+L_RPC_INIT:
+    !m_init_ok
+    call @send_rpc_initialize(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_START:
+    !m_init_ok
+    m_ts_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_START, RPC_M_THR_START_LEN)
+    m_ts_ok = sge m_ts_idx, 0
+    !m_ts_idx
+    br m_ts_ok -> L_RPC_THR_START, L_RPC_TRY_THR_LIST
+
+L_RPC_THR_START:
+    !m_ts_ok
+    call @send_rpc_thread_start_from_body(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &cfg_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_LIST:
+    !m_ts_ok
+    m_tl_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_LIST, RPC_M_THR_LIST_LEN)
+    m_tl_ok = sge m_tl_idx, 0
+    !m_tl_idx
+    br m_tl_ok -> L_RPC_THR_LIST, L_RPC_TRY_THR_LOADED_LIST
+
+L_RPC_THR_LIST:
+    !m_tl_ok
+    call @send_rpc_thread_list(&req, &rpc_id_ptr, rpc_id_len, &state_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_LOADED_LIST:
+    !m_tl_ok
+    m_tloaded_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_LOADED_LIST, RPC_M_THR_LOADED_LIST_LEN)
+    m_tloaded_ok = sge m_tloaded_idx, 0
+    !m_tloaded_idx
+    br m_tloaded_ok -> L_RPC_THR_LOADED_LIST, L_RPC_TRY_THR_READ
+
+L_RPC_THR_LOADED_LIST:
+    !m_tloaded_ok
+    call @send_rpc_thread_loaded_list(&req, &rpc_id_ptr, rpc_id_len, &state_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_READ:
+    !m_tloaded_ok
+    m_tr_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_READ, RPC_M_THR_READ_LEN)
+    m_tr_ok = sge m_tr_idx, 0
+    !m_tr_idx
+    br m_tr_ok -> L_RPC_THR_READ, L_RPC_TRY_THR_ARCH
+
+L_RPC_THR_READ:
+    !m_tr_ok
+    read_tid = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    include_turns_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_INCLUDE_TURNS_TRUE, RPC_INCLUDE_TURNS_TRUE_LEN)
+    include_turns_ok = sge include_turns_idx, 0
+    include_turns = eq include_turns_ok, 1
+    !include_turns_idx
+    !include_turns_ok
+    call @send_rpc_thread_read(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, read_tid, include_turns)
+    !read_tid
+    !include_turns
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_ARCH:
+    !m_tr_ok
+    m_ta_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_ARCH, RPC_M_THR_ARCH_LEN)
+    m_ta_ok = sge m_ta_idx, 0
+    !m_ta_idx
+    br m_ta_ok -> L_RPC_THR_ARCH, L_RPC_TRY_THR_UNARCH
+
+L_RPC_THR_ARCH:
+    !m_ta_ok
+    arch_tid = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    call @send_rpc_thread_archive(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, arch_tid)
+    !arch_tid
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_UNARCH:
+    !m_ta_ok
+    m_tu_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_UNARCH, RPC_M_THR_UNARCH_LEN)
+    m_tu_ok = sge m_tu_idx, 0
+    !m_tu_idx
+    br m_tu_ok -> L_RPC_THR_UNARCH, L_RPC_TRY_THR_NAME_SET
+
+L_RPC_THR_UNARCH:
+    !m_tu_ok
+    unarch_tid = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    call @send_rpc_thread_unarchive(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, unarch_tid)
+    !unarch_tid
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_NAME_SET:
+    !m_tu_ok
+    m_tname_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_NAME_SET, RPC_M_THR_NAME_SET_LEN)
+    m_tname_ok = sge m_tname_idx, 0
+    !m_tname_idx
+    br m_tname_ok -> L_RPC_THR_NAME_SET, L_RPC_TRY_THR_METADATA_UPDATE
+
+L_RPC_THR_NAME_SET:
+    !m_tname_ok
+    call @send_rpc_thread_name_set(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_METADATA_UPDATE:
+    !m_tname_ok
+    m_tmeta_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_METADATA_UPDATE, RPC_M_THR_METADATA_UPDATE_LEN)
+    m_tmeta_ok = sge m_tmeta_idx, 0
+    !m_tmeta_idx
+    br m_tmeta_ok -> L_RPC_THR_METADATA_UPDATE, L_RPC_TRY_THR_FORK
+
+L_RPC_THR_METADATA_UPDATE:
+    !m_tmeta_ok
+    call @send_rpc_thread_metadata_update(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_FORK:
+    !m_tmeta_ok
+    m_tf_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_FORK, RPC_M_THR_FORK_LEN)
+    m_tf_ok = sge m_tf_idx, 0
+    !m_tf_idx
+    br m_tf_ok -> L_RPC_THR_FORK, L_RPC_TRY_THR_RESUME
+
+L_RPC_THR_FORK:
+    !m_tf_ok
+    call @send_rpc_thread_fork_from_body(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_RESUME:
+    !m_tf_ok
+    m_tres_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_RESUME, RPC_M_THR_RESUME_LEN)
+    m_tres_ok = sge m_tres_idx, 0
+    !m_tres_idx
+    br m_tres_ok -> L_RPC_THR_RESUME, L_RPC_TRY_THR_ROLLBACK
+
+L_RPC_THR_RESUME:
+    !m_tres_ok
+    resume_tid = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    call @send_rpc_thread_resume(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, resume_tid, &rpc_body_ptr, rpc_body_len)
+    !resume_tid
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_ROLLBACK:
+    !m_tres_ok
+    m_trb_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_ROLLBACK, RPC_M_THR_ROLLBACK_LEN)
+    m_trb_ok = sge m_trb_idx, 0
+    !m_trb_idx
+    br m_trb_ok -> L_RPC_THR_ROLLBACK, L_RPC_TRY_THR_TURNS
+
+L_RPC_THR_ROLLBACK:
+    !m_trb_ok
+    rollback_tid = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    remove_count = call @rpc_extract_u64_after(&rpc_body_ptr, rpc_body_len, &JSON_KEY_NUM_TURNS, JSON_KEY_NUM_TURNS_LEN, 1)
+    call @send_rpc_thread_rollback(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, rollback_tid, remove_count)
+    !rollback_tid
+    !remove_count
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_TURNS:
+    !m_trb_ok
+    m_tturn_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_TURNS, RPC_M_THR_TURNS_LEN)
+    m_tt_ok = sge m_tturn_idx, 0
+    !m_tturn_idx
+    br m_tt_ok -> L_RPC_THR_TURNS, L_RPC_TRY_THR_TURN_ITEMS
+
+L_RPC_THR_TURNS:
+    !m_tt_ok
+    turns_tid = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    call @send_rpc_turns_list(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, turns_tid)
+    !turns_tid
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_TURN_ITEMS:
+    !m_tt_ok
+    m_titems_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_TURN_ITEMS, RPC_M_THR_TURN_ITEMS_LEN)
+    m_titems_ok = sge m_titems_idx, 0
+    !m_titems_idx
+    br m_titems_ok -> L_RPC_THR_TURN_ITEMS, L_RPC_TRY_THR_INJECT_ITEMS
+
+L_RPC_THR_TURN_ITEMS:
+    !m_titems_ok
+    items_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    items_turn_id = call @rpc_extract_u64_after(&rpc_body_ptr, rpc_body_len, &J_TURNID_KEY, J_TURNID_KEY_LEN, 0)
+    call @send_rpc_turn_items_list(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, items_thread_id, items_turn_id)
+    !items_thread_id
+    !items_turn_id
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_INJECT_ITEMS:
+    !m_titems_ok
+    m_tinject_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_INJECT_ITEMS, RPC_M_THR_INJECT_ITEMS_LEN)
+    m_tinject_ok = sge m_tinject_idx, 0
+    !m_tinject_idx
+    br m_tinject_ok -> L_RPC_THR_INJECT_ITEMS, L_RPC_TRY_THR_INC_ELICITATION
+
+L_RPC_THR_INJECT_ITEMS:
+    !m_tinject_ok
+    call @send_rpc_thread_inject_items(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_INC_ELICITATION:
+    !m_tinject_ok
+    m_tinc_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_INC_ELICITATION, RPC_M_THR_INC_ELICITATION_LEN)
+    m_tinc_ok = sge m_tinc_idx, 0
+    !m_tinc_idx
+    br m_tinc_ok -> L_RPC_THR_INC_ELICITATION, L_RPC_TRY_THR_DEC_ELICITATION
+
+L_RPC_THR_INC_ELICITATION:
+    !m_tinc_ok
+    call @send_rpc_thread_increment_elicitation(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_DEC_ELICITATION:
+    !m_tinc_ok
+    m_tdec_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_DEC_ELICITATION, RPC_M_THR_DEC_ELICITATION_LEN)
+    m_tdec_ok = sge m_tdec_idx, 0
+    !m_tdec_idx
+    br m_tdec_ok -> L_RPC_THR_DEC_ELICITATION, L_RPC_TRY_TURN_START
+
+L_RPC_THR_DEC_ELICITATION:
+    !m_tdec_ok
+    call @send_rpc_thread_decrement_elicitation(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_TURN_START:
+    !m_tdec_ok
+    m_turns_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_TURN_START, RPC_M_TURN_START_LEN)
+    m_turns_ok = sge m_turns_idx, 0
+    !m_turns_idx
+    br m_turns_ok -> L_RPC_TURN_START, L_RPC_TRY_THR_COMPACT_START
+
+L_RPC_TURN_START:
+    !m_turns_ok
+    call @send_rpc_turn_start_from_body(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_COMPACT_START:
+    !m_turns_ok
+    m_compact_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_COMPACT_START, RPC_M_THR_COMPACT_START_LEN)
+    m_compact_ok = sge m_compact_idx, 0
+    !m_compact_idx
+    br m_compact_ok -> L_RPC_THR_COMPACT_START, L_RPC_TRY_THR_SHELL_COMMAND
+
+L_RPC_THR_COMPACT_START:
+    !m_compact_ok
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_SHELL_COMMAND:
+    !m_compact_ok
+    m_shell_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_SHELL_COMMAND, RPC_M_THR_SHELL_COMMAND_LEN)
+    m_shell_ok = sge m_shell_idx, 0
+    !m_shell_idx
+    br m_shell_ok -> L_RPC_THR_SHELL_COMMAND, L_RPC_TRY_THR_APPROVE_GUARDIAN
+
+L_RPC_THR_SHELL_COMMAND:
+    !m_shell_ok
+    call @send_rpc_thread_shell_command(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_APPROVE_GUARDIAN:
+    !m_shell_ok
+    m_guardian_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_APPROVE_GUARDIAN, RPC_M_THR_APPROVE_GUARDIAN_LEN)
+    m_guardian_ok = sge m_guardian_idx, 0
+    !m_guardian_idx
+    br m_guardian_ok -> L_RPC_THR_APPROVE_GUARDIAN, L_RPC_TRY_THR_BG_CLEAN
+
+L_RPC_THR_APPROVE_GUARDIAN:
+    !m_guardian_ok
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 2)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_BG_CLEAN:
+    !m_guardian_ok
+    m_bgclean_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_BG_CLEAN, RPC_M_THR_BG_CLEAN_LEN)
+    m_bgclean_ok = sge m_bgclean_idx, 0
+    !m_bgclean_idx
+    br m_bgclean_ok -> L_RPC_THR_BG_CLEAN, L_RPC_TRY_THR_MEMORY_MODE_SET
+
+L_RPC_THR_BG_CLEAN:
+    !m_bgclean_ok
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 3)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_MEMORY_MODE_SET:
+    !m_bgclean_ok
+    m_memory_mode_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THR_MEMORY_MODE_SET, RPC_M_THR_MEMORY_MODE_SET_LEN)
+    m_memory_mode_ok = sge m_memory_mode_idx, 0
+    !m_memory_mode_idx
+    br m_memory_mode_ok -> L_RPC_THR_MEMORY_MODE_SET, L_RPC_TRY_TURN_STEER
+
+L_RPC_THR_MEMORY_MODE_SET:
+    !m_memory_mode_ok
+    call @send_rpc_thread_memory_mode(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_TURN_STEER:
+    !m_memory_mode_ok
+    m_tsteer_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_TURN_STEER, RPC_M_TURN_STEER_LEN)
+    m_tsteer_ok = sge m_tsteer_idx, 0
+    !m_tsteer_idx
+    br m_tsteer_ok -> L_RPC_TURN_STEER, L_RPC_TRY_TURN_INT
+
+L_RPC_TURN_STEER:
+    !m_tsteer_ok
+    steer_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    steer_turn_id = call @rpc_extract_u64_after(&rpc_body_ptr, rpc_body_len, &J_EXPECTED_TURNID_KEY, J_EXPECTED_TURNID_KEY_LEN, 0)
+    call @send_rpc_turn_steer(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, steer_thread_id, steer_turn_id, &rpc_body_ptr, rpc_body_len)
+    !steer_thread_id
+    !steer_turn_id
+    jmp L_RPC_DONE
+
+L_RPC_TRY_TURN_INT:
+    !m_tsteer_ok
+    m_turni_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_TURN_INTERRUPT, RPC_M_TURN_INTERRUPT_LEN)
+    m_turni_ok = sge m_turni_idx, 0
+    !m_turni_idx
+    br m_turni_ok -> L_RPC_TURN_INT, L_RPC_TRY_GOAL_SET
+
+L_RPC_TURN_INT:
+    !m_turni_ok
+    int_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 1)
+    int_turn_id = call @rpc_extract_u64_after(&rpc_body_ptr, rpc_body_len, &J_TURNID_KEY, J_TURNID_KEY_LEN, 1)
+    call @send_rpc_turn_interrupt(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, int_thread_id, int_turn_id)
+    !int_thread_id
+    !int_turn_id
+    jmp L_RPC_DONE
+
+L_RPC_TRY_GOAL_SET:
+    !m_turni_ok
+    m_gs_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_GOAL_SET, RPC_M_GOAL_SET_LEN)
+    m_gs_ok = sge m_gs_idx, 0
+    !m_gs_idx
+    br m_gs_ok -> L_RPC_GOAL_SET, L_RPC_TRY_GOAL_GET
+
+L_RPC_GOAL_SET:
+    !m_gs_ok
+    call @send_rpc_goal_set_from_body(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_GOAL_GET:
+    !m_gs_ok
+    m_gg_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_GOAL_GET, RPC_M_GOAL_GET_LEN)
+    m_gg_ok = sge m_gg_idx, 0
+    !m_gg_idx
+    br m_gg_ok -> L_RPC_GOAL_GET, L_RPC_TRY_GOAL_CLR
+
+L_RPC_GOAL_GET:
+    !m_gg_ok
+    call @send_rpc_goal_get_from_body(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_GOAL_CLR:
+    !m_gg_ok
+    m_gc_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_GOAL_CLEAR, RPC_M_GOAL_CLEAR_LEN)
+    m_gc_ok = sge m_gc_idx, 0
+    !m_gc_idx
+    br m_gc_ok -> L_RPC_GOAL_CLR, L_RPC_TRY_ACCT_READ
+
+L_RPC_GOAL_CLR:
+    !m_gc_ok
+    call @send_rpc_goal_clear_from_body(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ACCT_READ:
+    !m_gc_ok
+    m_acct_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ACCOUNT_READ, RPC_M_ACCOUNT_READ_LEN)
+    m_acct_ok = sge m_acct_idx, 0
+    !m_acct_idx
+    br m_acct_ok -> L_RPC_ACCT_READ, L_RPC_TRY_MODEL_LIST
+
+L_RPC_ACCT_READ:
+    !m_acct_ok
+    call @send_rpc_account_read(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MODEL_LIST:
+    !m_acct_ok
+    m_ml_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MODEL_LIST, RPC_M_MODEL_LIST_LEN)
+    m_ml_ok = sge m_ml_idx, 0
+    !m_ml_idx
+    br m_ml_ok -> L_RPC_MODEL_LIST, L_RPC_TRY_CONFIG
+
+L_RPC_MODEL_LIST:
+    !m_ml_ok
+    call @send_rpc_model_list(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_CONFIG:
+    !m_ml_ok
+    m_cfg_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_CONFIG_REQ, RPC_M_CONFIG_REQ_LEN)
+    m_cfg_ok = sge m_cfg_idx, 0
+    !m_cfg_idx
+    br m_cfg_ok -> L_RPC_CONFIG, L_RPC_TRY_THR_UNSUB
+
+L_RPC_CONFIG:
+    !m_cfg_ok
+    call @send_rpc_config_requirements_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_THR_UNSUB:
+    !m_cfg_ok
+    m_unsub_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_THREAD_UNSUB, RPC_M_THREAD_UNSUB_LEN)
+    m_unsub_ok = sge m_unsub_idx, 0
+    !m_unsub_idx
+    br m_unsub_ok -> L_RPC_UNSUB, L_RPC_TRY_MEMORY_RESET
+
+L_RPC_UNSUB:
+    !m_unsub_ok
+    call @send_rpc_thread_unsubscribe(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MEMORY_RESET:
+    !m_unsub_ok
+    m_mem_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MEMORY_RESET, RPC_M_MEMORY_RESET_LEN)
+    m_mem_ok = sge m_mem_idx, 0
+    !m_mem_idx
+    br m_mem_ok -> L_RPC_MEMORY_RESET, L_RPC_TRY_HOOKS_LIST
+
+L_RPC_MEMORY_RESET:
+    !m_mem_ok
+    mem_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 0)
+    call @send_rpc_memory_reset(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, mem_thread_id)
+    !mem_thread_id
+    jmp L_RPC_DONE
+
+L_RPC_TRY_HOOKS_LIST:
+    !m_mem_ok
+    m_hooks_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_HOOKS_LIST, RPC_M_HOOKS_LIST_LEN)
+    m_hooks_ok = sge m_hooks_idx, 0
+    !m_hooks_idx
+    br m_hooks_ok -> L_RPC_HOOKS_LIST, L_RPC_TRY_SKILLS_LIST
+
+L_RPC_HOOKS_LIST:
+    !m_hooks_ok
+    call @send_rpc_hooks_list(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_SKILLS_LIST:
+    !m_hooks_ok
+    m_skills_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_SKILLS_LIST, RPC_M_SKILLS_LIST_LEN)
+    m_skills_ok = sge m_skills_idx, 0
+    !m_skills_idx
+    br m_skills_ok -> L_RPC_SKILLS_LIST, L_RPC_TRY_PLUGIN_LIST
+
+L_RPC_SKILLS_LIST:
+    !m_skills_ok
+    call @send_rpc_empty_array_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_DATA, JSON_KEY_DATA_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_LIST:
+    !m_skills_ok
+    m_plugin_list_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_LIST, RPC_M_PLUGIN_LIST_LEN)
+    m_plugin_list_ok = sge m_plugin_list_idx, 0
+    !m_plugin_list_idx
+    br m_plugin_list_ok -> L_RPC_PLUGIN_LIST, L_RPC_TRY_PLUGIN_INSTALLED
+
+L_RPC_PLUGIN_LIST:
+    !m_plugin_list_ok
+    call @send_rpc_plugin_marketplaces_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_INSTALLED:
+    !m_plugin_list_ok
+    m_plugin_installed_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_INSTALLED, RPC_M_PLUGIN_INSTALLED_LEN)
+    m_plugin_installed_ok = sge m_plugin_installed_idx, 0
+    !m_plugin_installed_idx
+    br m_plugin_installed_ok -> L_RPC_PLUGIN_INSTALLED, L_RPC_TRY_PLUGIN_READ
+
+L_RPC_PLUGIN_INSTALLED:
+    !m_plugin_installed_ok
+    call @send_rpc_empty_array_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_DATA, JSON_KEY_DATA_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_READ:
+    !m_plugin_installed_ok
+    m_plugin_read_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_READ, RPC_M_PLUGIN_READ_LEN)
+    m_plugin_read_ok = sge m_plugin_read_idx, 0
+    !m_plugin_read_idx
+    br m_plugin_read_ok -> L_RPC_PLUGIN_READ, L_RPC_TRY_PLUGIN_SKILL_READ
+
+L_RPC_PLUGIN_READ:
+    !m_plugin_read_ok
+    call @send_rpc_plugin_read(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_SKILL_READ:
+    !m_plugin_read_ok
+    m_plugin_skill_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_SKILL_READ, RPC_M_PLUGIN_SKILL_READ_LEN)
+    m_plugin_skill_ok = sge m_plugin_skill_idx, 0
+    !m_plugin_skill_idx
+    br m_plugin_skill_ok -> L_RPC_PLUGIN_SKILL_READ, L_RPC_TRY_PLUGIN_INSTALL
+
+L_RPC_PLUGIN_SKILL_READ:
+    !m_plugin_skill_ok
+    call @send_rpc_empty_array_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_CONTENTS, JSON_KEY_CONTENTS_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_INSTALL:
+    !m_plugin_skill_ok
+    m_plugin_install_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_INSTALL, RPC_M_PLUGIN_INSTALL_LEN)
+    m_plugin_install_ok = sge m_plugin_install_idx, 0
+    !m_plugin_install_idx
+    br m_plugin_install_ok -> L_RPC_PLUGIN_INSTALL, L_RPC_TRY_PLUGIN_UNINSTALL
+
+L_RPC_PLUGIN_INSTALL:
+    !m_plugin_install_ok
+    call @send_rpc_plugin_install_unavailable_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_UNINSTALL:
+    !m_plugin_install_ok
+    m_plugin_uninstall_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_UNINSTALL, RPC_M_PLUGIN_UNINSTALL_LEN)
+    m_plugin_uninstall_ok = sge m_plugin_uninstall_idx, 0
+    !m_plugin_uninstall_idx
+    br m_plugin_uninstall_ok -> L_RPC_PLUGIN_UNINSTALL, L_RPC_TRY_MARKETPLACE_ADD
+
+L_RPC_PLUGIN_UNINSTALL:
+    !m_plugin_uninstall_ok
+    call @send_rpc_plugin_uninstall(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MARKETPLACE_ADD:
+    !m_plugin_uninstall_ok
+    m_market_add_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MARKETPLACE_ADD, RPC_M_MARKETPLACE_ADD_LEN)
+    m_market_add_ok = sge m_market_add_idx, 0
+    !m_market_add_idx
+    br m_market_add_ok -> L_RPC_MARKETPLACE_ADD, L_RPC_TRY_MARKETPLACE_REMOVE
+
+L_RPC_MARKETPLACE_ADD:
+    !m_market_add_ok
+    call @send_rpc_marketplace_add(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MARKETPLACE_REMOVE:
+    !m_market_add_ok
+    m_market_remove_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MARKETPLACE_REMOVE, RPC_M_MARKETPLACE_REMOVE_LEN)
+    m_market_remove_ok = sge m_market_remove_idx, 0
+    !m_market_remove_idx
+    br m_market_remove_ok -> L_RPC_MARKETPLACE_REMOVE, L_RPC_TRY_MARKETPLACE_UPGRADE
+
+L_RPC_MARKETPLACE_REMOVE:
+    !m_market_remove_ok
+    call @send_rpc_marketplace_remove(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MARKETPLACE_UPGRADE:
+    !m_market_remove_ok
+    m_market_upgrade_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MARKETPLACE_UPGRADE, RPC_M_MARKETPLACE_UPGRADE_LEN)
+    m_market_upgrade_ok = sge m_market_upgrade_idx, 0
+    !m_market_upgrade_idx
+    br m_market_upgrade_ok -> L_RPC_MARKETPLACE_UPGRADE, L_RPC_TRY_MODEL_CAP
+
+L_RPC_MARKETPLACE_UPGRADE:
+    !m_market_upgrade_ok
+    call @send_rpc_marketplace_upgrade(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MODEL_CAP:
+    !m_market_upgrade_ok
+    m_model_cap_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MODEL_CAP, RPC_M_MODEL_CAP_LEN)
+    m_model_cap_ok = sge m_model_cap_idx, 0
+    !m_model_cap_idx
+    br m_model_cap_ok -> L_RPC_MODEL_CAP, L_RPC_TRY_APP_LIST
+
+L_RPC_MODEL_CAP:
+    !m_model_cap_ok
+    call @send_rpc_model_capabilities(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_APP_LIST:
+    !m_model_cap_ok
+    m_app_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_APP_LIST, RPC_M_APP_LIST_LEN)
+    m_app_ok = sge m_app_idx, 0
+    !m_app_idx
+    br m_app_ok -> L_RPC_APP_LIST, L_RPC_TRY_EXPERIMENTAL_FEATURE_LIST
+
+L_RPC_APP_LIST:
+    !m_app_ok
+    call @send_rpc_empty_data_page_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_EXPERIMENTAL_FEATURE_LIST:
+    !m_app_ok
+    m_exp_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_EXPERIMENTAL_FEATURE_LIST, RPC_M_EXPERIMENTAL_FEATURE_LIST_LEN)
+    m_exp_ok = sge m_exp_idx, 0
+    !m_exp_idx
+    br m_exp_ok -> L_RPC_EXPERIMENTAL_FEATURE_LIST, L_RPC_TRY_COLLAB_LIST
+
+L_RPC_EXPERIMENTAL_FEATURE_LIST:
+    !m_exp_ok
+    call @send_rpc_experimental_features_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_COLLAB_LIST:
+    !m_exp_ok
+    m_exp_set_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_EXPERIMENTAL_ENABLEMENT_SET, RPC_M_EXPERIMENTAL_ENABLEMENT_SET_LEN)
+    m_exp_set_ok = sge m_exp_set_idx, 0
+    !m_exp_set_idx
+    br m_exp_set_ok -> L_RPC_EXPERIMENTAL_ENABLEMENT_SET, L_RPC_TRY_COLLAB_LIST_FINAL
+
+L_RPC_EXPERIMENTAL_ENABLEMENT_SET:
+    !m_exp_set_ok
+    call @send_rpc_experimental_enablement_set(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_COLLAB_LIST_FINAL:
+    !m_exp_set_ok
+    m_collab_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_COLLAB_LIST, RPC_M_COLLAB_LIST_LEN)
+    m_collab_ok = sge m_collab_idx, 0
+    !m_collab_idx
+    br m_collab_ok -> L_RPC_COLLAB_LIST, L_RPC_TRY_REMOTE_STATUS
+
+L_RPC_COLLAB_LIST:
+    !m_collab_ok
+    call @send_rpc_collaboration_mode_list(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REMOTE_STATUS:
+    !m_collab_ok
+    m_remote_enable_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REMOTE_ENABLE, RPC_M_REMOTE_ENABLE_LEN)
+    m_remote_enable_ok = sge m_remote_enable_idx, 0
+    !m_remote_enable_idx
+    br m_remote_enable_ok -> L_RPC_REMOTE_ENABLE, L_RPC_TRY_REMOTE_DISABLE
+
+L_RPC_REMOTE_ENABLE:
+    !m_remote_enable_ok
+    call @notify_remote_status(&state_ptr, &rpc_body_ptr, rpc_body_len, &STATUS_CONNECTED, STATUS_CONNECTED_LEN)
+    call @send_rpc_remote_status(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &STATUS_CONNECTED, STATUS_CONNECTED_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REMOTE_DISABLE:
+    !m_remote_enable_ok
+    m_remote_disable_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REMOTE_DISABLE, RPC_M_REMOTE_DISABLE_LEN)
+    m_remote_disable_ok = sge m_remote_disable_idx, 0
+    !m_remote_disable_idx
+    br m_remote_disable_ok -> L_RPC_REMOTE_DISABLE, L_RPC_TRY_REMOTE_STATUS_FINAL
+
+L_RPC_REMOTE_DISABLE:
+    !m_remote_disable_ok
+    call @notify_remote_status(&state_ptr, &rpc_body_ptr, rpc_body_len, &STATUS_DISABLED, STATUS_DISABLED_LEN)
+    call @send_rpc_remote_status(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &STATUS_DISABLED, STATUS_DISABLED_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REMOTE_STATUS_FINAL:
+    !m_remote_disable_ok
+    m_remote_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REMOTE_STATUS, RPC_M_REMOTE_STATUS_LEN)
+    m_remote_ok = sge m_remote_idx, 0
+    !m_remote_idx
+    br m_remote_ok -> L_RPC_REMOTE_STATUS, L_RPC_TRY_WINDOWS_READY
+
+L_RPC_REMOTE_STATUS:
+    !m_remote_ok
+    call @send_rpc_remote_status(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, &STATUS_DISABLED, STATUS_DISABLED_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_WINDOWS_READY:
+    !m_remote_ok
+    m_win_setup_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_WINDOWS_SETUP_START, RPC_M_WINDOWS_SETUP_START_LEN)
+    m_win_setup_ok = sge m_win_setup_idx, 0
+    !m_win_setup_idx
+    br m_win_setup_ok -> L_RPC_WINDOWS_SETUP_START, L_RPC_TRY_WINDOWS_READY_FINAL
+
+L_RPC_WINDOWS_SETUP_START:
+    !m_win_setup_ok
+    call @notify_sandbox_setup_params(&state_ptr)
+    call @send_rpc_sandbox_setup(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_WINDOWS_READY_FINAL:
+    !m_win_setup_ok
+    m_windows_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_WINDOWS_READY, RPC_M_WINDOWS_READY_LEN)
+    m_windows_ok = sge m_windows_idx, 0
+    !m_windows_idx
+    br m_windows_ok -> L_RPC_WINDOWS_READY, L_RPC_TRY_CONFIG_READ
+
+L_RPC_WINDOWS_READY:
+    !m_windows_ok
+    call @send_rpc_status_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_VALUE_READY, JSON_VALUE_READY_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_CONFIG_READ:
+    !m_windows_ok
+    m_config_read_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_CONFIG_READ, RPC_M_CONFIG_READ_LEN)
+    m_config_read_ok = sge m_config_read_idx, 0
+    !m_config_read_idx
+    br m_config_read_ok -> L_RPC_CONFIG_READ, L_RPC_TRY_PLUGIN_SHARE_LIST
+
+L_RPC_CONFIG_READ:
+    !m_config_read_ok
+    call @send_rpc_config_read(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_SHARE_LIST:
+    !m_config_read_ok
+    m_plugin_share_save_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_SHARE_SAVE, RPC_M_PLUGIN_SHARE_SAVE_LEN)
+    m_plugin_share_save_ok = sge m_plugin_share_save_idx, 0
+    !m_plugin_share_save_idx
+    br m_plugin_share_save_ok -> L_RPC_PLUGIN_SHARE_SAVE, L_RPC_TRY_PLUGIN_SHARE_UPDATE
+
+L_RPC_PLUGIN_SHARE_SAVE:
+    !m_plugin_share_save_ok
+    call @send_rpc_plugin_share_save(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_SHARE_UPDATE:
+    !m_plugin_share_save_ok
+    m_plugin_share_update_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_SHARE_UPDATE, RPC_M_PLUGIN_SHARE_UPDATE_LEN)
+    m_plugin_share_update_ok = sge m_plugin_share_update_idx, 0
+    !m_plugin_share_update_idx
+    br m_plugin_share_update_ok -> L_RPC_PLUGIN_SHARE_UPDATE, L_RPC_TRY_PLUGIN_SHARE_CHECKOUT
+
+L_RPC_PLUGIN_SHARE_UPDATE:
+    !m_plugin_share_update_ok
+    call @send_rpc_plugin_share_update_targets(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_SHARE_CHECKOUT:
+    !m_plugin_share_update_ok
+    m_plugin_share_checkout_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_SHARE_CHECKOUT, RPC_M_PLUGIN_SHARE_CHECKOUT_LEN)
+    m_plugin_share_checkout_ok = sge m_plugin_share_checkout_idx, 0
+    !m_plugin_share_checkout_idx
+    br m_plugin_share_checkout_ok -> L_RPC_PLUGIN_SHARE_CHECKOUT, L_RPC_TRY_PLUGIN_SHARE_DELETE
+
+L_RPC_PLUGIN_SHARE_CHECKOUT:
+    !m_plugin_share_checkout_ok
+    call @send_rpc_plugin_share_checkout(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_SHARE_DELETE:
+    !m_plugin_share_checkout_ok
+    m_plugin_share_delete_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_SHARE_DELETE, RPC_M_PLUGIN_SHARE_DELETE_LEN)
+    m_plugin_share_delete_ok = sge m_plugin_share_delete_idx, 0
+    !m_plugin_share_delete_idx
+    br m_plugin_share_delete_ok -> L_RPC_PLUGIN_SHARE_DELETE, L_RPC_TRY_PLUGIN_SHARE_LIST_FINAL
+
+L_RPC_PLUGIN_SHARE_DELETE:
+    !m_plugin_share_delete_ok
+    call @send_rpc_plugin_share_delete(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PLUGIN_SHARE_LIST_FINAL:
+    !m_plugin_share_delete_ok
+    m_plugin_share_list_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PLUGIN_SHARE_LIST, RPC_M_PLUGIN_SHARE_LIST_LEN)
+    m_plugin_share_list_ok = sge m_plugin_share_list_idx, 0
+    !m_plugin_share_list_idx
+    br m_plugin_share_list_ok -> L_RPC_PLUGIN_SHARE_LIST, L_RPC_TRY_ACCOUNT_LOGIN_CANCEL
+
+L_RPC_PLUGIN_SHARE_LIST:
+    !m_plugin_share_list_ok
+    call @send_rpc_empty_data_page_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ACCOUNT_LOGIN_CANCEL:
+    !m_plugin_share_list_ok
+    m_login_start_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ACCOUNT_LOGIN_START, RPC_M_ACCOUNT_LOGIN_START_LEN)
+    m_login_start_ok = sge m_login_start_idx, 0
+    !m_login_start_idx
+    br m_login_start_ok -> L_RPC_ACCOUNT_LOGIN_START, L_RPC_TRY_ACCOUNT_LOGIN_CANCEL_FINAL
+
+L_RPC_ACCOUNT_LOGIN_START:
+    !m_login_start_ok
+    call @send_rpc_account_login_start(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ACCOUNT_LOGIN_CANCEL_FINAL:
+    !m_login_start_ok
+    m_login_cancel_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ACCOUNT_LOGIN_CANCEL, RPC_M_ACCOUNT_LOGIN_CANCEL_LEN)
+    m_login_cancel_ok = sge m_login_cancel_idx, 0
+    !m_login_cancel_idx
+    br m_login_cancel_ok -> L_RPC_ACCOUNT_LOGIN_CANCEL, L_RPC_TRY_ACCOUNT_LOGOUT
+
+L_RPC_ACCOUNT_LOGIN_CANCEL:
+    !m_login_cancel_ok
+    call @send_rpc_account_login_state_with_id(&req, &rpc_id_ptr, rpc_id_len, 1, 0)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ACCOUNT_LOGOUT:
+    !m_login_cancel_ok
+    m_logout_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ACCOUNT_LOGOUT, RPC_M_ACCOUNT_LOGOUT_LEN)
+    m_logout_ok = sge m_logout_idx, 0
+    !m_logout_idx
+    br m_logout_ok -> L_RPC_ACCOUNT_LOGOUT, L_RPC_TRY_ACCOUNT_RATE_LIMITS
+
+L_RPC_ACCOUNT_LOGOUT:
+    !m_logout_ok
+    call @send_rpc_account_login_state_with_id(&req, &rpc_id_ptr, rpc_id_len, 0, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ACCOUNT_RATE_LIMITS:
+    !m_logout_ok
+    m_rate_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ACCOUNT_RATE_LIMITS, RPC_M_ACCOUNT_RATE_LIMITS_LEN)
+    m_rate_ok = sge m_rate_idx, 0
+    !m_rate_idx
+    br m_rate_ok -> L_RPC_ACCOUNT_RATE_LIMITS, L_RPC_TRY_ACCOUNT_TOKENS_REFRESH
+
+L_RPC_ACCOUNT_RATE_LIMITS:
+    !m_rate_ok
+    call @send_rpc_rate_limits(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ACCOUNT_TOKENS_REFRESH:
+    !m_rate_ok
+    m_send_credits_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ACCOUNT_SEND_CREDITS, RPC_M_ACCOUNT_SEND_CREDITS_LEN)
+    m_send_credits_ok = sge m_send_credits_idx, 0
+    !m_send_credits_idx
+    br m_send_credits_ok -> L_RPC_ACCOUNT_SEND_CREDITS, L_RPC_TRY_ACCOUNT_TOKENS_REFRESH_FINAL
+
+L_RPC_ACCOUNT_SEND_CREDITS:
+    !m_send_credits_ok
+    call @send_rpc_send_credits(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ACCOUNT_TOKENS_REFRESH_FINAL:
+    !m_send_credits_ok
+    m_tokens_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ACCOUNT_TOKENS_REFRESH, RPC_M_ACCOUNT_TOKENS_REFRESH_LEN)
+    m_tokens_ok = sge m_tokens_idx, 0
+    !m_tokens_idx
+    br m_tokens_ok -> L_RPC_ACCOUNT_TOKENS_REFRESH, L_RPC_TRY_ATTESTATION_GENERATE
+
+L_RPC_ACCOUNT_TOKENS_REFRESH:
+    !m_tokens_ok
+    call @send_rpc_chatgpt_tokens_refresh(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ATTESTATION_GENERATE:
+    !m_tokens_ok
+    m_attest_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ATTESTATION_GENERATE, RPC_M_ATTESTATION_GENERATE_LEN)
+    m_attest_ok = sge m_attest_idx, 0
+    !m_attest_idx
+    br m_attest_ok -> L_RPC_ATTESTATION_GENERATE, L_RPC_TRY_ITEM_CMD_APPROVAL
+
+L_RPC_ATTESTATION_GENERATE:
+    !m_attest_ok
+    call @send_rpc_attestation_generate(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ITEM_CMD_APPROVAL:
+    !m_attest_ok
+    m_cmd_approval_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ITEM_CMD_APPROVAL, RPC_M_ITEM_CMD_APPROVAL_LEN)
+    m_cmd_approval_ok = sge m_cmd_approval_idx, 0
+    !m_cmd_approval_idx
+    br m_cmd_approval_ok -> L_RPC_ITEM_CMD_APPROVAL, L_RPC_TRY_ITEM_FILE_APPROVAL
+
+L_RPC_ITEM_CMD_APPROVAL:
+    !m_cmd_approval_ok
+    call @send_rpc_approval_accept_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ITEM_FILE_APPROVAL:
+    !m_cmd_approval_ok
+    m_file_approval_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ITEM_FILE_APPROVAL, RPC_M_ITEM_FILE_APPROVAL_LEN)
+    m_file_approval_ok = sge m_file_approval_idx, 0
+    !m_file_approval_idx
+    br m_file_approval_ok -> L_RPC_ITEM_FILE_APPROVAL, L_RPC_TRY_MCP_ELICITATION
+
+L_RPC_ITEM_FILE_APPROVAL:
+    !m_file_approval_ok
+    call @send_rpc_approval_accept_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_ELICITATION:
+    !m_file_approval_ok
+    m_user_input_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ITEM_TOOL_USER_INPUT, RPC_M_ITEM_TOOL_USER_INPUT_LEN)
+    m_user_input_ok = sge m_user_input_idx, 0
+    !m_user_input_idx
+    br m_user_input_ok -> L_RPC_ITEM_TOOL_USER_INPUT, L_RPC_TRY_MCP_ELICITATION_FINAL
+
+L_RPC_ITEM_TOOL_USER_INPUT:
+    !m_user_input_ok
+    user_input_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 0)
+    user_input_count = call @state_thread_increment_elicitation(&state_ptr, user_input_thread_id)
+    !user_input_count
+    !user_input_thread_id
+    call @notify_user_input_request(&state_ptr, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_user_input_continue_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_ELICITATION_FINAL:
+    !m_user_input_ok
+    m_mcp_elicitation_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_ELICITATION, RPC_M_MCP_ELICITATION_LEN)
+    m_mcp_elicitation_ok = sge m_mcp_elicitation_idx, 0
+    !m_mcp_elicitation_idx
+    br m_mcp_elicitation_ok -> L_RPC_MCP_ELICITATION, L_RPC_TRY_ITEM_PERMISSIONS_APPROVAL
+
+L_RPC_MCP_ELICITATION:
+    !m_mcp_elicitation_ok
+    mcp_elicit_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 0)
+    mcp_elicit_count = call @state_thread_increment_elicitation(&state_ptr, mcp_elicit_thread_id)
+    !mcp_elicit_count
+    !mcp_elicit_thread_id
+    call @notify_mcp_elicitation_request(&state_ptr, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_mcp_elicit_accept_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ITEM_PERMISSIONS_APPROVAL:
+    !m_mcp_elicitation_ok
+    m_perm_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ITEM_PERMISSIONS_APPROVAL, RPC_M_ITEM_PERMISSIONS_APPROVAL_LEN)
+    m_perm_ok = sge m_perm_idx, 0
+    !m_perm_idx
+    br m_perm_ok -> L_RPC_ITEM_PERMISSIONS_APPROVAL, L_RPC_TRY_FEEDBACK_UPLOAD
+
+L_RPC_ITEM_PERMISSIONS_APPROVAL:
+    !m_perm_ok
+    call @send_rpc_permissions_default_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FEEDBACK_UPLOAD:
+    !m_perm_ok
+    m_tool_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ITEM_TOOL_RUN, RPC_M_ITEM_TOOL_RUN_LEN)
+    m_tool_ok = sge m_tool_idx, 0
+    !m_tool_idx
+    br m_tool_ok -> L_RPC_ITEM_TOOL_CALL, L_RPC_TRY_FEEDBACK_UPLOAD_FINAL
+
+L_RPC_ITEM_TOOL_CALL:
+    !m_tool_ok
+    call @send_rpc_item_tool_call(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FEEDBACK_UPLOAD_FINAL:
+    !m_tool_ok
+    m_feedback_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FEEDBACK_UPLOAD, RPC_M_FEEDBACK_UPLOAD_LEN)
+    m_feedback_ok = sge m_feedback_idx, 0
+    !m_feedback_idx
+    br m_feedback_ok -> L_RPC_FEEDBACK_UPLOAD, L_RPC_TRY_CONFIG_VALUE_WRITE
+
+L_RPC_FEEDBACK_UPLOAD:
+    !m_feedback_ok
+    call @send_rpc_thread_simple_id(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 0)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_CONFIG_VALUE_WRITE:
+    !m_feedback_ok
+    m_config_value_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_CONFIG_VALUE_WRITE, RPC_M_CONFIG_VALUE_WRITE_LEN)
+    m_config_value_ok = sge m_config_value_idx, 0
+    !m_config_value_idx
+    br m_config_value_ok -> L_RPC_CONFIG_VALUE_WRITE, L_RPC_TRY_CONFIG_BATCH_WRITE
+
+L_RPC_CONFIG_VALUE_WRITE:
+    !m_config_value_ok
+    call @send_rpc_config_write(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_CONFIG_BATCH_WRITE:
+    !m_config_value_ok
+    m_config_batch_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_CONFIG_BATCH_WRITE, RPC_M_CONFIG_BATCH_WRITE_LEN)
+    m_config_batch_ok = sge m_config_batch_idx, 0
+    !m_config_batch_idx
+    br m_config_batch_ok -> L_RPC_CONFIG_BATCH_WRITE, L_RPC_TRY_SKILLS_CONFIG_WRITE
+
+L_RPC_CONFIG_BATCH_WRITE:
+    !m_config_batch_ok
+    call @send_rpc_config_write(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_SKILLS_CONFIG_WRITE:
+    !m_config_batch_ok
+    m_skills_config_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_SKILLS_CONFIG_WRITE, RPC_M_SKILLS_CONFIG_WRITE_LEN)
+    m_skills_config_ok = sge m_skills_config_idx, 0
+    !m_skills_config_idx
+    br m_skills_config_ok -> L_RPC_SKILLS_CONFIG_WRITE, L_RPC_TRY_FS_READ
+
+L_RPC_SKILLS_CONFIG_WRITE:
+    !m_skills_config_ok
+    call @send_rpc_config_write(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_READ:
+    !m_skills_config_ok
+    m_external_detect_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_EXTERNAL_DETECT, RPC_M_EXTERNAL_DETECT_LEN)
+    m_external_detect_ok = sge m_external_detect_idx, 0
+    !m_external_detect_idx
+    br m_external_detect_ok -> L_RPC_EXTERNAL_DETECT, L_RPC_TRY_EXTERNAL_IMPORT
+
+L_RPC_EXTERNAL_DETECT:
+    !m_external_detect_ok
+    call @send_rpc_external_detect(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_EXTERNAL_IMPORT:
+    !m_external_detect_ok
+    m_external_import_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_EXTERNAL_IMPORT, RPC_M_EXTERNAL_IMPORT_LEN)
+    m_external_import_ok = sge m_external_import_idx, 0
+    !m_external_import_idx
+    br m_external_import_ok -> L_RPC_EXTERNAL_IMPORT, L_RPC_TRY_REALTIME_VOICES
+
+L_RPC_EXTERNAL_IMPORT:
+    !m_external_import_ok
+    call @notify_empty_params(&state_ptr, &EV_EXTERNAL_IMPORT, EV_EXTERNAL_IMPORT_LEN)
+    call @send_rpc_external_import(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REALTIME_VOICES:
+    !m_external_import_ok
+    m_rt_start_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REALTIME_START, RPC_M_REALTIME_START_LEN)
+    m_rt_start_ok = sge m_rt_start_idx, 0
+    !m_rt_start_idx
+    br m_rt_start_ok -> L_RPC_REALTIME_START, L_RPC_TRY_REALTIME_APPEND_AUDIO
+
+L_RPC_REALTIME_START:
+    !m_rt_start_ok
+    call @notify_realtime_started(&state_ptr, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_realtime_start(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REALTIME_APPEND_AUDIO:
+    !m_rt_start_ok
+    m_rt_audio_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REALTIME_APPEND_AUDIO, RPC_M_REALTIME_APPEND_AUDIO_LEN)
+    m_rt_audio_ok = sge m_rt_audio_idx, 0
+    !m_rt_audio_idx
+    br m_rt_audio_ok -> L_RPC_REALTIME_APPEND_AUDIO, L_RPC_TRY_REALTIME_APPEND_TEXT
+
+L_RPC_REALTIME_APPEND_AUDIO:
+    !m_rt_audio_ok
+    call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_AUDIO_KEY, J_AUDIO_KEY_LEN)
+    call @notify_rt_item_value(&state_ptr, &EV_RT_AUDIO_DELTA, EV_RT_AUDIO_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_AUDIO_KEY, J_AUDIO_KEY_LEN)
+    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REALTIME_APPEND_TEXT:
+    !m_rt_audio_ok
+    m_rt_text_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REALTIME_APPEND_TEXT, RPC_M_REALTIME_APPEND_TEXT_LEN)
+    m_rt_text_ok = sge m_rt_text_idx, 0
+    !m_rt_text_idx
+    br m_rt_text_ok -> L_RPC_REALTIME_APPEND_TEXT, L_RPC_TRY_REALTIME_STOP
+
+L_RPC_REALTIME_APPEND_TEXT:
+    !m_rt_text_ok
+    call @notify_rt_item_value(&state_ptr, &EV_RT_ITEM, EV_RT_ITEM_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN)
+    call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DELTA, EV_RT_TRANSCRIPT_DELTA_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DELTA_B2, J_EVT_RT_DELTA_B2_LEN)
+    call @notify_rt_role_value(&state_ptr, &EV_RT_TRANSCRIPT_DONE, EV_RT_TRANSCRIPT_DONE_LEN, &rpc_body_ptr, rpc_body_len, &J_TEXT_KEY, J_TEXT_KEY_LEN, &J_EVT_RT_DONE_B2, J_EVT_RT_DONE_B2_LEN)
+    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 2)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REALTIME_STOP:
+    !m_rt_text_ok
+    m_rt_stop_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REALTIME_STOP, RPC_M_REALTIME_STOP_LEN)
+    m_rt_stop_ok = sge m_rt_stop_idx, 0
+    !m_rt_stop_idx
+    br m_rt_stop_ok -> L_RPC_REALTIME_STOP, L_RPC_TRY_REALTIME_VOICES_FINAL
+
+L_RPC_REALTIME_STOP:
+    !m_rt_stop_ok
+    call @notify_thread_string(&state_ptr, &EV_RT_CLOSED, EV_RT_CLOSED_LEN, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_realtime_thread(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 3)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REALTIME_VOICES_FINAL:
+    !m_rt_stop_ok
+    m_voices_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REALTIME_VOICES, RPC_M_REALTIME_VOICES_LEN)
+    m_voices_ok = sge m_voices_idx, 0
+    !m_voices_idx
+    br m_voices_ok -> L_RPC_REALTIME_VOICES, L_RPC_TRY_CONFIG_MCP_RELOAD
+
+L_RPC_REALTIME_VOICES:
+    !m_voices_ok
+    call @send_rpc_realtime_voices_with_id(&req, &rpc_id_ptr, rpc_id_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_CONFIG_MCP_RELOAD:
+    !m_voices_ok
+    m_mcp_reload_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_CONFIG_MCP_RELOAD, RPC_M_CONFIG_MCP_RELOAD_LEN)
+    m_mcp_reload_ok = sge m_mcp_reload_idx, 0
+    !m_mcp_reload_idx
+    br m_mcp_reload_ok -> L_RPC_CONFIG_MCP_RELOAD, L_RPC_TRY_MCP_STATUS_LIST
+
+L_RPC_CONFIG_MCP_RELOAD:
+    !m_mcp_reload_ok
+    call @notify_mcp_startup_params(&state_ptr, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_mcp_reload(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_STATUS_LIST:
+    !m_mcp_reload_ok
+    m_mcp_status_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_STATUS_LIST, RPC_M_MCP_STATUS_LIST_LEN)
+    m_mcp_status_ok = sge m_mcp_status_idx, 0
+    !m_mcp_status_idx
+    br m_mcp_status_ok -> L_RPC_MCP_STATUS_LIST, L_RPC_TRY_MCP_RESOURCE_READ
+
+L_RPC_MCP_STATUS_LIST:
+    !m_mcp_status_ok
+    call @send_rpc_mcp_status_list(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_RESOURCE_READ:
+    !m_mcp_status_ok
+    m_mcp_res_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_RESOURCE_READ, RPC_M_MCP_RESOURCE_READ_LEN)
+    m_mcp_res_ok = sge m_mcp_res_idx, 0
+    !m_mcp_res_idx
+    br m_mcp_res_ok -> L_RPC_MCP_RESOURCE_READ, L_RPC_TRY_MCP_RESOURCE_LIST
+
+L_RPC_MCP_RESOURCE_READ:
+    !m_mcp_res_ok
+    call @send_rpc_mcp_resource_read(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_RESOURCE_LIST:
+    !m_mcp_res_ok
+    m_mcp_res_list_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_RESOURCE_LIST, RPC_M_MCP_RESOURCE_LIST_LEN)
+    m_mcp_res_list_ok = sge m_mcp_res_list_idx, 0
+    !m_mcp_res_list_idx
+    br m_mcp_res_list_ok -> L_RPC_MCP_RESOURCE_LIST_UNSUPPORTED, L_RPC_TRY_MCP_RESOURCE_TEMPLATES
+
+L_RPC_MCP_RESOURCE_LIST_UNSUPPORTED:
+    !m_mcp_res_list_ok
+    call @send_error_with_id(&req, 404, &rpc_id_ptr, rpc_id_len, &J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED, J_ERR_MCP_RESOURCE_LIST_UNSUPPORTED_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_RESOURCE_TEMPLATES:
+    !m_mcp_res_list_ok
+    m_mcp_res_templates_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_RESOURCE_TEMPLATES, RPC_M_MCP_RESOURCE_TEMPLATES_LEN)
+    m_mcp_res_templates_ok = sge m_mcp_res_templates_idx, 0
+    !m_mcp_res_templates_idx
+    br m_mcp_res_templates_ok -> L_RPC_MCP_RESOURCE_TEMPLATES_UNSUPPORTED, L_RPC_TRY_FUZZY_SESSION_START
+
+L_RPC_MCP_RESOURCE_TEMPLATES_UNSUPPORTED:
+    !m_mcp_res_templates_ok
+    call @send_error_with_id(&req, 404, &rpc_id_ptr, rpc_id_len, &J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED, J_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FUZZY_SESSION_START:
+    !m_mcp_res_templates_ok
+    m_mcp_tool_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_TOOL_RUN, RPC_M_MCP_TOOL_RUN_LEN)
+    m_mcp_tool_ok = sge m_mcp_tool_idx, 0
+    !m_mcp_tool_idx
+    br m_mcp_tool_ok -> L_RPC_MCP_TOOL_RUN, L_RPC_TRY_FUZZY_SESSION_START_FINAL
+
+L_RPC_MCP_TOOL_RUN:
+    !m_mcp_tool_ok
+    call @notify_mcp_tool_progress(&state_ptr, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_mcp_tool_call(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FUZZY_SESSION_START_FINAL:
+    !m_mcp_tool_ok
+    m_fuzzy_start_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FUZZY_SESSION_START, RPC_M_FUZZY_SESSION_START_LEN)
+    m_fuzzy_start_ok = sge m_fuzzy_start_idx, 0
+    !m_fuzzy_start_idx
+    br m_fuzzy_start_ok -> L_RPC_FUZZY_SESSION_START, L_RPC_TRY_FUZZY_SESSION_UPDATE
+
+L_RPC_FUZZY_SESSION_START:
+    !m_fuzzy_start_ok
+    call @send_rpc_fuzzy_session(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 0)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FUZZY_SESSION_UPDATE:
+    !m_fuzzy_start_ok
+    m_fuzzy_update_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FUZZY_SESSION_UPDATE, RPC_M_FUZZY_SESSION_UPDATE_LEN)
+    m_fuzzy_update_ok = sge m_fuzzy_update_idx, 0
+    !m_fuzzy_update_idx
+    br m_fuzzy_update_ok -> L_RPC_FUZZY_SESSION_UPDATE, L_RPC_TRY_FUZZY_SESSION_STOP
+
+L_RPC_FUZZY_SESSION_UPDATE:
+    !m_fuzzy_update_ok
+    call @send_rpc_fuzzy_session(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 0)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FUZZY_SESSION_STOP:
+    !m_fuzzy_update_ok
+    m_fuzzy_stop_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FUZZY_SESSION_STOP, RPC_M_FUZZY_SESSION_STOP_LEN)
+    m_fuzzy_stop_ok = sge m_fuzzy_stop_idx, 0
+    !m_fuzzy_stop_idx
+    br m_fuzzy_stop_ok -> L_RPC_FUZZY_SESSION_STOP, L_RPC_TRY_FUZZY_SEARCH
+
+L_RPC_FUZZY_SESSION_STOP:
+    !m_fuzzy_stop_ok
+    call @send_rpc_fuzzy_session(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FUZZY_SEARCH:
+    !m_fuzzy_stop_ok
+    m_fuzzy_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FUZZY_SEARCH, RPC_M_FUZZY_SEARCH_LEN)
+    m_fuzzy_ok = sge m_fuzzy_idx, 0
+    !m_fuzzy_idx
+    br m_fuzzy_ok -> L_RPC_FUZZY_SEARCH, L_RPC_TRY_SERVER_REQUEST_RESOLVED
+
+L_RPC_FUZZY_SEARCH:
+    !m_fuzzy_ok
+    call @notify_fuzzy_events(&state_ptr, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_fuzzy_search(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_SERVER_REQUEST_RESOLVED:
+    !m_fuzzy_ok
+    m_server_res_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_SERVER_REQUEST_RESOLVED, RPC_M_SERVER_REQUEST_RESOLVED_LEN)
+    m_server_res_ok = sge m_server_res_idx, 0
+    !m_server_res_idx
+    br m_server_res_ok -> L_RPC_SERVER_REQUEST_RESOLVED, L_RPC_TRY_WORLD_WRITABLE_WARNING
+
+L_RPC_SERVER_REQUEST_RESOLVED:
+    !m_server_res_ok
+    server_res_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 0)
+    server_res_count = call @state_thread_decrement_elicitation(&state_ptr, server_res_thread_id)
+    !server_res_count
+    !server_res_thread_id
+    call @notify_server_resolved(&state_ptr, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_server_resolved(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_WORLD_WRITABLE_WARNING:
+    !m_server_res_ok
+    m_world_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_WORLD_WRITABLE_WARNING, RPC_M_WORLD_WRITABLE_WARNING_LEN)
+    m_world_ok = sge m_world_idx, 0
+    !m_world_idx
+    br m_world_ok -> L_RPC_WORLD_WRITABLE_WARNING, L_RPC_TRY_ENVIRONMENT_ADD
+
+L_RPC_WORLD_WRITABLE_WARNING:
+    !m_world_ok
+    call @notify_world_warning_params(&state_ptr)
+    call @send_rpc_bool_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_WARNED, JSON_KEY_WARNED_LEN, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_ENVIRONMENT_ADD:
+    !m_world_ok
+    m_env_add_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_ENVIRONMENT_ADD, RPC_M_ENVIRONMENT_ADD_LEN)
+    m_env_add_ok = sge m_env_add_idx, 0
+    !m_env_add_idx
+    br m_env_add_ok -> L_RPC_ENVIRONMENT_ADD, L_RPC_TRY_REVIEW_START
+
+L_RPC_ENVIRONMENT_ADD:
+    !m_env_add_ok
+    call @send_rpc_environment_add(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_REVIEW_START:
+    !m_env_add_ok
+    m_review_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_REVIEW_START, RPC_M_REVIEW_START_LEN)
+    m_review_ok = sge m_review_idx, 0
+    !m_review_idx
+    br m_review_ok -> L_RPC_REVIEW_START, L_RPC_TRY_MCP_OAUTH_LOGIN
+
+L_RPC_REVIEW_START:
+    !m_review_ok
+    call @send_rpc_review_start(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MCP_OAUTH_LOGIN:
+    !m_review_ok
+    m_oauth_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MCP_OAUTH_LOGIN, RPC_M_MCP_OAUTH_LOGIN_LEN)
+    m_oauth_ok = sge m_oauth_idx, 0
+    !m_oauth_idx
+    br m_oauth_ok -> L_RPC_MCP_OAUTH_LOGIN, L_RPC_TRY_MOCK_EXPERIMENTAL
+
+L_RPC_MCP_OAUTH_LOGIN:
+    !m_oauth_ok
+    call @send_rpc_oauth_login(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_MOCK_EXPERIMENTAL:
+    !m_oauth_ok
+    m_mock_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_MOCK_EXPERIMENTAL, RPC_M_MOCK_EXPERIMENTAL_LEN)
+    m_mock_ok = sge m_mock_idx, 0
+    !m_mock_idx
+    br m_mock_ok -> L_RPC_MOCK_EXPERIMENTAL, L_RPC_TRY_FS_READ_FINAL
+
+L_RPC_MOCK_EXPERIMENTAL:
+    !m_mock_ok
+    call @send_rpc_mock_experimental(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_READ_FINAL:
+    !m_mock_ok
+    m_fsr_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_READ, RPC_M_FS_READ_LEN)
+    m_fsr_ok = sge m_fsr_idx, 0
+    !m_fsr_idx
+    br m_fsr_ok -> L_RPC_FS_READ, L_RPC_TRY_FS_WRITE
+
+L_RPC_FS_READ:
+    !m_fsr_ok
+    call @send_rpc_fs_read(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_WRITE:
+    !m_fsr_ok
+    m_fsw_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_WRITE, RPC_M_FS_WRITE_LEN)
+    m_fsw_ok = sge m_fsw_idx, 0
+    !m_fsw_idx
+    br m_fsw_ok -> L_RPC_FS_WRITE, L_RPC_TRY_FS_MKDIR
+
+L_RPC_FS_WRITE:
+    !m_fsw_ok
+    call @send_rpc_fs_write(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_MKDIR:
+    !m_fsw_ok
+    m_fsm_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_MKDIR, RPC_M_FS_MKDIR_LEN)
+    m_fsm_ok = sge m_fsm_idx, 0
+    !m_fsm_idx
+    br m_fsm_ok -> L_RPC_FS_MKDIR, L_RPC_TRY_FS_READDIR
+
+L_RPC_FS_MKDIR:
+    !m_fsm_ok
+    call @send_rpc_fs_mkdir(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_READDIR:
+    !m_fsm_ok
+    m_fsrd_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_READDIR, RPC_M_FS_READDIR_LEN)
+    m_fsrd_ok = sge m_fsrd_idx, 0
+    !m_fsrd_idx
+    br m_fsrd_ok -> L_RPC_FS_READDIR, L_RPC_TRY_FS_METADATA
+
+L_RPC_FS_READDIR:
+    !m_fsrd_ok
+    call @send_rpc_fs_readdir(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_METADATA:
+    !m_fsrd_ok
+    m_fsmeta_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_METADATA, RPC_M_FS_METADATA_LEN)
+    m_fsmeta_ok = sge m_fsmeta_idx, 0
+    !m_fsmeta_idx
+    br m_fsmeta_ok -> L_RPC_FS_METADATA, L_RPC_TRY_FS_REMOVE
+
+L_RPC_FS_METADATA:
+    !m_fsmeta_ok
+    call @send_rpc_fs_metadata(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_REMOVE:
+    !m_fsmeta_ok
+    m_fsremove_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_REMOVE, RPC_M_FS_REMOVE_LEN)
+    m_fsremove_ok = sge m_fsremove_idx, 0
+    !m_fsremove_idx
+    br m_fsremove_ok -> L_RPC_FS_REMOVE, L_RPC_TRY_FS_COPY
+
+L_RPC_FS_REMOVE:
+    !m_fsremove_ok
+    call @send_rpc_fs_remove(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_COPY:
+    !m_fsremove_ok
+    m_fscopy_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_COPY, RPC_M_FS_COPY_LEN)
+    m_fscopy_ok = sge m_fscopy_idx, 0
+    !m_fscopy_idx
+    br m_fscopy_ok -> L_RPC_FS_COPY, L_RPC_TRY_FS_WATCH
+
+L_RPC_FS_COPY:
+    !m_fscopy_ok
+    call @send_rpc_fs_copy(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_WATCH:
+    !m_fscopy_ok
+    m_fwatch_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_WATCH, RPC_M_FS_WATCH_LEN)
+    m_fwatch_ok = sge m_fwatch_idx, 0
+    !m_fwatch_idx
+    br m_fwatch_ok -> L_RPC_FS_WATCH, L_RPC_TRY_FS_UNWATCH
+
+L_RPC_FS_WATCH:
+    !m_fwatch_ok
+    call @send_rpc_fs_watch(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_FS_UNWATCH:
+    !m_fwatch_ok
+    m_funwatch_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_FS_UNWATCH, RPC_M_FS_UNWATCH_LEN)
+    m_funwatch_ok = sge m_funwatch_idx, 0
+    !m_funwatch_idx
+    br m_funwatch_ok -> L_RPC_FS_UNWATCH, L_RPC_TRY_COMMAND_EXEC
+
+L_RPC_FS_UNWATCH:
+    !m_funwatch_ok
+    call @send_rpc_fs_unwatch(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_COMMAND_EXEC:
+    !m_funwatch_ok
+    m_cmd_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_COMMAND_EXEC, RPC_M_COMMAND_EXEC_LEN)
+    m_cmd_ok = sge m_cmd_idx, 0
+    !m_cmd_idx
+    br m_cmd_ok -> L_RPC_COMMAND_EXEC, L_RPC_TRY_COMMAND_WRITE
+
+L_RPC_COMMAND_EXEC:
+    !m_cmd_ok
+    call @send_rpc_command_exec(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_COMMAND_WRITE:
+    !m_cmd_ok
+    m_cmd_write_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_COMMAND_WRITE, RPC_M_COMMAND_WRITE_LEN)
+    m_cmd_write_ok = sge m_cmd_write_idx, 0
+    !m_cmd_write_idx
+    br m_cmd_write_ok -> L_RPC_COMMAND_WRITE, L_RPC_TRY_COMMAND_TERMINATE
+
+L_RPC_COMMAND_WRITE:
+    !m_cmd_write_ok
+    call @send_rpc_bool_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_OK, JSON_KEY_OK_LEN, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_COMMAND_TERMINATE:
+    !m_cmd_write_ok
+    m_cmd_term_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_COMMAND_TERMINATE, RPC_M_COMMAND_TERMINATE_LEN)
+    m_cmd_term_ok = sge m_cmd_term_idx, 0
+    !m_cmd_term_idx
+    br m_cmd_term_ok -> L_RPC_COMMAND_TERMINATE, L_RPC_TRY_COMMAND_RESIZE
+
+L_RPC_COMMAND_TERMINATE:
+    !m_cmd_term_ok
+    call @send_rpc_bool_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_OK, JSON_KEY_OK_LEN, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_COMMAND_RESIZE:
+    !m_cmd_term_ok
+    m_cmd_resize_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_COMMAND_RESIZE, RPC_M_COMMAND_RESIZE_LEN)
+    m_cmd_resize_ok = sge m_cmd_resize_idx, 0
+    !m_cmd_resize_idx
+    br m_cmd_resize_ok -> L_RPC_COMMAND_RESIZE, L_RPC_TRY_PROCESS_SPAWN
+
+L_RPC_COMMAND_RESIZE:
+    !m_cmd_resize_ok
+    call @send_rpc_bool_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_OK, JSON_KEY_OK_LEN, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PROCESS_SPAWN:
+    !m_cmd_resize_ok
+    m_proc_spawn_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PROCESS_SPAWN, RPC_M_PROCESS_SPAWN_LEN)
+    m_proc_spawn_ok = sge m_proc_spawn_idx, 0
+    !m_proc_spawn_idx
+    br m_proc_spawn_ok -> L_RPC_PROCESS_SPAWN, L_RPC_TRY_PROCESS_WRITE_STDIN
+
+L_RPC_PROCESS_SPAWN:
+    !m_proc_spawn_ok
+    call @send_rpc_process_spawn(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PROCESS_WRITE_STDIN:
+    !m_proc_spawn_ok
+    m_proc_write_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PROCESS_WRITE_STDIN, RPC_M_PROCESS_WRITE_STDIN_LEN)
+    m_proc_write_ok = sge m_proc_write_idx, 0
+    !m_proc_write_idx
+    br m_proc_write_ok -> L_RPC_PROCESS_WRITE_STDIN, L_RPC_TRY_PROCESS_KILL
+
+L_RPC_PROCESS_WRITE_STDIN:
+    !m_proc_write_ok
+    call @send_rpc_bool_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_OK, JSON_KEY_OK_LEN, 1)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PROCESS_KILL:
+    !m_proc_write_ok
+    m_proc_kill_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PROCESS_KILL, RPC_M_PROCESS_KILL_LEN)
+    m_proc_kill_ok = sge m_proc_kill_idx, 0
+    !m_proc_kill_idx
+    br m_proc_kill_ok -> L_RPC_PROCESS_KILL, L_RPC_TRY_PROCESS_RESIZE
+
+L_RPC_PROCESS_KILL:
+    !m_proc_kill_ok
+    call @send_rpc_process_kill(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
+    jmp L_RPC_DONE
+
+L_RPC_TRY_PROCESS_RESIZE:
+    !m_proc_kill_ok
+    m_proc_resize_idx = call @sa_bytes_find(&rpc_body_ptr, rpc_body_len, &RPC_M_PROCESS_RESIZE, RPC_M_PROCESS_RESIZE_LEN)
+    m_proc_resize_ok = sge m_proc_resize_idx, 0
+    !m_proc_resize_idx
+    br m_proc_resize_ok -> L_RPC_PROCESS_RESIZE, L_RPC_UNKNOWN
+
+L_RPC_PROCESS_RESIZE:
+    !m_proc_resize_ok
+    call @send_rpc_bool_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_OK, JSON_KEY_OK_LEN, 1)
+    jmp L_RPC_DONE
+
+L_RPC_UNKNOWN:
+    !m_proc_resize_ok
+    call @send_error_with_id(&req, 404, &rpc_id_ptr, rpc_id_len, &J_ERR_NOT_FOUND, J_ERR_NOT_FOUND_LEN)
+    jmp L_RPC_DONE
+
+L_RPC_DONE:
+    !rpc_id_ptr
+    !rpc_id_len
+    !req
+    !rpc_body_ptr
+    !rpc_body_len
+    !state_ptr
+    !cfg_ptr
+    return 0

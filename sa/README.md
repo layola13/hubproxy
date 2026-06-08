@@ -4,11 +4,11 @@ This directory contains the SA port of HubProxy. The goal of this port is to mat
 
 ## Current Status
 
-As of 2026-06-05, the audited Deno behavior surface is covered by the SA implementation.
+As of 2026-06-08, the audited Deno behavior surface is covered by the SA implementation.
 
 - Deno tests audited: 67 `Deno.test(...)` cases from `src/proxy_test.ts`, `src/handlers_test.ts`, `src/env_test.ts`, `src/state_test.ts`, `src/responses_mock_test.ts`, and `src/real_upstream_test.ts`.
-- SA focused tests: 93 files under `sa/tests`.
-- Latest full SA verification: 9/9 SA source/native tests passed, 84/84 shell contract tests available; latest focused run covered long request, large SSE, native/fallback stream, and large non-SSE paths.
+- SA focused tests: 9 SA source/native test files and 96 shell contract scripts under `sa/tests`.
+- Latest full SA verification: 9/9 SA source/native or compile contracts passed, and the default local runtime verification passed 95/95 non-destructive shell contracts through `tests/run_default_contracts.sh`, including long request, large SSE, native/fallback stream, large non-SSE, thin-entry build, RPC parity, MCP, goal/turn/thread parity, upstream auth headers, and user-input event-shape coverage.
 - Runtime port: `SA_PORT=28080` from the project root `.env`.
 - Deno runtime port remains separate: `PORT=27787`.
 
@@ -81,7 +81,14 @@ SA_PLUGINS_HOME=/home/vscode/.local/share/sa_plugins \
   /home/vscode/projects/sci/zig-out/bin/sa test tests/model_list_contract_test.sa --trace-panic
 ```
 
-Shell contract tests must run serially because many of them rewrite `.env` and bind `28080`:
+Default local runtime contracts are non-destructive: they run from temporary working directories, generate temporary `.env` files, and choose isolated ports without touching an existing `28080` process:
+
+```bash
+cd /home/vscode/projects/hubproxy/sa
+bash tests/run_default_contracts.sh
+```
+
+Fixed-port shell contracts that intentionally bind or replace `28080` are not part of the default local gate. Run them only in an isolated CI/worktree environment where taking over the project root `.env` and fixed runtime port is acceptable:
 
 ```bash
 cd /home/vscode/projects/hubproxy/sa
@@ -147,5 +154,5 @@ Status legend:
 - Do not modify Deno tests to make SA pass. Port behavior into SA, SCI, or SA plugins.
 - Keep HTTP extern declarations in the split HTTP plugins, not in the Deno plugin interface.
 - Reinstall plugins with `--dev` after plugin ABI or implementation changes.
-- Run shell tests serially.
+- Run default local shell tests through `tests/run_default_contracts.sh`; run legacy fixed-port shell tests only in isolated environments.
 - Keep `sa/tests/deno_coverage_matrix.md` as the detailed audit source and update this README when parity status changes.

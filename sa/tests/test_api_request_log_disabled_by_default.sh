@@ -4,35 +4,32 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
+source "${script_dir}/lib/runtime_env.sh"
 env_file="${project_dir}/.env"
-server_log="$(mktemp)"
-response_body="$(mktemp)"
-run_root="$(mktemp -d)"
+tmp_dir="$(mktemp -d)"
+run_root="${tmp_dir}/run"
+server_log="${tmp_dir}/server.log"
+response_body="${tmp_dir}/response.json"
+sa_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
+upstream_port="${SA_TEST_UPSTREAM_PORT:-$(sa_test_free_port)}"
 server_pid=""
 hub_pid=""
 
 cleanup() {
-  if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
-  fi
-  if [[ -n "${server_pid}" ]]; then
-    kill "${server_pid}" 2>/dev/null || true
-    wait "${server_pid}" 2>/dev/null || true
-  fi
-  rm -f "${server_log}" "${response_body}"
-  rm -rf "${run_root}"
+  if [[ -n "${hub_pid}" ]]; then sa_test_stop_pid "${hub_pid}"; fi
+  if [[ -n "${server_pid}" ]]; then sa_test_stop_pid "${server_pid}"; fi
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
-fi
+sa_test_assert_port_free "${sa_port}"
+sa_test_assert_port_free "${upstream_port}"
 
-python3 <<'PY' >"${server_log}" 2>&1 &
+UPSTREAM_PORT="${upstream_port}" python3 <<'PY' >"${server_log}" 2>&1 &
 import http.server
+import os
+
+port = int(os.environ["UPSTREAM_PORT"])
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -50,49 +47,47 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
-http.server.ThreadingHTTPServer(("127.0.0.1", 28083), Handler).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 PY
 server_pid=$!
-
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '127\.0\.0\.1:28083'; then
-    break
-  fi
-  sleep 0.1
-done
+sa_test_wait_port "${upstream_port}" 50 0.1
 
 mkdir -p "${run_root}/sa"
-awk '
+awk -v port="${sa_port}" -v upstream_port="${upstream_port}" '
   /^HUBPROXY_LOG_DIR=/ { next }
   /^AUTH=/ { print "AUTH=client-secret"; wrote_auth=1; next }
-  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:28083/v1"; wrote_chat=1; next }
-  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:28083/v1"; wrote_resp=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_sa_port=1; next }
+  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_chat=1; next }
+  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_resp=1; next }
+  /^SA_PORT=/ { print "SA_PORT=" port; wrote_sa_port=1; next }
+  /^PORT=/ { print "PORT=" port; next }
   { print }
   END {
     if (!wrote_auth) print "AUTH=client-secret"
-    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:28083/v1"
-    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:28083/v1"
-    if (!wrote_sa_port) print "SA_PORT=28080"
+    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
+    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
+    if (!wrote_sa_port) print "SA_PORT=" port
   }
 ' "${env_file}" >"${run_root}/.env"
 
-(cd "${run_root}/sa" && setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_api_request_log_disabled.log 2>&1 < /dev/null) &
-hub_pid=$!
+(
+  cd "${run_root}/sa"
+  setsid "${sa_dir}/hubproxy" >"${tmp_dir}/hubproxy.log" 2>&1 < /dev/null &
+  echo "$!" >"${tmp_dir}/hubproxy.pid"
+)
+hub_pid="$(cat "${tmp_dir}/hubproxy.pid")"
 
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
-    break
-  fi
-  sleep 0.1
-done
+if ! sa_test_wait_port "${sa_port}" 50 0.1; then
+  echo "hubproxy did not start on ${sa_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
+  exit 1
+fi
 
 curl -sS --max-time 15 \
   -H 'authorization: Bearer client-secret' \
   -H 'x-api-key: client-secret' \
   -H 'content-type: application/json' \
   --data '{"model":"gpt-4.1","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}' \
-  'http://127.0.0.1:28080/v1/responses' >"${response_body}"
+  "http://127.0.0.1:${sa_port}/v1/responses" >"${response_body}"
 
 if ! rg -q '"status":"completed"' "${response_body}"; then
   echo "responses proxy did not return mock response" >&2

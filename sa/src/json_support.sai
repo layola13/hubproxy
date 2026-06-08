@@ -1,0 +1,10 @@
+// json_support.sai — shared JSON/buffer/copy helpers for SA HubProxy
+
+@extern json_writer_finish_view(writer: ptr, &out_buffer: ptr, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern json_stringify_view(node: ptr, &out_buffer: ptr, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern json_buffer_to_owned_and_free(buffer: ptr, &data_ptr: ptr, data_len: u64, &out_len: ptr) -> ^ptr
+@extern copy_bytes_owned(&src_ptr: ptr, src_len: u64, &out_len: ptr) -> ^ptr
+@extern copy_bytes_into(&dst_ptr: ptr, &src_ptr: ptr, src_len: u64) -> u64
+@extern json_writer_dispose_finished(buffer: ptr, writer: ptr) -> u32
+@extern json_buffer_dispose(buffer: ptr) -> u32
+@extern json_writer_dispose(writer: ptr) -> u32

@@ -4,42 +4,38 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+source "${script_dir}/lib/runtime_env.sh"
+tmp_dir="$(mktemp -d)"
 server_log="$(mktemp)"
 capture_file="$(mktemp)"
+hub_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
+upstream_port="${SA_TEST_UPSTREAM_PORT:-$(sa_test_free_port)}"
 server_pid=""
 hub_pid=""
 
 cleanup() {
   if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${hub_pid}"
   fi
   if [[ -n "${server_pid}" ]]; then
-    kill "${server_pid}" 2>/dev/null || true
-    wait "${server_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${server_pid}"
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}" "${server_log}" "${capture_file}"
+  rm -rf "${tmp_dir}"
+  rm -f "${server_log}" "${capture_file}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
+sa_test_assert_port_free "${hub_port}"
+sa_test_assert_port_free "${upstream_port}"
 
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
-fi
-
-python3 - "${capture_file}" >"${server_log}" 2>&1 <<'PY' &
+python3 - "${capture_file}" "${upstream_port}" >"${server_log}" 2>&1 <<'PY' &
 import http.server
 import json
 import sys
 from pathlib import Path
 
 capture = Path(sys.argv[1])
+port = int(sys.argv[2])
 
 payload = json.dumps({"ok": True}, separators=(",", ":")).encode("utf-8")
 
@@ -82,43 +78,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
-http.server.ThreadingHTTPServer(("127.0.0.1", 28082), Handler).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 PY
 server_pid=$!
 
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '127\.0\.0\.1:28082'; then
-    break
-  fi
-  sleep 0.1
-done
+if ! sa_test_wait_port "${upstream_port}" 50 0.1; then
+  echo "upstream did not start on ${upstream_port}" >&2
+  cat "${server_log}" >&2 || true
+  exit 1
+fi
 
-awk '
+sa_test_write_env_from_root "${project_dir}/.env" "${tmp_dir}/.env.base" "${hub_port}" "local-secret-token"
+awk -v upstream_port="${upstream_port}" '
   BEGIN { wrote_chat=0; wrote_resp=0; wrote_key=0; wrote_auth=0; wrote_sa_port=0 }
-  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:28082/v1"; wrote_chat=1; next }
-  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:28082/v1"; wrote_resp=1; next }
+  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_chat=1; next }
+  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_resp=1; next }
   /^OPENAI_API_KEY=/ { print "OPENAI_API_KEY=upstream-secret-token"; wrote_key=1; next }
   /^AUTH=/ { print "AUTH=local-secret-token"; wrote_auth=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_sa_port=1; next }
+  /^SA_PORT=/ { print; wrote_sa_port=1; next }
   { print }
   END {
-    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:28082/v1"
-    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:28082/v1"
+    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
+    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
     if (!wrote_key) print "OPENAI_API_KEY=upstream-secret-token"
     if (!wrote_auth) print "AUTH=local-secret-token"
-    if (!wrote_sa_port) print "SA_PORT=28080"
   }
-' "${backup_file}" >"${env_file}"
+' "${tmp_dir}/.env.base" >"${tmp_dir}/.env"
 
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_upstream_auth_headers.log 2>&1 < /dev/null &
-hub_pid=$!
-
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
-    break
-  fi
-  sleep 0.1
-done
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy.log")"
+if ! sa_test_wait_port "${hub_port}" 50 0.1; then
+  echo "hubproxy did not start on ${hub_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
+  exit 1
+fi
 
 client_headers=(
   -H 'authorization: Bearer local-secret-token'
@@ -130,17 +122,17 @@ curl -sS --max-time 15 \
   "${client_headers[@]}" \
   -H 'content-type: application/json' \
   --data '{"model":"mimo-v2.5","messages":[{"role":"user","content":"hello"}],"stream":false}' \
-  'http://127.0.0.1:28080/v1/chat/completions' >/dev/null
+  "http://127.0.0.1:${hub_port}/v1/chat/completions" >/dev/null
 
 curl -sS --max-time 15 \
   "${client_headers[@]}" \
   -H 'content-type: application/json' \
   --data '{"model":"mimo-v2.5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],"stream":false}' \
-  'http://127.0.0.1:28080/v1/responses' >/dev/null
+  "http://127.0.0.1:${hub_port}/v1/responses" >/dev/null
 
 curl -sS --max-time 15 \
   "${client_headers[@]}" \
-  'http://127.0.0.1:28080/v1/models' >/dev/null
+  "http://127.0.0.1:${hub_port}/v1/models" >/dev/null
 
 python3 - "${capture_file}" <<'PY'
 import json

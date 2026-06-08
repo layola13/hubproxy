@@ -1,0 +1,2523 @@
+// http_dispatch.sa — HTTP request helpers for SA HubProxy
+@import "http_dispatch.sai"
+@import "sa_std/io/print.sai"
+@import "sa_std/encoding/json.sa"
+@import "sa_http_server.sai"
+@import "sa_http_client.sai"
+@import "deno.sal"
+@import "config.sai"
+@import "events.sai"
+@import "json_support.sai"
+@import "proxy.sai"
+@import "request_context.sai"
+@import "rpc_emit.sai"
+@import "strings.sai"
+
+@const HTTPD_TOTAL_TOK = utf8:"total_tokens"
+@const HTTPD_HDR_AUTH = utf8:"authorization"
+@const HTTPD_HDR_X_API_KEY = utf8:"x-api-key"
+@const HTTPD_BEARER_PREFIX = utf8:"Bearer "
+@const HTTPD_LOG_AUTH_OK = utf8:"[hubproxy] Auth OK\n"
+@const HTTPD_LOG_AUTH_FAIL = utf8:"[hubproxy] Auth FAILED\n"
+@const HTTPD_HDR_CONTENT_TYPE = utf8:"content-type"
+@const HTTPD_LOG_FILE_AUTH_SUFFIX = utf8:"/request-sa-auth.json"
+@const HTTPD_LOG_FILE_REQ_SUFFIX = utf8:"/request-sa-api.json"
+@const HTTPD_LOG_PREVIEW_NONE = utf8:"none"
+@const HTTPD_LOG_PREVIEW_ELLIPSIS = utf8:"..."
+@const HTTPD_LOG_PREVIEW_LEN_A = utf8:" (len="
+@const HTTPD_LOG_PREVIEW_LEN_B = utf8:")"
+@const HTTPD_EMPTY_TEXT = utf8:""
+@const HTTPD_JSON_KEY_KIND = utf8:"kind"
+@const HTTPD_JSON_KEY_PATH = utf8:"path"
+@const HTTPD_JSON_KEY_AUTHORIZATION = utf8:"authorization"
+@const HTTPD_JSON_KEY_EXPECTED_AUTH = utf8:"expectedAuth"
+@const HTTPD_JSON_KEY_HEADERS = utf8:"headers"
+@const HTTPD_JSON_KEY_METHOD = utf8:"method"
+@const HTTPD_JSON_KEY_X_API_KEY = utf8:"x-api-key"
+@const HTTPD_JSON_KEY_CONTENT_TYPE = utf8:"content-type"
+@const HTTPD_JSON_KEY_BODY_BYTES = utf8:"bodyBytes"
+@const HTTPD_JSON_KEY_BODY = utf8:"body"
+@const HTTPD_JSON_VALUE_AUTH_FAILURE = utf8:"auth_failure"
+@const HTTPD_JSON_VALUE_REQUEST_LOG = utf8:"request-log"
+@const HTTPD_LOG_MODELS = utf8:"[hubproxy] Proxy → /v1/models\n"
+@const HTTPD_UP_MODELS_SUFFIX = utf8:"/models"
+@const HTTPD_MIME_JSON = utf8:"application/json"
+@const HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION = utf8:"missing upstream configuration"
+@const HTTPD_JSON_VALUE_BAD_GATEWAY = utf8:"bad gateway"
+@const HTTPD_LOG_CHAT = utf8:"[hubproxy] Proxy → /v1/chat/completions\n"
+@const HTTPD_LOG_STREAM = utf8:"[hubproxy] Streaming response...\n"
+@const HTTPD_LOG_DONE = utf8:"[hubproxy] Stream complete\n"
+@const HTTPD_LOG_TOK = utf8:"[hubproxy] Tokens used: \n"
+@const HTTPD_UP_CHAT_SUFFIX = utf8:"/chat/completions"
+@const HTTPD_MIME_EVENT_STREAM = utf8:"text/event-stream"
+@const HTTPD_LOG_RESP = utf8:"[hubproxy] Proxy → /v1/responses\n"
+@const HTTPD_LOG_RESP_BODY = utf8:"[hubproxy] responses body loaded\n"
+@const HTTPD_LOG_RESP_PROXY_BUILT = utf8:"[hubproxy] responses proxy body built\n"
+@const HTTPD_LOG_RESP_PROXY_NORMALIZED = utf8:"[hubproxy] responses proxy body normalized\n"
+@const HTTPD_UP_RESP_SUFFIX = utf8:"/responses"
+@const HTTPD_J_NULL = utf8:"null"
+@const HTTPD_JSON_VALUE_BAD_REQUEST = utf8:"bad request"
+@const HTTPD_ROUTE_HEALTH = utf8:"/healthz"
+@const HTTPD_ROUTE_READY = utf8:"/readyz"
+@const HTTPD_ROUTE_CHAT = utf8:"/v1/chat/completions"
+@const HTTPD_ROUTE_RESP = utf8:"/v1/responses"
+@const HTTPD_ROUTE_MODELS = utf8:"/v1/models"
+@const HTTPD_ROUTE_RPC = utf8:"/rpc"
+@const HTTPD_ROUTE_EVENTS = utf8:"/events"
+@const HTTPD_METHOD_GET = utf8:"GET"
+@const HTTPD_METHOD_POST = utf8:"POST"
+@const HTTPD_LOG_RPC = utf8:"[hubproxy] RPC call\n"
+@const HTTPD_LOG_EVENTS = utf8:"[hubproxy] Events stream\n"
+@const HTTPD_LOG_HEALTH = utf8:"[hubproxy] Health check\n"
+@const HTTPD_JSON_KEY_OK = utf8:"ok"
+@const HTTPD_JSON_VALUE_UNAUTHORIZED = utf8:"unauthorized"
+@const HTTPD_JSON_VALUE_NOT_FOUND = utf8:"not found"
+
+#def HTTPD_TOTAL_TOK_LEN = 12
+#def HTTPD_HDR_AUTH_LEN = 13
+#def HTTPD_HDR_X_API_KEY_LEN = 9
+#def HTTPD_BEARER_PREFIX_LEN = 7
+#def HTTPD_LOG_AUTH_OK_LEN = 19
+#def HTTPD_LOG_AUTH_FAIL_LEN = 23
+#def HTTPD_HDR_CONTENT_TYPE_LEN = 12
+#def HTTPD_LOG_FILE_AUTH_SUFFIX_LEN = 21
+#def HTTPD_LOG_FILE_REQ_SUFFIX_LEN = 20
+#def HTTPD_LOG_PREVIEW_NONE_LEN = 4
+#def HTTPD_LOG_PREVIEW_ELLIPSIS_LEN = 3
+#def HTTPD_LOG_PREVIEW_LEN_A_LEN = 6
+#def HTTPD_LOG_PREVIEW_LEN_B_LEN = 1
+#def HTTPD_JSON_KEY_KIND_LEN = 4
+#def HTTPD_JSON_KEY_PATH_LEN = 4
+#def HTTPD_JSON_KEY_AUTHORIZATION_LEN = 13
+#def HTTPD_JSON_KEY_EXPECTED_AUTH_LEN = 12
+#def HTTPD_JSON_KEY_HEADERS_LEN = 7
+#def HTTPD_JSON_KEY_METHOD_LEN = 6
+#def HTTPD_JSON_KEY_X_API_KEY_LEN = 9
+#def HTTPD_JSON_KEY_CONTENT_TYPE_LEN = 12
+#def HTTPD_JSON_KEY_BODY_BYTES_LEN = 9
+#def HTTPD_JSON_KEY_BODY_LEN = 4
+#def HTTPD_JSON_VALUE_AUTH_FAILURE_LEN = 12
+#def HTTPD_JSON_VALUE_REQUEST_LOG_LEN = 11
+#def HTTPD_LOG_MODELS_LEN = 32
+#def HTTPD_UP_MODELS_SUFFIX_LEN = 7
+#def HTTPD_MIME_JSON_LEN = 16
+#def HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION_LEN = 30
+#def HTTPD_JSON_VALUE_BAD_GATEWAY_LEN = 11
+#def HTTPD_LOG_CHAT_LEN = 42
+#def HTTPD_LOG_STREAM_LEN = 33
+#def HTTPD_LOG_DONE_LEN = 27
+#def HTTPD_LOG_TOK_LEN = 25
+#def HTTPD_UP_CHAT_SUFFIX_LEN = 17
+#def HTTPD_MIME_EVENT_STREAM_LEN = 17
+#def HTTPD_SSE_BUF_SIZE = 8192
+#def HTTPD_LOG_RESP_LEN = 35
+#def HTTPD_LOG_RESP_BODY_LEN = 32
+#def HTTPD_LOG_RESP_PROXY_BUILT_LEN = 38
+#def HTTPD_LOG_RESP_PROXY_NORMALIZED_LEN = 43
+#def HTTPD_UP_RESP_SUFFIX_LEN = 10
+#def HTTPD_J_NULL_LEN = 4
+#def HTTPD_JSON_VALUE_BAD_REQUEST_LEN = 11
+#def HTTPD_ROUTE_HEALTH_LEN = 8
+#def HTTPD_ROUTE_READY_LEN = 7
+#def HTTPD_ROUTE_CHAT_LEN = 20
+#def HTTPD_ROUTE_RESP_LEN = 13
+#def HTTPD_ROUTE_MODELS_LEN = 10
+#def HTTPD_ROUTE_RPC_LEN = 4
+#def HTTPD_ROUTE_EVENTS_LEN = 7
+#def HTTPD_METHOD_GET_LEN = 3
+#def HTTPD_METHOD_POST_LEN = 4
+#def HTTPD_LOG_RPC_LEN = 20
+#def HTTPD_LOG_EVENTS_LEN = 25
+#def HTTPD_LOG_HEALTH_LEN = 24
+#def HTTPD_JSON_KEY_OK_LEN = 2
+#def HTTPD_JSON_VALUE_UNAUTHORIZED_LEN = 12
+#def HTTPD_JSON_VALUE_NOT_FOUND_LEN = 9
+
+@ffi_wrapper body_is_blank(&body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    jmp L_BODY_BLANK_COND
+
+L_BODY_BLANK_COND:
+    i = load i_slot+0 as u64
+    done = uge i, body_len
+    br done -> L_BODY_BLANK_YES, L_BODY_BLANK_CHECK
+
+L_BODY_BLANK_CHECK:
+    !done
+    ch_ptr = ptr_add body, i
+    ch = load ch_ptr+0 as u8
+    is_space = eq ch, 32
+    is_lf = eq ch, 10
+    is_cr = eq ch, 13
+    is_tab = eq ch, 9
+    ws_a = or is_space, is_lf
+    ws_b = or is_cr, is_tab
+    is_ws = or ws_a, ws_b
+    br is_ws -> L_BODY_BLANK_NEXT, L_BODY_BLANK_NO
+
+L_BODY_BLANK_NEXT:
+    !is_ws
+    !ws_a
+    !ws_b
+    !is_space
+    !is_lf
+    !is_cr
+    !is_tab
+    !ch
+    !ch_ptr
+    next = add i, 1
+    store i_slot+0, next as u64
+    !next
+    !i
+    jmp L_BODY_BLANK_COND
+
+L_BODY_BLANK_NO:
+    !is_ws
+    !ws_a
+    !ws_b
+    !is_space
+    !is_lf
+    !is_cr
+    !is_tab
+    !ch
+    !ch_ptr
+    !i
+    !body
+    !body_len
+    return 0
+
+L_BODY_BLANK_YES:
+    !done
+    !i
+    !body
+    !body_len
+    return 1
+
+@ffi_wrapper check_auth(&req: ptr, &token_ptr: ptr, token_len: u64) -> u8:
+L_ENTRY:
+    no_token = eq token_len, 0
+    br no_token -> L_AUTH_ALLOW, L_AUTH_CHECK_HDR
+
+L_AUTH_ALLOW:
+    !no_token
+    !req
+    !token_ptr
+    !token_len
+    return 1
+
+L_AUTH_CHECK_HDR:
+    !no_token
+    hdr_val_slot = stack_alloc 8
+    hdr_len_slot = stack_alloc 8
+    store hdr_val_slot+0, 0 as ptr
+    store hdr_len_slot+0, 0 as u64
+    hdr_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &hdr_val_slot, &hdr_len_slot)
+    hdr_ptr = load hdr_val_slot+0 as ptr
+    hdr_len = load hdr_len_slot+0 as u64
+    has_hdr = ne hdr_ptr, 0
+    br has_hdr -> L_AUTH_HDR_PREP, L_AUTH_TRY_XKEY
+
+L_AUTH_TRY_XKEY:
+    !has_hdr
+    !hdr_status
+    !hdr_ptr
+    !hdr_len
+    store hdr_val_slot+0, 0 as ptr
+    store hdr_len_slot+0, 0 as u64
+    xkey_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &hdr_val_slot, &hdr_len_slot)
+    xkey_ptr = load hdr_val_slot+0 as ptr
+    xkey_len = load hdr_len_slot+0 as u64
+    has_xkey = ne xkey_ptr, 0
+    br has_xkey -> L_AUTH_XKEY_CMP, L_AUTH_XKEY_FAIL
+
+L_AUTH_XKEY_CMP:
+    !has_xkey
+    !xkey_status
+    xkey_match = call @sa_bytes_eq(&xkey_ptr, xkey_len, &token_ptr, token_len)
+    xkey_ok = eq xkey_match, 1
+    !xkey_match
+    !xkey_ptr
+    !xkey_len
+    br xkey_ok -> L_AUTH_OK_XKEY, L_AUTH_FAIL_XKEY
+
+L_AUTH_HDR_PREP:
+    !has_hdr
+    !hdr_status
+    bearer_idx = call @sa_bytes_find(&hdr_ptr, hdr_len, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
+    has_bearer = sge bearer_idx, 0
+    br has_bearer -> L_AUTH_STRIP, L_AUTH_RAW
+
+L_AUTH_STRIP:
+    !has_bearer
+    !bearer_idx
+    auth_ptr = ptr_add hdr_ptr, HTTPD_BEARER_PREFIX_LEN
+    auth_len = sub hdr_len, HTTPD_BEARER_PREFIX_LEN
+    jmp L_AUTH_DO_CMP
+
+L_AUTH_RAW:
+    !has_bearer
+    !bearer_idx
+    auth_ptr = ptr_add hdr_ptr, 0
+    auth_len = add hdr_len, 0
+    jmp L_AUTH_DO_CMP
+
+L_AUTH_DO_CMP:
+    match = call @sa_bytes_eq(&auth_ptr, auth_len, &token_ptr, token_len)
+    is_match = eq match, 1
+    !match
+    !auth_ptr
+    !auth_len
+    !hdr_ptr
+    !hdr_len
+    br is_match -> L_AUTH_OK_HDR, L_AUTH_FAIL_HDR
+
+L_AUTH_OK_HDR:
+    !is_match
+    call @sa_print_bytes(&HTTPD_LOG_AUTH_OK, HTTPD_LOG_AUTH_OK_LEN)
+    !req
+    !token_ptr
+    !token_len
+    return 1
+
+L_AUTH_FAIL_HDR:
+    !is_match
+    call @sa_print_bytes(&HTTPD_LOG_AUTH_FAIL, HTTPD_LOG_AUTH_FAIL_LEN)
+    !req
+    !token_ptr
+    !token_len
+    return 0
+
+L_AUTH_OK_XKEY:
+    !xkey_ok
+    call @sa_print_bytes(&HTTPD_LOG_AUTH_OK, HTTPD_LOG_AUTH_OK_LEN)
+    !req
+    !token_ptr
+    !token_len
+    return 1
+
+L_AUTH_FAIL_XKEY:
+    !xkey_ok
+    call @sa_print_bytes(&HTTPD_LOG_AUTH_FAIL, HTTPD_LOG_AUTH_FAIL_LEN)
+    !req
+    !token_ptr
+    !token_len
+    return 0
+
+L_AUTH_XKEY_FAIL:
+    !has_xkey
+    !xkey_status
+    !xkey_ptr
+    !xkey_len
+    call @sa_print_bytes(&HTTPD_LOG_AUTH_FAIL, HTTPD_LOG_AUTH_FAIL_LEN)
+    !req
+    !token_ptr
+    !token_len
+    return 0
+
+@ffi_wrapper scan_chunk_for_tokens(&buf: ptr, len: u64) -> u64:
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &HTTPD_TOTAL_TOK, HTTPD_TOTAL_TOK_LEN)
+    found = sge idx, 0
+    br found -> L_TOK_PARSE, L_TOK_NONE
+
+L_TOK_NONE:
+    !found
+    !idx
+    !buf
+    !len
+    return 0
+
+L_TOK_PARSE:
+    !found
+    after_key = add idx, HTTPD_TOTAL_TOK_LEN
+    !idx
+    remaining = sub len, after_key
+    buf_at = ptr_add buf, after_key
+    colon_idx = call @sa_bytes_find_byte(&buf_at, remaining, 58)
+    !buf_at
+    !remaining
+    has_colon = sge colon_idx, 0
+    br has_colon -> L_TOK_COLON, L_TOK_NO_COLON
+
+L_TOK_COLON:
+    !has_colon
+    val_start = add after_key, colon_idx
+    val_start2 = add val_start, 1
+    !val_start
+    !colon_idx
+    !after_key
+    val_buf = ptr_add buf, val_start2
+    val_remaining = sub len, val_start2
+    comma_idx = call @sa_bytes_find_byte(&val_buf, val_remaining, 44)
+    !val_buf
+    !val_remaining
+    has_comma = sge comma_idx, 0
+    br has_comma -> L_TOK_EXTRACT, L_TOK_NO_COMMA
+
+L_TOK_EXTRACT:
+    !has_comma
+    num_buf = ptr_add buf, val_start2
+    num_len = add comma_idx, 0
+    !comma_idx
+    !val_start2
+    first = load num_buf+0 as u8
+    is_space = eq first, 32
+    !first
+    br is_space -> L_TOK_TRIM, L_TOK_CONV
+
+L_TOK_TRIM:
+    !is_space
+    num_buf2 = ptr_add num_buf, 1
+    num_len2 = sub num_len, 1
+    result = call @sa_bytes_to_u64(&num_buf2, num_len2)
+    !num_buf2
+    !num_len2
+    !num_buf
+    !num_len
+    !buf
+    !len
+    return result
+
+L_TOK_CONV:
+    !is_space
+    result2 = call @sa_bytes_to_u64(&num_buf, num_len)
+    !num_buf
+    !num_len
+    !buf
+    !len
+    return result2
+
+L_TOK_NO_COLON:
+    !has_colon
+    !colon_idx
+    !after_key
+    !buf
+    !len
+    return 0
+
+L_TOK_NO_COMMA:
+    !has_comma
+    !comma_idx
+    !val_start2
+    !buf
+    !len
+    return 0
+@ffi_wrapper json_writer_field_token_preview(writer: ptr, &key: ptr, key_len: u64, &token_ptr: ptr, token_len: u64) -> u32:
+L_ENTRY:
+    no_token = eq token_len, 0
+    br no_token -> L_JW_LOG_TOKEN_NONE, L_JW_LOG_TOKEN_PREP
+
+L_JW_LOG_TOKEN_NONE:
+    !no_token
+    EXPAND JSON_WRITER_FIELD_STRING field_none, writer, key, key_len, HTTPD_LOG_PREVIEW_NONE, HTTPD_LOG_PREVIEW_NONE_LEN
+    !field_none
+    !writer
+    !key
+    !key_len
+    !token_ptr
+    !token_len
+    return 0
+
+L_JW_LOG_TOKEN_PREP:
+    !no_token
+    prefix_len = add token_len, 0
+    prefix_big = ugt prefix_len, 3
+    br prefix_big -> L_JW_LOG_PREFIX_THREE, L_JW_LOG_PREFIX_KEEP
+
+L_JW_LOG_PREFIX_THREE:
+    !prefix_big
+    !prefix_len
+    prefix_len2 = add 3, 0
+    jmp L_JW_LOG_SUFFIX_PREP
+
+L_JW_LOG_PREFIX_KEEP:
+    !prefix_big
+    prefix_len2 = add prefix_len, 0
+    !prefix_len
+    jmp L_JW_LOG_SUFFIX_PREP
+
+L_JW_LOG_SUFFIX_PREP:
+    suffix_len = add token_len, 0
+    suffix_big = ugt suffix_len, 3
+    br suffix_big -> L_JW_LOG_SUFFIX_THREE, L_JW_LOG_SUFFIX_KEEP
+
+L_JW_LOG_SUFFIX_THREE:
+    !suffix_big
+    !suffix_len
+    suffix_len2 = add 3, 0
+    jmp L_JW_LOG_BUILD
+
+L_JW_LOG_SUFFIX_KEEP:
+    !suffix_big
+    suffix_len2 = add suffix_len, 0
+    !suffix_len
+    jmp L_JW_LOG_BUILD
+
+L_JW_LOG_BUILD:
+    suffix_start = sub token_len, suffix_len2
+    suffix_ptr = ptr_add token_ptr, suffix_start
+    preview_full_len_slot = stack_alloc 8
+    preview_final = call @token_preview_owned(&token_ptr, prefix_len2, &suffix_ptr, suffix_len2, token_len, &HTTPD_LOG_PREVIEW_LEN_A, HTTPD_LOG_PREVIEW_LEN_A_LEN, &HTTPD_LOG_PREVIEW_LEN_B, HTTPD_LOG_PREVIEW_LEN_B_LEN, &HTTPD_LOG_PREVIEW_ELLIPSIS, HTTPD_LOG_PREVIEW_ELLIPSIS_LEN, &preview_full_len_slot)
+    preview_full_len = load preview_full_len_slot+0 as u64
+    EXPAND JSON_WRITER_FIELD_STRING field_preview, writer, key, key_len, preview_final, preview_full_len
+    !field_preview
+    !preview_final
+    !preview_full_len
+    !suffix_ptr
+    !suffix_start
+    !suffix_len2
+    !prefix_len2
+    !writer
+    !key
+    !key_len
+    !token_ptr
+    !token_len
+    return 0
+
+@ffi_wrapper write_auth_failure_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &token_ptr: ptr, token_len: u64) -> u32:
+L_ENTRY:
+    log_dir_ptr = load cfg_ptr+CFG_LOG_PTR as ptr
+    log_dir_len = load cfg_ptr+CFG_LOG_LEN as u64
+    has_log = ugt log_dir_len, 0
+    br has_log -> L_AUTH_LOG_BUILD, L_AUTH_LOG_SKIP
+
+L_AUTH_LOG_SKIP:
+    !has_log
+    !log_dir_ptr
+    !log_dir_len
+    !req
+    !cfg_ptr
+    !path_ptr
+    !path_len
+    !token_ptr
+    !token_len
+    return 0
+
+L_AUTH_LOG_BUILD:
+    !has_log
+    mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
+    !mkdir_status
+    file_len_slot = stack_alloc 8
+    file_path = call @path_join_owned(&log_dir_ptr, log_dir_len, &HTTPD_LOG_FILE_AUTH_SUFFIX, HTTPD_LOG_FILE_AUTH_SUFFIX_LEN, &file_len_slot)
+    file_len = load file_len_slot+0 as u64
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING kind_status, writer, HTTPD_JSON_KEY_KIND, HTTPD_JSON_KEY_KIND_LEN, HTTPD_JSON_VALUE_AUTH_FAILURE, HTTPD_JSON_VALUE_AUTH_FAILURE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING path_status, writer, HTTPD_JSON_KEY_PATH, HTTPD_JSON_KEY_PATH_LEN, path_ptr, path_len
+    log_auth_slot = stack_alloc 8
+    log_auth_len_slot = stack_alloc 8
+    store log_auth_slot+0, 0 as ptr
+    store log_auth_len_slot+0, 0 as u64
+    hdr_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &log_auth_slot, &log_auth_len_slot)
+    hdr_ptr = load log_auth_slot+0 as ptr
+    hdr_len = load log_auth_len_slot+0 as u64
+    !hdr_status
+    has_hdr = ne hdr_ptr, 0
+    br has_hdr -> L_AUTH_LOG_HEADER_PREVIEW, L_AUTH_LOG_HEADER_NONE
+
+L_AUTH_LOG_HEADER_PREVIEW:
+    !has_hdr
+    bearer_idx = call @sa_bytes_find(&hdr_ptr, hdr_len, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
+    has_bearer = sge bearer_idx, 0
+    br has_bearer -> L_AUTH_LOG_HEADER_STRIP, L_AUTH_LOG_HEADER_RAW
+
+L_AUTH_LOG_HEADER_STRIP:
+    !has_bearer
+    !bearer_idx
+    client_ptr = ptr_add hdr_ptr, HTTPD_BEARER_PREFIX_LEN
+    client_len = sub hdr_len, HTTPD_BEARER_PREFIX_LEN
+    preview_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &client_ptr, client_len)
+    !preview_status
+    !client_ptr
+    !client_len
+    !hdr_ptr
+    !hdr_len
+    jmp L_AUTH_LOG_EXPECTED
+
+L_AUTH_LOG_HEADER_RAW:
+    !has_bearer
+    !bearer_idx
+    client_ptr2 = ptr_add hdr_ptr, 0
+    client_len2 = add hdr_len, 0
+    preview_status2 = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &client_ptr2, client_len2)
+    !preview_status2
+    !client_ptr2
+    !client_len2
+    !hdr_ptr
+    !hdr_len
+    jmp L_AUTH_LOG_EXPECTED
+
+L_AUTH_LOG_HEADER_NONE:
+    !has_hdr
+    !hdr_ptr
+    !hdr_len
+    preview_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &HTTPD_EMPTY_TEXT, 0)
+    !preview_none_status
+    jmp L_AUTH_LOG_EXPECTED
+
+L_AUTH_LOG_EXPECTED:
+    expected_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_EXPECTED_AUTH, HTTPD_JSON_KEY_EXPECTED_AUTH_LEN, &token_ptr, token_len)
+    !expected_status
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    body_ptr_slot = stack_alloc 8
+    body_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &body_ptr_slot, &body_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    body_ptr = load body_ptr_slot+0 as ptr
+    body_len = load body_len_slot+0 as u64
+    write_status = call @sa_deno_plugin_write_text_file(&file_path, file_len, &body_ptr, body_len)
+    !write_status
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !body_ptr
+    !body_len
+    !finish_status
+    !end_status
+    !path_status
+    !kind_status
+    !begin_status
+    !writer_status
+    !file_path
+    !file_len
+    !log_dir_ptr
+    !log_dir_len
+    !req
+    !cfg_ptr
+    !path_ptr
+    !path_len
+    !token_ptr
+    !token_len
+    return 0
+
+@ffi_wrapper write_api_request_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &body_ptr_in: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    log_dir_ptr = load cfg_ptr+CFG_LOG_PTR as ptr
+    log_dir_len = load cfg_ptr+CFG_LOG_LEN as u64
+    has_log = ugt log_dir_len, 0
+    br has_log -> L_REQ_LOG_BUILD, L_REQ_LOG_SKIP
+
+L_REQ_LOG_SKIP:
+    !has_log
+    !log_dir_ptr
+    !log_dir_len
+    !req
+    !cfg_ptr
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !body_ptr_in
+    !body_len
+    return 0
+
+L_REQ_LOG_BUILD:
+    !has_log
+    mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
+    !mkdir_status
+    file_len_slot = stack_alloc 8
+    file_path = call @path_join_owned(&log_dir_ptr, log_dir_len, &HTTPD_LOG_FILE_REQ_SUFFIX, HTTPD_LOG_FILE_REQ_SUFFIX_LEN, &file_len_slot)
+    file_len = load file_len_slot+0 as u64
+
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING kind_status, writer, HTTPD_JSON_KEY_KIND, HTTPD_JSON_KEY_KIND_LEN, HTTPD_JSON_VALUE_REQUEST_LOG, HTTPD_JSON_VALUE_REQUEST_LOG_LEN
+    EXPAND JSON_WRITER_FIELD_STRING path_field_status, writer, HTTPD_JSON_KEY_PATH, HTTPD_JSON_KEY_PATH_LEN, path_ptr, path_len
+    EXPAND JSON_WRITER_FIELD_STRING method_status, writer, HTTPD_JSON_KEY_METHOD, HTTPD_JSON_KEY_METHOD_LEN, method_ptr, method_len
+    headers_begin_status = call @json_writer_begin_field_object(writer, &HTTPD_JSON_KEY_HEADERS, HTTPD_JSON_KEY_HEADERS_LEN)
+    auth_ptr_slot = stack_alloc 8
+    auth_len_slot = stack_alloc 8
+    store auth_ptr_slot+0, 0 as ptr
+    store auth_len_slot+0, 0 as u64
+    auth_hdr_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &auth_ptr_slot, &auth_len_slot)
+    auth_hdr_ptr = load auth_ptr_slot+0 as ptr
+    auth_hdr_len = load auth_len_slot+0 as u64
+    !auth_hdr_status
+    auth_has_hdr = ne auth_hdr_ptr, 0
+    br auth_has_hdr -> L_REQ_LOG_AUTH_HEADER, L_REQ_LOG_AUTH_NONE
+
+L_REQ_LOG_AUTH_HEADER:
+    !auth_has_hdr
+    auth_bearer_idx = call @sa_bytes_find(&auth_hdr_ptr, auth_hdr_len, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
+    auth_has_bearer = ne auth_bearer_idx, 18446744073709551615
+    br auth_has_bearer -> L_REQ_LOG_AUTH_BEARER, L_REQ_LOG_AUTH_RAW
+
+L_REQ_LOG_AUTH_BEARER:
+    !auth_has_bearer
+    token_start = add auth_bearer_idx, HTTPD_BEARER_PREFIX_LEN
+    token_ptr = ptr_add auth_hdr_ptr, token_start
+    token_len = sub auth_hdr_len, token_start
+    token_preview_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &token_ptr, token_len)
+    !token_preview_status
+    !token_ptr
+    !token_len
+    !token_start
+    !auth_bearer_idx
+    !auth_hdr_ptr
+    !auth_hdr_len
+    jmp L_REQ_LOG_X_API_KEY
+
+L_REQ_LOG_AUTH_RAW:
+    !auth_has_bearer
+    !auth_bearer_idx
+    auth_raw_ptr = ptr_add auth_hdr_ptr, 0
+    auth_raw_len = add auth_hdr_len, 0
+    auth_raw_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &auth_raw_ptr, auth_raw_len)
+    !auth_raw_status
+    !auth_raw_ptr
+    !auth_raw_len
+    !auth_hdr_ptr
+    !auth_hdr_len
+    jmp L_REQ_LOG_X_API_KEY
+
+L_REQ_LOG_AUTH_NONE:
+    !auth_has_hdr
+    !auth_hdr_ptr
+    !auth_hdr_len
+    auth_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &HTTPD_EMPTY_TEXT, 0)
+    !auth_none_status
+    jmp L_REQ_LOG_X_API_KEY
+
+L_REQ_LOG_X_API_KEY:
+    xkey_ptr_slot = stack_alloc 8
+    xkey_len_slot = stack_alloc 8
+    store xkey_ptr_slot+0, 0 as ptr
+    store xkey_len_slot+0, 0 as u64
+    xkey_hdr_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &xkey_ptr_slot, &xkey_len_slot)
+    xkey_hdr_ptr = load xkey_ptr_slot+0 as ptr
+    xkey_hdr_len = load xkey_len_slot+0 as u64
+    !xkey_hdr_status
+    xkey_has_hdr = ne xkey_hdr_ptr, 0
+    br xkey_has_hdr -> L_REQ_LOG_XKEY_HEADER, L_REQ_LOG_XKEY_NONE
+
+L_REQ_LOG_XKEY_HEADER:
+    !xkey_has_hdr
+    xkey_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_X_API_KEY, HTTPD_JSON_KEY_X_API_KEY_LEN, &xkey_hdr_ptr, xkey_hdr_len)
+    !xkey_status
+    !xkey_hdr_ptr
+    !xkey_hdr_len
+    jmp L_REQ_LOG_CONTENT_TYPE
+
+L_REQ_LOG_XKEY_NONE:
+    !xkey_has_hdr
+    !xkey_hdr_ptr
+    !xkey_hdr_len
+    xkey_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_X_API_KEY, HTTPD_JSON_KEY_X_API_KEY_LEN, &HTTPD_EMPTY_TEXT, 0)
+    !xkey_none_status
+    jmp L_REQ_LOG_CONTENT_TYPE
+
+L_REQ_LOG_CONTENT_TYPE:
+    ct_ptr_slot = stack_alloc 8
+    ct_len_slot = stack_alloc 8
+    store ct_ptr_slot+0, 0 as ptr
+    store ct_len_slot+0, 0 as u64
+    ct_hdr_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &ct_ptr_slot, &ct_len_slot)
+    ct_hdr_ptr = load ct_ptr_slot+0 as ptr
+    ct_hdr_len = load ct_len_slot+0 as u64
+    !ct_hdr_status
+    ct_has_hdr = ne ct_hdr_ptr, 0
+    br ct_has_hdr -> L_REQ_LOG_CT_HEADER, L_REQ_LOG_CT_NONE
+
+L_REQ_LOG_CT_HEADER:
+    !ct_has_hdr
+    EXPAND JSON_WRITER_FIELD_STRING ct_status, writer, HTTPD_JSON_KEY_CONTENT_TYPE, HTTPD_JSON_KEY_CONTENT_TYPE_LEN, ct_hdr_ptr, ct_hdr_len
+    !ct_status
+    !ct_hdr_ptr
+    !ct_hdr_len
+    jmp L_REQ_LOG_BODY_BYTES
+
+L_REQ_LOG_CT_NONE:
+    !ct_has_hdr
+    !ct_hdr_ptr
+    !ct_hdr_len
+    EXPAND JSON_WRITER_FIELD_STRING ct_none_status, writer, HTTPD_JSON_KEY_CONTENT_TYPE, HTTPD_JSON_KEY_CONTENT_TYPE_LEN, HTTPD_LOG_PREVIEW_NONE, HTTPD_LOG_PREVIEW_NONE_LEN
+    !ct_none_status
+    jmp L_REQ_LOG_BODY_BYTES
+
+L_REQ_LOG_BODY_BYTES:
+    EXPAND JSON_WRITER_END_OBJECT headers_end_status, writer
+    body_len_i64 = bitcast body_len as i64
+    EXPAND JSON_WRITER_FIELD_I64 bytes_status, writer, HTTPD_JSON_KEY_BODY_BYTES, HTTPD_JSON_KEY_BODY_BYTES_LEN, body_len_i64
+    has_body = ugt body_len, 0
+    br has_body -> L_REQ_LOG_BODY_TEXT, L_REQ_LOG_BODY_NULL
+
+L_REQ_LOG_BODY_TEXT:
+    !has_body
+    EXPAND JSON_WRITER_FIELD_STRING body_field_status, writer, HTTPD_JSON_KEY_BODY, HTTPD_JSON_KEY_BODY_LEN, body_ptr_in, body_len
+    !body_field_status
+    jmp L_REQ_LOG_FINISH
+
+L_REQ_LOG_BODY_NULL:
+    !has_body
+    EXPAND JSON_WRITER_FIELD_NULL body_null_status, writer, HTTPD_JSON_KEY_BODY, HTTPD_JSON_KEY_BODY_LEN
+    !body_null_status
+    jmp L_REQ_LOG_FINISH
+
+L_REQ_LOG_FINISH:
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    body_ptr_slot = stack_alloc 8
+    body_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &body_ptr_slot, &body_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    body_ptr = load body_ptr_slot+0 as ptr
+    log_body_len = load body_len_slot+0 as u64
+    write_status = call @sa_deno_plugin_write_text_file(&file_path, file_len, &body_ptr, log_body_len)
+    !write_status
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !body_ptr
+    !log_body_len
+    !finish_status
+    !end_status
+    !bytes_status
+    !body_len_i64
+    !headers_end_status
+    !headers_begin_status
+    !method_status
+    !path_field_status
+    !kind_status
+    !begin_status
+    !writer_status
+    !file_path
+    !file_len
+    !log_dir_ptr
+    !log_dir_len
+    !req
+    !cfg_ptr
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !body_ptr_in
+    !body_len
+    return 0
+
+@ffi_wrapper send_builder_response(&req: ptr, ^buf: ptr) -> u32:
+L_ENTRY:
+    json_ptr = call @rpc_builder_data(&buf)
+    json_len = call @rpc_builder_len(&buf)
+    call @send_rpc_json(&req, 200, &json_ptr, json_len)
+    !json_ptr
+    !json_len
+    !buf
+    !req
+    return 0
+
+@ffi_wrapper handle_models_proxy(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64) -> u32:
+L_ENTRY:
+    call @sa_print_bytes(&HTTPD_LOG_MODELS, HTTPD_LOG_MODELS_LEN)
+    models_empty_body = stack_alloc 1
+    models_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &models_empty_body, 0)
+    !models_log_status
+
+    m_chat_base_ptr = load cfg_ptr+CFG_CHAT_PTR as ptr
+    m_chat_base_len = load cfg_ptr+CFG_CHAT_LEN as u64
+    m_api_key_ptr = load cfg_ptr+CFG_KEY_PTR as ptr
+    m_api_key_len = load cfg_ptr+CFG_KEY_LEN as u64
+    m_has_chat_base = ugt m_chat_base_len, 0
+    m_cfg_ok = eq m_has_chat_base, 1
+    br m_cfg_ok -> L_MODELS_CFG_OK, L_MODELS_CFG_MISSING
+
+L_MODELS_CFG_MISSING:
+    !m_cfg_ok
+    !m_has_chat_base
+    m_cfg_missing_send = call @send_json_error_string_response(&req, 500, &HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION, HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION_LEN)
+    !m_cfg_missing_send
+    !m_chat_base_ptr
+    !m_chat_base_len
+    !m_api_key_ptr
+    !m_api_key_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !req
+    !cfg_ptr
+    return 0
+
+L_MODELS_CFG_OK:
+    !m_cfg_ok
+    !m_has_chat_base
+    m_url_len_slot = stack_alloc 8
+    m_chat_ptr = call @path_join_owned(&m_chat_base_ptr, m_chat_base_len, &HTTPD_UP_MODELS_SUFFIX, HTTPD_UP_MODELS_SUFFIX_LEN, &m_url_len_slot)
+    m_chat_len = load m_url_len_slot+0 as u64
+    m_up_auth_len_slot = stack_alloc 8
+    m_up_auth_buf = call @prefix_with_owned(&HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN, &m_api_key_ptr, m_api_key_len, &m_up_auth_len_slot)
+    m_up_auth_len = load m_up_auth_len_slot+0 as u64
+
+    m_client_slot = stack_alloc 8
+    m_client_status = call @sa_http_client_new(1, &m_client_slot)
+    m_client = load m_client_slot+0 as ptr
+
+    m_req_slot = stack_alloc 8
+    m_req_status = call @sa_http_client_req_new(m_client, 1, &m_chat_ptr, m_chat_len, &m_req_slot)
+    m_req = load m_req_slot+0 as ptr
+
+    call @sa_http_client_req_add_header(m_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &m_up_auth_buf, m_up_auth_len)
+    call @sa_http_client_req_add_header(m_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &m_api_key_ptr, m_api_key_len)
+
+    m_resp_slot = stack_alloc 8
+    store m_resp_slot+0, 0 as ptr
+    m_send_status = call @sa_http_client_req_send(m_req, &m_resp_slot)
+    m_resp = load m_resp_slot+0 as ptr
+    m_send_ok = eq m_send_status, 0
+    m_has_resp = ne m_resp, 0
+    m_send_ready = and m_send_ok, m_has_resp
+    br m_send_ready -> L_MODELS_SEND_OK, L_MODELS_SEND_FAIL
+
+L_MODELS_SEND_FAIL:
+    !m_send_ready
+    !m_send_ok
+    !m_has_resp
+    m_send_fail = call @send_json_error_string_response(&req, 502, &HTTPD_JSON_VALUE_BAD_GATEWAY, HTTPD_JSON_VALUE_BAD_GATEWAY_LEN)
+    !m_send_fail
+    call @sa_http_client_req_free(^m_req)
+    call @sa_http_client_free(^m_client)
+    !m_send_status
+    !m_resp
+    !m_chat_ptr
+    !m_chat_len
+    !m_chat_base_ptr
+    !m_chat_base_len
+    !m_api_key_ptr
+    !m_api_key_len
+    !m_up_auth_buf
+    !m_up_auth_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !req
+    !cfg_ptr
+    return 0
+
+L_MODELS_SEND_OK:
+    !m_send_ready
+    !m_send_ok
+    !m_has_resp
+
+    m_status = call @sa_http_client_resp_status(m_resp)
+    m_ct_ptr_slot = stack_alloc 8
+    m_ct_len_slot = stack_alloc 8
+    store m_ct_ptr_slot+0, 0 as ptr
+    store m_ct_len_slot+0, 0 as u64
+    m_ct_status = call @sa_http_client_resp_get_header(m_resp, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &m_ct_ptr_slot, &m_ct_len_slot)
+    m_ct_ptr = load m_ct_ptr_slot+0 as ptr
+    m_ct_len = load m_ct_len_slot+0 as u64
+    !m_ct_status
+    m_body_len_slot = stack_alloc 8
+    m_body_ptr_slot = stack_alloc 8
+    m_body_status = call @http_response_read_all(m_resp, &m_body_ptr_slot, &m_body_len_slot)
+    m_body_ptr = load m_body_ptr_slot+0 as ptr
+    m_body_len = load m_body_len_slot+0 as u64
+
+    m_out_resp_slot = stack_alloc 8
+    m_out_status = call @sa_http_server_resp_new(req, m_status, &m_out_resp_slot)
+    m_out_resp = load m_out_resp_slot+0 as ptr
+    m_ct_has_len = ugt m_ct_len, 0
+    br m_ct_has_len -> L_MODELS_SEND_HEADER_CT, L_MODELS_SEND_DEFAULT_CT
+
+L_MODELS_SEND_HEADER_CT:
+    !m_ct_has_len
+    m_set_ct = call @sa_http_server_resp_set_content_type(m_out_resp, &m_ct_ptr, m_ct_len)
+    !m_set_ct
+    jmp L_MODELS_SEND_BODY
+
+L_MODELS_SEND_DEFAULT_CT:
+    !m_ct_has_len
+    m_set_default_ct = call @sa_http_server_resp_set_content_type(m_out_resp, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    !m_set_default_ct
+    jmp L_MODELS_SEND_BODY
+
+L_MODELS_SEND_BODY:
+    m_send_back = call @sa_http_server_resp_send(m_out_resp, &m_body_ptr, m_body_len)
+    !m_send_back
+    !m_out_status
+    !m_body_status
+    !m_body_ptr
+    !m_body_len
+    !m_ct_ptr
+    !m_ct_len
+
+    call @sa_http_server_resp_free(^m_out_resp)
+    call @sa_http_client_resp_free(^m_resp)
+    call @sa_http_client_req_free(^m_req)
+    call @sa_http_client_free(^m_client)
+    !m_chat_ptr
+    !m_chat_base_ptr
+    !m_chat_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !req
+    !cfg_ptr
+    return 0
+@ffi_wrapper handle_chat_proxy(&req: ptr, &state_ptr: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, is_get: u8, is_post: u8) -> u32:
+L_ENTRY:
+    call @sa_print_bytes(&HTTPD_LOG_CHAT, HTTPD_LOG_CHAT_LEN)
+
+    // Read request body
+    body_ptr_slot = stack_alloc 8
+    body_len_slot = stack_alloc 8
+    body_status = call @sa_http_server_req_get_body(req, &body_ptr_slot, &body_len_slot)
+    body_ptr = load body_ptr_slot+0 as ptr
+    body_len = load body_len_slot+0 as u64
+    chat_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &body_ptr, body_len)
+    !chat_log_status
+    chat_blank = call @body_is_blank(&body_ptr, body_len)
+    chat_blank_ok = eq chat_blank, 1
+    br chat_blank_ok -> L_CHAT_EMPTY_BODY, L_CHAT_BODY_OK
+
+L_CHAT_EMPTY_BODY:
+    !chat_blank_ok
+    !chat_blank
+    empty_send_status = call @send_empty_body_error_response(&req)
+    !empty_send_status
+    !body_ptr
+    !body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+
+L_CHAT_BODY_OK:
+    !chat_blank_ok
+    !chat_blank
+    proxy_body_len_slot = stack_alloc 8
+    proxy_body_ptr = call @build_chat_proxy_body(&body_ptr, body_len, &proxy_body_len_slot)
+    proxy_body_len = load proxy_body_len_slot+0 as u64
+
+    // Get upstream URL from config
+    chat_base_ptr = load cfg_ptr+CFG_CHAT_PTR as ptr
+    chat_base_len = load cfg_ptr+CFG_CHAT_LEN as u64
+    api_key_ptr = load cfg_ptr+CFG_KEY_PTR as ptr
+    api_key_len = load cfg_ptr+CFG_KEY_LEN as u64
+    has_chat_base = ugt chat_base_len, 0
+    chat_cfg_ok = eq has_chat_base, 1
+    br chat_cfg_ok -> L_CHAT_CFG_OK, L_CHAT_CFG_MISSING
+
+L_CHAT_CFG_MISSING:
+    !chat_cfg_ok
+    !has_chat_base
+    cfg_missing_send = call @send_json_error_string_response(&req, 500, &HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION, HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION_LEN)
+    !cfg_missing_send
+    !proxy_body_ptr
+    !proxy_body_len
+    !chat_base_ptr
+    !chat_base_len
+    !api_key_ptr
+    !api_key_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_CHAT_CFG_OK:
+    !chat_cfg_ok
+    !has_chat_base
+    upstream_len_slot = stack_alloc 8
+    upstream_ptr = call @path_join_owned(&chat_base_ptr, chat_base_len, &HTTPD_UP_CHAT_SUFFIX, HTTPD_UP_CHAT_SUFFIX_LEN, &upstream_len_slot)
+    upstream_len = load upstream_len_slot+0 as u64
+    up_auth_len_slot = stack_alloc 8
+    up_auth_buf = call @prefix_with_owned(&HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN, &api_key_ptr, api_key_len, &up_auth_len_slot)
+    up_auth_len = load up_auth_len_slot+0 as u64
+
+    // Create outbound HTTP client (TLS=1)
+    client_slot = stack_alloc 8
+    client_status = call @sa_http_client_new(1, &client_slot)
+    client = load client_slot+0 as ptr
+
+    // Create outbound request (POST)
+    out_req_slot = stack_alloc 8
+    out_status = call @sa_http_client_req_new(client, 2, &upstream_ptr, upstream_len, &out_req_slot)
+    out_req = load out_req_slot+0 as ptr
+
+    // Match Deno forwardHeaders: upstream sees Bearer auth and raw x-api-key.
+    call @sa_http_client_req_add_header(out_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &up_auth_buf, up_auth_len)
+    call @sa_http_client_req_add_header(out_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &api_key_ptr, api_key_len)
+
+    // Add Content-Type header
+    call @sa_http_client_req_add_header(out_req, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+
+    // Set request body
+    call @sa_http_client_req_set_body(out_req, &proxy_body_ptr, proxy_body_len)
+
+    // Send request
+    out_resp_slot = stack_alloc 8
+    store out_resp_slot+0, 0 as ptr
+    send_status = call @sa_http_client_req_send(out_req, &out_resp_slot)
+    out_resp = load out_resp_slot+0 as ptr
+    send_ok = eq send_status, 0
+    has_out_resp = ne out_resp, 0
+    send_ready = and send_ok, has_out_resp
+    br send_ready -> L_CHAT_SEND_OK, L_CHAT_SEND_FAIL
+
+L_CHAT_SEND_FAIL:
+    !send_ready
+    !send_ok
+    !has_out_resp
+    chat_send_fail = call @send_json_error_string_response(&req, 502, &HTTPD_JSON_VALUE_BAD_GATEWAY, HTTPD_JSON_VALUE_BAD_GATEWAY_LEN)
+    !chat_send_fail
+    call @sa_http_client_req_free(^out_req)
+    call @sa_http_client_free(^client)
+    !send_status
+    !out_resp
+    !proxy_body_ptr
+    !proxy_body_len
+    !up_auth_buf
+    !up_auth_len
+    !upstream_ptr
+    !upstream_len
+    !chat_base_ptr
+    !chat_base_len
+    !api_key_ptr
+    !api_key_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_CHAT_SEND_OK:
+    !send_ready
+    !send_ok
+    !has_out_resp
+
+    up_status = call @sa_http_client_resp_status(out_resp)
+
+    ct_ptr_slot = stack_alloc 8
+    ct_len_slot = stack_alloc 8
+    store ct_ptr_slot+0, 0 as ptr
+    store ct_len_slot+0, 0 as u64
+    ct_status = call @sa_http_client_resp_get_header(out_resp, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &ct_ptr_slot, &ct_len_slot)
+    ct_ptr = load ct_ptr_slot+0 as ptr
+    ct_len = load ct_len_slot+0 as u64
+    !ct_status
+    ct_has_len = ugt ct_len, 0
+    br ct_has_len -> L_CHAT_CT_FIND, L_CHAT_NON_SSE_DEFAULT
+
+L_CHAT_CT_FIND:
+    !ct_has_len
+    ct_idx = call @sa_bytes_find(&ct_ptr, ct_len, &HTTPD_MIME_EVENT_STREAM, HTTPD_MIME_EVENT_STREAM_LEN)
+    ct_is_sse = sge ct_idx, 0
+    br ct_is_sse -> L_CHAT_STREAM_START, L_CHAT_NON_SSE_HEADER
+
+L_CHAT_NON_SSE_DEFAULT:
+    !ct_has_len
+    !ct_ptr
+    !ct_len
+    chat_body_len_slot = stack_alloc 8
+    chat_body_ptr_slot = stack_alloc 8
+    chat_body_status = call @http_response_read_all(out_resp, &chat_body_ptr_slot, &chat_body_len_slot)
+    chat_body_ptr = load chat_body_ptr_slot+0 as ptr
+    chat_body_len = load chat_body_len_slot+0 as u64
+    chat_resp_slot = stack_alloc 8
+    chat_resp_status = call @sa_http_server_resp_new(req, up_status, &chat_resp_slot)
+    chat_resp = load chat_resp_slot+0 as ptr
+    chat_set_ct = call @sa_http_server_resp_set_content_type(chat_resp, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    chat_send_back = call @sa_http_server_resp_send(chat_resp, &chat_body_ptr, chat_body_len)
+    call @sa_http_server_resp_free(^chat_resp)
+    call @sa_http_client_resp_free(^out_resp)
+    call @sa_http_client_req_free(^out_req)
+    call @sa_http_client_free(^client)
+    !chat_body_status
+    !chat_body_ptr
+    !chat_body_len
+    !chat_resp_status
+    !chat_set_ct
+    !chat_send_back
+    !proxy_body_ptr
+    !proxy_body_len
+    !up_status
+    !upstream_ptr
+    !chat_base_ptr
+    !chat_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_CHAT_NON_SSE_HEADER:
+    !ct_is_sse
+    !ct_idx
+    chat_h_body_len_slot = stack_alloc 8
+    chat_h_body_ptr_slot = stack_alloc 8
+    chat_h_body_status = call @http_response_read_all(out_resp, &chat_h_body_ptr_slot, &chat_h_body_len_slot)
+    chat_h_body_ptr = load chat_h_body_ptr_slot+0 as ptr
+    chat_h_body_len = load chat_h_body_len_slot+0 as u64
+    chat_h_resp_slot = stack_alloc 8
+    chat_h_resp_status = call @sa_http_server_resp_new(req, up_status, &chat_h_resp_slot)
+    chat_h_resp = load chat_h_resp_slot+0 as ptr
+    chat_h_set_ct = call @sa_http_server_resp_set_content_type(chat_h_resp, &ct_ptr, ct_len)
+    chat_h_send_back = call @sa_http_server_resp_send(chat_h_resp, &chat_h_body_ptr, chat_h_body_len)
+    call @sa_http_server_resp_free(^chat_h_resp)
+    call @sa_http_client_resp_free(^out_resp)
+    call @sa_http_client_req_free(^out_req)
+    call @sa_http_client_free(^client)
+    !chat_h_body_status
+    !chat_h_body_ptr
+    !chat_h_body_len
+    !chat_h_resp_status
+    !chat_h_set_ct
+    !chat_h_send_back
+    !proxy_body_ptr
+    !proxy_body_len
+    !ct_ptr
+    !ct_len
+    !up_status
+    !upstream_ptr
+    !chat_base_ptr
+    !chat_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_CHAT_STREAM_START:
+    !ct_is_sse
+    !ct_idx
+    !ct_ptr
+    !ct_len
+    // Create streaming response back to client
+    stream_slot = stack_alloc 8
+    stream_status = call @sa_http_server_resp_stream_new(req, up_status, &stream_slot)
+    stream = load stream_slot+0 as ptr
+    !up_status
+
+    // Get body reader for chunked reading
+    reader_slot = stack_alloc 8
+    reader_status = call @sa_http_client_resp_body_reader(out_resp, &reader_slot)
+    reader = load reader_slot+0 as ptr
+
+    // Allocate SSE buffer
+    sse_buf = stack_alloc HTTPD_SSE_BUF_SIZE
+    read_len_slot = stack_alloc 8
+
+    // Token accumulator
+    total_tokens_slot = stack_alloc 8
+    store total_tokens_slot+0, 0 as u64
+
+    call @sa_print_bytes(&HTTPD_LOG_STREAM, HTTPD_LOG_STREAM_LEN)
+
+// Stream loop: read chunks from upstream, write to client
+L_STREAM_LOOP:
+    chunk_status = call @sa_http_client_resp_read_chunk(reader, &sse_buf, HTTPD_SSE_BUF_SIZE, &read_len_slot)
+    chunk_len = load read_len_slot+0 as u64
+    is_eos = eq chunk_len, 0
+    br is_eos -> L_STREAM_END, L_STREAM_WRITE
+
+L_STREAM_WRITE:
+    !is_eos
+    // Write chunk to client
+    write_status = call @sa_http_server_resp_stream_write(stream, &sse_buf, chunk_len)
+    flush_status = call @sa_http_server_resp_stream_flush(stream)
+    !write_status
+    !flush_status
+
+    // --- Token metering: scan chunk for usage data ---
+    chunk_tokens = call @scan_chunk_for_tokens(&sse_buf, chunk_len)
+    has_tokens = ugt chunk_tokens, 0
+    br has_tokens -> L_ACCUM_TOKENS, L_NO_ACCUM_TOKENS
+
+L_ACCUM_TOKENS:
+    !has_tokens
+    cur_total = load total_tokens_slot+0 as u64
+    new_total = add cur_total, chunk_tokens
+    store total_tokens_slot+0, new_total as u64
+    !new_total
+    !cur_total
+    !chunk_tokens
+    jmp L_STREAM_NEXT
+
+L_NO_ACCUM_TOKENS:
+    !has_tokens
+    !chunk_tokens
+    jmp L_STREAM_NEXT
+
+L_STREAM_NEXT:
+    !chunk_len
+    !chunk_status
+    jmp L_STREAM_LOOP
+
+L_STREAM_END:
+    !is_eos
+    !chunk_len
+    !chunk_status
+
+    // Log total tokens used
+    final_tokens = load total_tokens_slot+0 as u64
+    tok_used = ugt final_tokens, 0
+    br tok_used -> L_HTTPD_LOG_TOKENS, L_SKIP_TOKENS
+
+L_HTTPD_LOG_TOKENS:
+    !tok_used
+    call @sa_print_bytes(&HTTPD_LOG_TOK, HTTPD_LOG_TOK_LEN)
+    // (In production, would write final_tokens to state here)
+    !final_tokens
+    jmp L_STREAM_DONE
+
+L_SKIP_TOKENS:
+    !tok_used
+    !final_tokens
+    jmp L_STREAM_DONE
+
+L_STREAM_DONE:
+    call @sa_print_bytes(&HTTPD_LOG_DONE, HTTPD_LOG_DONE_LEN)
+
+    // End the chunked stream
+    end_status = call @sa_http_server_resp_stream_end(stream)
+    !end_status
+
+    // Release all proxy handles
+    call @sa_http_client_body_reader_free(^reader)
+    call @sa_http_client_resp_free(^out_resp)
+    call @sa_http_client_req_free(^out_req)
+    call @sa_http_client_free(^client)
+    call @sa_http_server_resp_stream_free(^stream)
+    !proxy_body_ptr
+    !proxy_body_len
+    !upstream_ptr
+    !chat_base_ptr
+    !chat_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+@ffi_wrapper handle_responses_proxy(&req: ptr, &state_ptr: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, is_get: u8, is_post: u8) -> u32:
+L_ENTRY:
+    call @sa_print_bytes(&HTTPD_LOG_RESP, HTTPD_LOG_RESP_LEN)
+
+    r_body_ptr_slot = stack_alloc 8
+    r_body_len_slot = stack_alloc 8
+    store r_body_ptr_slot+0, 0 as ptr
+    store r_body_len_slot+0, 0 as u64
+    r_body_status = call @sa_http_server_req_get_body(req, &r_body_ptr_slot, &r_body_len_slot)
+    r_body_ptr = load r_body_ptr_slot+0 as ptr
+    r_body_len = load r_body_len_slot+0 as u64
+    r_body_ok = eq r_body_status, 0
+    r_body_has_ptr = ne r_body_ptr, 0
+    r_body_ready = and r_body_ok, r_body_has_ptr
+    br r_body_ready -> L_RESP_BODY_READY, L_RESP_BODY_LOAD_FAIL
+
+L_RESP_BODY_LOAD_FAIL:
+    !r_body_ready
+    !r_body_ok
+    !r_body_has_ptr
+    r_body_fail_send = call @send_json_error_string_response(&req, 400, &HTTPD_JSON_VALUE_BAD_REQUEST, HTTPD_JSON_VALUE_BAD_REQUEST_LEN)
+    !r_body_fail_send
+    !r_body_status
+    !r_body_ptr
+    !r_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_BODY_READY:
+    !r_body_ready
+    !r_body_ok
+    !r_body_has_ptr
+    call @sa_print_bytes(&HTTPD_LOG_RESP_BODY, HTTPD_LOG_RESP_BODY_LEN)
+    resp_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &r_body_ptr, r_body_len)
+    !resp_log_status
+    resp_blank = call @body_is_blank(&r_body_ptr, r_body_len)
+    resp_blank_ok = eq resp_blank, 1
+    br resp_blank_ok -> L_RESP_EMPTY_BODY, L_RESP_BODY_OK
+
+L_RESP_EMPTY_BODY:
+    !resp_blank_ok
+    !resp_blank
+    resp_empty_send_status = call @send_empty_body_error_response(&req)
+    !resp_empty_send_status
+    !r_body_ptr
+    !r_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_BODY_OK:
+    !resp_blank_ok
+    !resp_blank
+    r_proxy_body_len_slot = stack_alloc 8
+    r_is_gemini = call @body_is_gemini_responses_request(&r_body_ptr, r_body_len)
+    r_proxy_pre_len_slot = stack_alloc 8
+    r_proxy_pre_ptr = call @build_responses_proxy_body(&r_body_ptr, r_body_len, r_is_gemini, &r_proxy_pre_len_slot)
+    r_proxy_pre_len = load r_proxy_pre_len_slot+0 as u64
+    call @sa_print_bytes(&HTTPD_LOG_RESP_PROXY_BUILT, HTTPD_LOG_RESP_PROXY_BUILT_LEN)
+    r_proxy_norm_ptr_slot = stack_alloc 8
+    r_proxy_norm_len_slot = stack_alloc 8
+    r_proxy_norm_status = call @sa_deno_plugin_responses_request_normalize(&r_proxy_pre_ptr, r_proxy_pre_len, &r_proxy_norm_ptr_slot, &r_proxy_norm_len_slot)
+    r_proxy_norm_ptr = load r_proxy_norm_ptr_slot+0 as ptr
+    r_proxy_norm_len = load r_proxy_norm_len_slot+0 as u64
+    r_proxy_norm_ok = eq r_proxy_norm_status, 0
+    call @sa_print_bytes(&HTTPD_LOG_RESP_PROXY_NORMALIZED, HTTPD_LOG_RESP_PROXY_NORMALIZED_LEN)
+    br r_proxy_norm_ok -> L_RESP_PROXY_BODY_FROM_PLUGIN, L_RESP_PROXY_BODY_FROM_ORIGINAL
+
+L_RESP_PROXY_BODY_FROM_PLUGIN:
+    !r_proxy_norm_ok
+    r_proxy_body_ptr = call @plugin_buffer_to_owned_and_free(r_proxy_norm_ptr, r_proxy_norm_len, &r_proxy_body_len_slot)
+    r_proxy_body_len = load r_proxy_body_len_slot+0 as u64
+    !r_proxy_norm_ptr
+    !r_proxy_norm_len
+    !r_proxy_norm_status
+    !r_proxy_pre_ptr
+    !r_proxy_pre_len
+    !r_is_gemini
+    jmp L_RESP_HAVE_PROXY_BODY
+
+L_RESP_PROXY_BODY_FROM_ORIGINAL:
+    !r_proxy_norm_ok
+    r_proxy_body_ptr = call @copy_bytes_owned(&r_proxy_pre_ptr, r_proxy_pre_len, &r_proxy_body_len_slot)
+    r_proxy_body_len = load r_proxy_body_len_slot+0 as u64
+    store r_proxy_body_len_slot+0, r_proxy_pre_len as u64
+    !r_proxy_norm_ptr
+    !r_proxy_norm_len
+    !r_proxy_norm_status
+    !r_proxy_pre_ptr
+    !r_proxy_pre_len
+    !r_is_gemini
+    jmp L_RESP_HAVE_PROXY_BODY
+
+L_RESP_HAVE_PROXY_BODY:
+
+    r_fb_len_slot = stack_alloc 8
+    r_base_ptr = load cfg_ptr+CFG_RBASE_PTR as ptr
+    r_base_len = load cfg_ptr+CFG_RBASE_LEN as u64
+    r_chat_base_ptr = load cfg_ptr+CFG_CHAT_PTR as ptr
+    r_chat_base_len = load cfg_ptr+CFG_CHAT_LEN as u64
+    r_api_key_ptr = load cfg_ptr+CFG_KEY_PTR as ptr
+    r_api_key_len = load cfg_ptr+CFG_KEY_LEN as u64
+    r_has_base = ugt r_base_len, 0
+    r_has_chat_base = ugt r_chat_base_len, 0
+    resp_has_any_base = or r_has_base, r_has_chat_base
+    br resp_has_any_base -> L_RESP_HAVE_BASE_ROUTE, L_RESP_MISSING_CFG
+
+L_RESP_MISSING_CFG:
+    !resp_has_any_base
+    r_cfg_missing_send = call @send_json_error_string_response(&req, 500, &HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION, HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION_LEN)
+    !r_cfg_missing_send
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_base_ptr
+    !r_base_len
+    !r_chat_base_ptr
+    !r_chat_base_len
+    !r_api_key_ptr
+    !r_api_key_len
+    !r_body_ptr
+    !r_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_HAVE_BASE_ROUTE:
+    !resp_has_any_base
+    r_up_auth_len_slot = stack_alloc 8
+    r_up_auth_buf = call @prefix_with_owned(&HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN, &r_api_key_ptr, r_api_key_len, &r_up_auth_len_slot)
+    r_up_auth_len = load r_up_auth_len_slot+0 as u64
+    br r_has_base -> L_RESP_HAS_BASE_URL, L_RESP_NO_BASE_FALLBACK
+
+L_RESP_NO_BASE_FALLBACK:
+    !r_has_base
+    r_nb_fb_model_ptr = load cfg_ptr+CFG_MODEL_PTR as ptr
+    r_nb_fb_model_len = load cfg_ptr+CFG_MODEL_LEN as u64
+    r_fb_body = call @build_chat_fallback_body(&r_body_ptr, r_body_len, &r_nb_fb_model_ptr, r_nb_fb_model_len, &r_fb_len_slot)
+    r_fb_len = load r_fb_len_slot+0 as u64
+    !r_nb_fb_model_ptr
+    !r_nb_fb_model_len
+    r_nb_fb_has_body = ugt r_fb_len, 0
+    br r_nb_fb_has_body -> L_RESP_NO_BASE_CHAT_FB_SEND, L_RESP_NO_BASE_BAD_FALLBACK
+
+L_RESP_NO_BASE_BAD_FALLBACK:
+    !r_nb_fb_has_body
+    !r_fb_body
+    !r_fb_len
+    r_nb_empty_status = call @send_empty_body_error_response(&req)
+    !r_nb_empty_status
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_base_ptr
+    !r_base_len
+    !r_api_key_ptr
+    !r_api_key_len
+    !r_up_auth_len
+    !r_body_ptr
+    !r_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_NO_BASE_CHAT_FB_SEND:
+    !r_nb_fb_has_body
+    !r_base_ptr
+    !r_base_len
+    jmp L_RESP_CHAT_FB_SEND_PREP
+
+L_RESP_HAS_BASE_URL:
+    !r_has_base
+    r_upstream_len_slot = stack_alloc 8
+    r_upstream_ptr = call @path_join_owned(&r_base_ptr, r_base_len, &HTTPD_UP_RESP_SUFFIX, HTTPD_UP_RESP_SUFFIX_LEN, &r_upstream_len_slot)
+    r_upstream_len = load r_upstream_len_slot+0 as u64
+
+    r_client_slot = stack_alloc 8
+    r_client_status = call @sa_http_client_new(1, &r_client_slot)
+    r_client = load r_client_slot+0 as ptr
+
+    r_out_req_slot = stack_alloc 8
+    r_out_status = call @sa_http_client_req_new(r_client, 2, &r_upstream_ptr, r_upstream_len, &r_out_req_slot)
+    r_out_req = load r_out_req_slot+0 as ptr
+
+    call @sa_http_client_req_add_header(r_out_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &r_up_auth_buf, r_up_auth_len)
+    call @sa_http_client_req_add_header(r_out_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &r_api_key_ptr, r_api_key_len)
+    call @sa_http_client_req_add_header(r_out_req, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    call @sa_http_client_req_set_body(r_out_req, &r_proxy_body_ptr, r_proxy_body_len)
+
+    r_out_resp_slot = stack_alloc 8
+    store r_out_resp_slot+0, 0 as ptr
+    r_send_status = call @sa_http_client_req_send(r_out_req, &r_out_resp_slot)
+    r_out_resp = load r_out_resp_slot+0 as ptr
+    r_send_ok = eq r_send_status, 0
+    r_has_out_resp = ne r_out_resp, 0
+    r_send_ready = and r_send_ok, r_has_out_resp
+    br r_send_ready -> L_RESP_SEND_OK, L_RESP_SEND_FAIL
+
+L_RESP_SEND_FAIL:
+    !r_send_ready
+    !r_send_ok
+    !r_has_out_resp
+    r_send_fail = call @send_json_error_string_response(&req, 502, &HTTPD_JSON_VALUE_BAD_GATEWAY, HTTPD_JSON_VALUE_BAD_GATEWAY_LEN)
+    !r_send_fail
+    call @sa_http_client_req_free(^r_out_req)
+    call @sa_http_client_free(^r_client)
+    !r_send_status
+    !r_out_resp
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_up_auth_buf
+    !r_up_auth_len
+    !r_upstream_ptr
+    !r_upstream_len
+    !r_base_ptr
+    !r_base_len
+    !r_chat_base_ptr
+    !r_chat_base_len
+    !r_api_key_ptr
+    !r_api_key_len
+    !r_body_ptr
+    !r_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_SEND_OK:
+    !r_send_ready
+    !r_send_ok
+    !r_has_out_resp
+
+    r_up_status = call @sa_http_client_resp_status(r_out_resp)
+
+    r_status_500 = uge r_up_status, 500
+    r_status_404 = eq r_up_status, 404
+    r_status_405 = eq r_up_status, 405
+    r_status_410 = eq r_up_status, 410
+    r_status_415 = eq r_up_status, 415
+    r_fb_eligible = or r_status_500, r_status_404
+    r_fb_eligible = or r_fb_eligible, r_status_405
+    r_fb_eligible = or r_fb_eligible, r_status_410
+    r_fb_eligible = or r_fb_eligible, r_status_415
+    !r_status_500
+    !r_status_404
+    !r_status_405
+    !r_status_410
+    !r_status_415
+    br r_fb_eligible -> L_RESP_CHAT_FB_BUILD, L_RESP_ORIGINAL_START
+
+L_RESP_CHAT_FB_BUILD:
+    !r_fb_eligible
+    r_unsafe_gemini_fb = call @body_is_unsafe_gemini_chat_fallback(&r_body_ptr, r_body_len)
+    r_unsafe_gemini_fb_ok = eq r_unsafe_gemini_fb, 1
+    br r_unsafe_gemini_fb_ok -> L_RESP_CHAT_FB_UNSAFE_GEMINI_ORIGINAL, L_RESP_CHAT_FB_SAFE_BUILD
+
+L_RESP_CHAT_FB_UNSAFE_GEMINI_ORIGINAL:
+    !r_unsafe_gemini_fb_ok
+    !r_unsafe_gemini_fb
+    r_unsafe_ct_ptr_slot = stack_alloc 8
+    r_unsafe_ct_len_slot = stack_alloc 8
+    store r_unsafe_ct_ptr_slot+0, 0 as ptr
+    store r_unsafe_ct_len_slot+0, 0 as u64
+    r_unsafe_ct_status = call @sa_http_client_resp_get_header(r_out_resp, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &r_unsafe_ct_ptr_slot, &r_unsafe_ct_len_slot)
+    r_unsafe_ct_ptr = load r_unsafe_ct_ptr_slot+0 as ptr
+    r_unsafe_ct_len = load r_unsafe_ct_len_slot+0 as u64
+    !r_unsafe_ct_status
+    r_unsafe_body_len_slot = stack_alloc 8
+    r_unsafe_body_ptr_slot = stack_alloc 8
+    r_unsafe_body_status = call @http_response_read_all(r_out_resp, &r_unsafe_body_ptr_slot, &r_unsafe_body_len_slot)
+    r_unsafe_body_ptr = load r_unsafe_body_ptr_slot+0 as ptr
+    r_unsafe_body_len = load r_unsafe_body_len_slot+0 as u64
+    r_unsafe_resp_slot = stack_alloc 8
+    r_unsafe_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_unsafe_resp_slot)
+    r_unsafe_resp = load r_unsafe_resp_slot+0 as ptr
+    r_unsafe_has_ct = ugt r_unsafe_ct_len, 0
+    br r_unsafe_has_ct -> L_RESP_UNSAFE_ORIG_SET_CT, L_RESP_UNSAFE_ORIG_SET_DEFAULT_CT
+
+L_RESP_UNSAFE_ORIG_SET_CT:
+    !r_unsafe_has_ct
+    r_unsafe_set_ct = call @sa_http_server_resp_set_content_type(r_unsafe_resp, &r_unsafe_ct_ptr, r_unsafe_ct_len)
+    !r_unsafe_set_ct
+    jmp L_RESP_UNSAFE_ORIG_SEND_BACK
+
+L_RESP_UNSAFE_ORIG_SET_DEFAULT_CT:
+    !r_unsafe_has_ct
+    r_unsafe_set_default_ct = call @sa_http_server_resp_set_content_type(r_unsafe_resp, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    !r_unsafe_set_default_ct
+    jmp L_RESP_UNSAFE_ORIG_SEND_BACK
+
+L_RESP_UNSAFE_ORIG_SEND_BACK:
+    r_unsafe_send_back = call @sa_http_server_resp_send(r_unsafe_resp, &r_unsafe_body_ptr, r_unsafe_body_len)
+    call @sa_http_server_resp_free(^r_unsafe_resp)
+    call @sa_http_client_resp_free(^r_out_resp)
+    call @sa_http_client_req_free(^r_out_req)
+    call @sa_http_client_free(^r_client)
+    !r_unsafe_send_back
+    !r_unsafe_resp_status
+    !r_unsafe_body_status
+    !r_unsafe_body_ptr
+    !r_unsafe_body_len
+    !r_unsafe_ct_ptr
+    !r_unsafe_ct_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_up_status
+    !r_upstream_ptr
+    !r_base_ptr
+    !r_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_CHAT_FB_SAFE_BUILD:
+    !r_unsafe_gemini_fb_ok
+    !r_unsafe_gemini_fb
+    r_fb_model_ptr = load cfg_ptr+CFG_MODEL_PTR as ptr
+    r_fb_model_len = load cfg_ptr+CFG_MODEL_LEN as u64
+    r_fb_body = call @build_chat_fallback_body(&r_body_ptr, r_body_len, &r_fb_model_ptr, r_fb_model_len, &r_fb_len_slot)
+    r_fb_len = load r_fb_len_slot+0 as u64
+    !r_fb_model_ptr
+    !r_fb_model_len
+    r_fb_has_body = ugt r_fb_len, 0
+    br r_fb_has_body -> L_RESP_CHAT_FB_SEND, L_RESP_CHAT_FB_ORIGINAL
+
+L_RESP_CHAT_FB_ORIGINAL:
+    !r_fb_has_body
+    !r_fb_body
+    !r_fb_len
+    r_orig_ct_ptr_slot = stack_alloc 8
+    r_orig_ct_len_slot = stack_alloc 8
+    store r_orig_ct_ptr_slot+0, 0 as ptr
+    store r_orig_ct_len_slot+0, 0 as u64
+    r_orig_ct_status = call @sa_http_client_resp_get_header(r_out_resp, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &r_orig_ct_ptr_slot, &r_orig_ct_len_slot)
+    r_orig_ct_ptr = load r_orig_ct_ptr_slot+0 as ptr
+    r_orig_ct_len = load r_orig_ct_len_slot+0 as u64
+    !r_orig_ct_status
+    r_orig_body_len_slot = stack_alloc 8
+    r_orig_body_ptr_slot = stack_alloc 8
+    r_orig_body_status = call @http_response_read_all(r_out_resp, &r_orig_body_ptr_slot, &r_orig_body_len_slot)
+    r_orig_body_ptr = load r_orig_body_ptr_slot+0 as ptr
+    r_orig_body_len = load r_orig_body_len_slot+0 as u64
+    r_orig_resp_slot = stack_alloc 8
+    r_orig_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_orig_resp_slot)
+    r_orig_resp = load r_orig_resp_slot+0 as ptr
+    r_orig_has_ct = ugt r_orig_ct_len, 0
+    br r_orig_has_ct -> L_RESP_ORIG_SET_CT, L_RESP_ORIG_SET_DEFAULT_CT
+
+L_RESP_ORIG_SET_CT:
+    !r_orig_has_ct
+    r_orig_set_ct = call @sa_http_server_resp_set_content_type(r_orig_resp, &r_orig_ct_ptr, r_orig_ct_len)
+    !r_orig_set_ct
+    jmp L_RESP_ORIG_SEND_BACK
+
+L_RESP_ORIG_SET_DEFAULT_CT:
+    !r_orig_has_ct
+    r_orig_set_default_ct = call @sa_http_server_resp_set_content_type(r_orig_resp, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    !r_orig_set_default_ct
+    jmp L_RESP_ORIG_SEND_BACK
+
+L_RESP_ORIG_SEND_BACK:
+    r_orig_send_back = call @sa_http_server_resp_send(r_orig_resp, &r_orig_body_ptr, r_orig_body_len)
+    call @sa_http_server_resp_free(^r_orig_resp)
+    call @sa_http_client_resp_free(^r_out_resp)
+    call @sa_http_client_req_free(^r_out_req)
+    call @sa_http_client_free(^r_client)
+    !r_orig_send_back
+    !r_orig_resp_status
+    !r_orig_body_status
+    !r_orig_body_ptr
+    !r_orig_body_len
+    !r_orig_ct_ptr
+    !r_orig_ct_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_up_status
+    !r_upstream_ptr
+    !r_base_ptr
+    !r_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_CHAT_FB_SEND:
+    !r_fb_has_body
+    call @sa_http_client_resp_free(^r_out_resp)
+    call @sa_http_client_req_free(^r_out_req)
+    call @sa_http_client_free(^r_client)
+    !r_up_status
+    !r_upstream_ptr
+    !r_base_ptr
+    !r_base_len
+    jmp L_RESP_CHAT_FB_SEND_PREP
+
+L_RESP_CHAT_FB_SEND_PREP:
+    r_fb_chat_base_ptr = load cfg_ptr+CFG_CHAT_PTR as ptr
+    r_fb_chat_base_len = load cfg_ptr+CFG_CHAT_LEN as u64
+    r_fb_has_chat_base = ugt r_fb_chat_base_len, 0
+    br r_fb_has_chat_base -> L_RESP_CHAT_FB_HAVE_CHAT_BASE, L_RESP_CHAT_FB_MISSING_CFG
+
+L_RESP_CHAT_FB_MISSING_CFG:
+    !r_fb_has_chat_base
+    r_fb_cfg_missing_send = call @send_json_error_string_response(&req, 500, &HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION, HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION_LEN)
+    !r_fb_cfg_missing_send
+    !r_fb_chat_base_ptr
+    !r_fb_chat_base_len
+    !r_fb_body
+    !r_fb_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_api_key_ptr
+    !r_api_key_len
+    !r_up_auth_len
+    !r_body_ptr
+    !r_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_CHAT_FB_HAVE_CHAT_BASE:
+    !r_fb_has_chat_base
+    r_fb_url_len_slot = stack_alloc 8
+    r_fb_chat_url = call @path_join_owned(&r_fb_chat_base_ptr, r_fb_chat_base_len, &HTTPD_UP_CHAT_SUFFIX, HTTPD_UP_CHAT_SUFFIX_LEN, &r_fb_url_len_slot)
+    r_fb_chat_url_len = load r_fb_url_len_slot+0 as u64
+
+    r_fb_client_slot = stack_alloc 8
+    r_fb_client_status = call @sa_http_client_new(1, &r_fb_client_slot)
+    r_fb_client = load r_fb_client_slot+0 as ptr
+    r_fb_req_slot = stack_alloc 8
+    r_fb_req_status = call @sa_http_client_req_new(r_fb_client, 2, &r_fb_chat_url, r_fb_chat_url_len, &r_fb_req_slot)
+    r_fb_req = load r_fb_req_slot+0 as ptr
+    call @sa_http_client_req_add_header(r_fb_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &r_up_auth_buf, r_up_auth_len)
+    call @sa_http_client_req_add_header(r_fb_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &r_api_key_ptr, r_api_key_len)
+    call @sa_http_client_req_add_header(r_fb_req, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    call @sa_http_client_req_set_body(r_fb_req, &r_fb_body, r_fb_len)
+    r_fb_resp_slot = stack_alloc 8
+    store r_fb_resp_slot+0, 0 as ptr
+    r_fb_send_status = call @sa_http_client_req_send(r_fb_req, &r_fb_resp_slot)
+    r_fb_resp = load r_fb_resp_slot+0 as ptr
+    r_fb_send_ok = eq r_fb_send_status, 0
+    r_fb_has_resp = ne r_fb_resp, 0
+    r_fb_send_ready = and r_fb_send_ok, r_fb_has_resp
+    br r_fb_send_ready -> L_RESP_FB_SEND_OK, L_RESP_FB_SEND_FAIL
+
+L_RESP_FB_SEND_FAIL:
+    !r_fb_send_ready
+    !r_fb_send_ok
+    !r_fb_has_resp
+    r_fb_send_fail = call @send_json_error_string_response(&req, 502, &HTTPD_JSON_VALUE_BAD_GATEWAY, HTTPD_JSON_VALUE_BAD_GATEWAY_LEN)
+    !r_fb_send_fail
+    call @sa_http_client_req_free(^r_fb_req)
+    call @sa_http_client_free(^r_fb_client)
+    !r_fb_send_status
+    !r_fb_resp
+    !r_fb_chat_url
+    !r_fb_chat_url_len
+    !r_fb_chat_base_ptr
+    !r_fb_chat_base_len
+    !r_fb_body
+    !r_fb_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_up_auth_buf
+    !r_up_auth_len
+    !r_api_key_ptr
+    !r_api_key_len
+    !r_body_ptr
+    !r_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_FB_SEND_OK:
+    !r_fb_send_ready
+    !r_fb_send_ok
+    !r_fb_has_resp
+
+    r_fb_status = call @sa_http_client_resp_status(r_fb_resp)
+    r_fb_ct_ptr_slot = stack_alloc 8
+    r_fb_ct_len_slot = stack_alloc 8
+    store r_fb_ct_ptr_slot+0, 0 as ptr
+    store r_fb_ct_len_slot+0, 0 as u64
+    r_fb_ct_status = call @sa_http_client_resp_get_header(r_fb_resp, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &r_fb_ct_ptr_slot, &r_fb_ct_len_slot)
+    r_fb_ct_ptr = load r_fb_ct_ptr_slot+0 as ptr
+    r_fb_ct_len = load r_fb_ct_len_slot+0 as u64
+    !r_fb_ct_status
+    r_fb_body_len_slot = stack_alloc 8
+    r_fb_body_ptr_slot = stack_alloc 8
+    r_fb_body_status = call @http_response_read_all(r_fb_resp, &r_fb_body_ptr_slot, &r_fb_body_len_slot)
+    r_fb_body_ptr = load r_fb_body_ptr_slot+0 as ptr
+    r_fb_body_len = load r_fb_body_len_slot+0 as u64
+    r_fb_out_slot = stack_alloc 8
+    r_fb_out_status = call @sa_http_server_resp_new(req, r_fb_status, &r_fb_out_slot)
+    r_fb_out = load r_fb_out_slot+0 as ptr
+    r_fb_ct_has_len = ugt r_fb_ct_len, 0
+    br r_fb_ct_has_len -> L_RESP_CHAT_FB_SET_HEADER_CT, L_RESP_CHAT_FB_SET_DEFAULT_CT
+
+L_RESP_CHAT_FB_SET_HEADER_CT:
+    !r_fb_ct_has_len
+    r_fb_set_ct = call @sa_http_server_resp_set_content_type(r_fb_out, &r_fb_ct_ptr, r_fb_ct_len)
+    r_fb_sse_idx = call @sa_bytes_find(&r_fb_ct_ptr, r_fb_ct_len, &HTTPD_MIME_EVENT_STREAM, HTTPD_MIME_EVENT_STREAM_LEN)
+    r_fb_is_sse = sge r_fb_sse_idx, 0
+    br r_fb_is_sse -> L_RESP_CHAT_FB_SEND_SSE_BACK, L_RESP_CHAT_FB_SEND_BACK_HEADER
+
+L_RESP_CHAT_FB_SET_DEFAULT_CT:
+    !r_fb_ct_has_len
+    r_fb_set_default_ct = call @sa_http_server_resp_set_content_type(r_fb_out, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    !r_fb_set_default_ct
+    jmp L_RESP_CHAT_FB_SEND_BACK
+
+L_RESP_CHAT_FB_SEND_BACK_HEADER:
+    !r_fb_is_sse
+    !r_fb_sse_idx
+    !r_fb_set_ct
+    jmp L_RESP_CHAT_FB_SEND_BACK
+
+L_RESP_CHAT_FB_SEND_SSE_BACK:
+    !r_fb_is_sse
+    !r_fb_sse_idx
+    !r_fb_set_ct
+    r_fb_sse_len_slot = stack_alloc 8
+    r_fb_ctx_len_slot = stack_alloc 8
+    r_fb_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_fb_ctx_len_slot)
+    r_fb_ctx_len = load r_fb_ctx_len_slot+0 as u64
+    r_fb_sse_body = call @chat_fallback_sse_to_responses_body(&r_fb_body_ptr, r_fb_body_len, &r_fb_ctx_body, r_fb_ctx_len, &r_fb_sse_len_slot)
+    r_fb_sse_len = load r_fb_sse_len_slot+0 as u64
+    r_fb_sse_send_back = call @sa_http_server_resp_send(r_fb_out, &r_fb_sse_body, r_fb_sse_len)
+    call @sa_http_server_resp_free(^r_fb_out)
+    call @sa_http_client_resp_free(^r_fb_resp)
+    call @sa_http_client_req_free(^r_fb_req)
+    call @sa_http_client_free(^r_fb_client)
+    !r_fb_sse_send_back
+    !r_fb_sse_body
+    !r_fb_sse_len
+    !r_fb_ctx_body
+    !r_fb_ctx_len
+    !r_fb_out_status
+    !r_fb_body_status
+    !r_fb_body_ptr
+    !r_fb_body_len
+    !r_fb_status
+    !r_fb_send_status
+    !r_fb_req_status
+    !r_fb_client_status
+    !r_fb_ct_ptr
+    !r_fb_ct_len
+    !r_fb_chat_url
+    !r_fb_chat_base_ptr
+    !r_fb_chat_base_len
+    !r_fb_body
+    !r_fb_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_CHAT_FB_SEND_BACK:
+    r_fb_json_norm_len_slot = stack_alloc 8
+    r_fb_json_ctx_len_slot = stack_alloc 8
+    r_fb_json_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_fb_json_ctx_len_slot)
+    r_fb_json_ctx_len = load r_fb_json_ctx_len_slot+0 as u64
+    r_fb_json_norm_body = call @normalize_chat_fallback_json_body(&r_fb_body_ptr, r_fb_body_len, &r_fb_json_ctx_body, r_fb_json_ctx_len, &r_fb_json_norm_len_slot)
+    r_fb_json_norm_len = load r_fb_json_norm_len_slot+0 as u64
+    r_fb_send_back = call @sa_http_server_resp_send(r_fb_out, &r_fb_json_norm_body, r_fb_json_norm_len)
+    call @sa_http_server_resp_free(^r_fb_out)
+    call @sa_http_client_resp_free(^r_fb_resp)
+    call @sa_http_client_req_free(^r_fb_req)
+    call @sa_http_client_free(^r_fb_client)
+    !r_fb_send_back
+    !r_fb_out_status
+    !r_fb_body_status
+    !r_fb_body_ptr
+    !r_fb_body_len
+    !r_fb_json_norm_body
+    !r_fb_json_norm_len
+    !r_fb_json_ctx_body
+    !r_fb_json_ctx_len
+    !r_fb_status
+    !r_fb_send_status
+    !r_fb_req_status
+    !r_fb_client_status
+    !r_fb_ct_ptr
+    !r_fb_ct_len
+    !r_fb_chat_url
+    !r_fb_chat_base_ptr
+    !r_fb_chat_base_len
+    !r_fb_body
+    !r_fb_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_ORIGINAL_START:
+    !r_fb_eligible
+    r_ct_ptr_slot = stack_alloc 8
+    r_ct_len_slot = stack_alloc 8
+    store r_ct_ptr_slot+0, 0 as ptr
+    store r_ct_len_slot+0, 0 as u64
+    r_ct_status = call @sa_http_client_resp_get_header(r_out_resp, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &r_ct_ptr_slot, &r_ct_len_slot)
+    r_ct_ptr = load r_ct_ptr_slot+0 as ptr
+    r_ct_len = load r_ct_len_slot+0 as u64
+    !r_ct_status
+    r_ct_has_len = ugt r_ct_len, 0
+    br r_ct_has_len -> L_RESP_CT_FIND, L_RESP_NON_SSE_DEFAULT
+
+L_RESP_CT_FIND:
+    !r_ct_has_len
+    r_ct_idx = call @sa_bytes_find(&r_ct_ptr, r_ct_len, &HTTPD_MIME_EVENT_STREAM, HTTPD_MIME_EVENT_STREAM_LEN)
+    r_ct_is_sse = sge r_ct_idx, 0
+    br r_ct_is_sse -> L_RESP_STREAM_START, L_RESP_NON_SSE_HEADER
+
+L_RESP_NON_SSE_DEFAULT:
+    !r_ct_has_len
+    !r_ct_ptr
+    !r_ct_len
+    r_plain_body_len_slot = stack_alloc 8
+    r_plain_body_ptr_slot = stack_alloc 8
+    r_plain_body_status = call @http_response_read_all(r_out_resp, &r_plain_body_ptr_slot, &r_plain_body_len_slot)
+    r_plain_body_ptr = load r_plain_body_ptr_slot+0 as ptr
+    r_plain_body_len = load r_plain_body_len_slot+0 as u64
+    r_plain_norm_len_slot = stack_alloc 8
+    r_plain_norm_body = call @normalize_responses_client_json_body(&r_plain_body_ptr, r_plain_body_len, &r_plain_norm_len_slot)
+    r_plain_norm_len = load r_plain_norm_len_slot+0 as u64
+    r_plain_resp_slot = stack_alloc 8
+    r_plain_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_plain_resp_slot)
+    r_plain_resp = load r_plain_resp_slot+0 as ptr
+    r_plain_set_ct = call @sa_http_server_resp_set_content_type(r_plain_resp, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
+    r_plain_send_back = call @sa_http_server_resp_send(r_plain_resp, &r_plain_norm_body, r_plain_norm_len)
+    call @sa_http_server_resp_free(^r_plain_resp)
+    call @sa_http_client_resp_free(^r_out_resp)
+    call @sa_http_client_req_free(^r_out_req)
+    call @sa_http_client_free(^r_client)
+    !r_plain_body_status
+    !r_plain_body_ptr
+    !r_plain_body_len
+    !r_plain_norm_body
+    !r_plain_norm_len
+    !r_plain_resp_status
+    !r_plain_set_ct
+    !r_plain_send_back
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_up_status
+    !r_upstream_ptr
+    !r_base_ptr
+    !r_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_NON_SSE_HEADER:
+    !r_ct_is_sse
+    !r_ct_idx
+    r_h_body_len_slot = stack_alloc 8
+    r_h_body_ptr_slot = stack_alloc 8
+    r_h_body_status = call @http_response_read_all(r_out_resp, &r_h_body_ptr_slot, &r_h_body_len_slot)
+    r_h_body_ptr = load r_h_body_ptr_slot+0 as ptr
+    r_h_body_len = load r_h_body_len_slot+0 as u64
+    r_h_norm_len_slot = stack_alloc 8
+    r_h_norm_body = call @normalize_responses_client_json_body(&r_h_body_ptr, r_h_body_len, &r_h_norm_len_slot)
+    r_h_norm_len = load r_h_norm_len_slot+0 as u64
+    r_h_resp_slot = stack_alloc 8
+    r_h_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_h_resp_slot)
+    r_h_resp = load r_h_resp_slot+0 as ptr
+    r_h_set_ct = call @sa_http_server_resp_set_content_type(r_h_resp, &r_ct_ptr, r_ct_len)
+    r_h_send_back = call @sa_http_server_resp_send(r_h_resp, &r_h_norm_body, r_h_norm_len)
+    call @sa_http_server_resp_free(^r_h_resp)
+    call @sa_http_client_resp_free(^r_out_resp)
+    call @sa_http_client_req_free(^r_out_req)
+    call @sa_http_client_free(^r_client)
+    !r_h_body_status
+    !r_h_body_ptr
+    !r_h_body_len
+    !r_h_norm_body
+    !r_h_norm_len
+    !r_h_resp_status
+    !r_h_set_ct
+    !r_h_send_back
+    !r_ct_ptr
+    !r_ct_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_up_status
+    !r_upstream_ptr
+    !r_base_ptr
+    !r_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_RESP_STREAM_START:
+    !r_ct_is_sse
+    !r_ct_idx
+    !r_ct_ptr
+    !r_ct_len
+    r_stream_slot = stack_alloc 8
+    r_stream_status = call @sa_http_server_resp_stream_new(req, r_up_status, &r_stream_slot)
+    r_stream = load r_stream_slot+0 as ptr
+    !r_up_status
+
+    r_sse_body_len_slot = stack_alloc 8
+    r_sse_body_ptr_slot = stack_alloc 8
+    r_sse_body_status = call @http_response_read_all(r_out_resp, &r_sse_body_ptr_slot, &r_sse_body_len_slot)
+    r_sse_body_ptr = load r_sse_body_ptr_slot+0 as ptr
+    r_sse_body_len = load r_sse_body_len_slot+0 as u64
+    r_norm_len_slot = stack_alloc 8
+    r_ctx_len_slot = stack_alloc 8
+    r_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_ctx_len_slot)
+    r_ctx_len = load r_ctx_len_slot+0 as u64
+    r_norm_body = call @normalize_responses_client_sse_body(&r_sse_body_ptr, r_sse_body_len, &r_ctx_body, r_ctx_len, &r_norm_len_slot)
+    r_norm_len = load r_norm_len_slot+0 as u64
+    r_write_status = call @sa_http_server_resp_stream_write(r_stream, &r_norm_body, r_norm_len)
+    r_flush_status = call @sa_http_server_resp_stream_flush(r_stream)
+    !r_write_status
+    !r_flush_status
+    r_end_status = call @sa_http_server_resp_stream_end(r_stream)
+    !r_end_status
+    call @sa_http_client_resp_free(^r_out_resp)
+    call @sa_http_client_req_free(^r_out_req)
+    call @sa_http_client_free(^r_client)
+    call @sa_http_server_resp_stream_free(^r_stream)
+    !r_norm_body
+    !r_norm_len
+    !r_ctx_body
+    !r_ctx_len
+    !r_sse_body_status
+    !r_sse_body_ptr
+    !r_sse_body_len
+    !r_proxy_body_ptr
+    !r_proxy_body_len
+    !r_upstream_ptr
+    !r_base_ptr
+    !r_base_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+@accept_and_handle_http_request(server: ptr, &req_slot: ptr, &state_ptr: ptr, &cfg_ptr: ptr) -> u32:
+L_ENTRY:
+    accept_status = call @sa_http_server_accept(server, &req_slot)
+    accept_ok = eq accept_status, 0
+    !accept_status
+    br accept_ok -> L_ACCEPT_OK, L_ACCEPT_SKIP
+
+L_ACCEPT_SKIP:
+    return 0
+
+L_ACCEPT_OK:
+    req = load req_slot+0 as ptr
+    has_req = ne req, 0
+    br has_req -> L_HANDLE, L_NO_REQ
+
+L_NO_REQ:
+    return 0
+
+L_HANDLE:
+    handle_status = call @handle_http_request(^req, &state_ptr, &cfg_ptr)
+    !handle_status
+    return 0
+
+// ============================================================
+// @main — Entry point
+// ============================================================
+@handle_http_request(^req: ptr, &state_ptr: ptr, &cfg_ptr: ptr) -> u32:
+L_ENTRY:
+    method_ptr_slot = stack_alloc 8
+    method_len_slot = stack_alloc 8
+    path_ptr_slot = stack_alloc 8
+    path_len_slot = stack_alloc 8
+
+    method_status = call @sa_http_server_req_get_method(req, &method_ptr_slot, &method_len_slot)
+    method_ptr = load method_ptr_slot+0 as ptr
+    method_len = load method_len_slot+0 as u64
+    !method_status
+
+    // Extract request path before auth so health endpoints stay public.
+    path_status = call @sa_http_server_req_get_path(req, &path_ptr_slot, &path_len_slot)
+    path_ptr = load path_ptr_slot+0 as ptr
+    path_len = load path_len_slot+0 as u64
+    !path_status
+
+    is_get_raw = call @sa_bytes_eq(&method_ptr, method_len, &HTTPD_METHOD_GET, HTTPD_METHOD_GET_LEN)
+    is_get = eq is_get_raw, 1
+    !is_get_raw
+    is_post_raw = call @sa_bytes_eq(&method_ptr, method_len, &HTTPD_METHOD_POST, HTTPD_METHOD_POST_LEN)
+    is_post = eq is_post_raw, 1
+    !is_post_raw
+
+    // --- Route: /healthz ---
+    is_health = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_HEALTH, HTTPD_ROUTE_HEALTH_LEN)
+    is_health_path = eq is_health, 1
+    is_health_ok = and is_health_path, is_get
+    !is_health
+    !is_health_path
+    br is_health_ok -> L_HEALTH, L_CHECK_READY
+
+L_CHECK_READY:
+    !is_health_ok
+    is_ready = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_READY, HTTPD_ROUTE_READY_LEN)
+    is_ready_path = eq is_ready, 1
+    is_ready_ok = and is_ready_path, is_get
+    !is_ready
+    !is_ready_path
+    br is_ready_ok -> L_READY, L_CHECK_PUBLIC_MODELS
+
+L_CHECK_PUBLIC_MODELS:
+    !is_ready_ok
+    is_models_public = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_MODELS, HTTPD_ROUTE_MODELS_LEN)
+    is_models_public_path = eq is_models_public, 1
+    is_models_public_ok = and is_models_public_path, is_get
+    !is_models_public
+    !is_models_public_path
+    br is_models_public_ok -> L_PROXY_MODELS_PUBLIC, L_AUTH_PREP
+
+L_AUTH_PREP:
+    !is_models_public_ok
+    // --- Auth interceptor (for all non-health routes) ---
+    auth_token_ptr = load cfg_ptr+CFG_AUTH_PTR as ptr
+    auth_token_len = load cfg_ptr+CFG_AUTH_LEN as u64
+    auth_ok = call @check_auth(&req, &auth_token_ptr, auth_token_len)
+    is_authed = eq auth_ok, 1
+    !auth_ok
+    br is_authed -> L_AUTHED, L_NO_AUTH
+
+L_NO_AUTH:
+    !is_authed
+    noauth_chat_raw = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_CHAT, HTTPD_ROUTE_CHAT_LEN)
+    noauth_chat = eq noauth_chat_raw, 1
+    !noauth_chat_raw
+    noauth_resp_raw = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_RESP, HTTPD_ROUTE_RESP_LEN)
+    noauth_resp = eq noauth_resp_raw, 1
+    !noauth_resp_raw
+    noauth_v1 = or noauth_chat, noauth_resp
+    !noauth_chat
+    !noauth_resp
+    noauth_rpc_raw = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_RPC, HTTPD_ROUTE_RPC_LEN)
+    noauth_rpc = eq noauth_rpc_raw, 1
+    !noauth_rpc_raw
+    noauth_api = or noauth_v1, noauth_rpc
+    !noauth_v1
+    !noauth_rpc
+    noauth_body_ptr_slot = stack_alloc 8
+    noauth_body_len_slot = stack_alloc 8
+    br noauth_api -> L_NO_AUTH_API_LOG, L_NO_AUTH_SKIP_API_LOG
+
+L_NO_AUTH_API_LOG:
+    !noauth_api
+    noauth_body_status = call @sa_http_server_req_get_body(req, &noauth_body_ptr_slot, &noauth_body_len_slot)
+    noauth_body_ptr = load noauth_body_ptr_slot+0 as ptr
+    noauth_body_len = load noauth_body_len_slot+0 as u64
+    noauth_req_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &noauth_body_ptr, noauth_body_len)
+    !noauth_req_log_status
+    !noauth_body_status
+    !noauth_body_ptr
+    !noauth_body_len
+    jmp L_NO_AUTH_WRITE_AUTH_LOG
+
+L_NO_AUTH_SKIP_API_LOG:
+    !noauth_api
+    jmp L_NO_AUTH_WRITE_AUTH_LOG
+
+L_NO_AUTH_WRITE_AUTH_LOG:
+    auth_log_status = call @write_auth_failure_log(&req, &cfg_ptr, &path_ptr, path_len, &auth_token_ptr, auth_token_len)
+    !auth_log_status
+    !auth_token_ptr
+    !auth_token_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @send_json_error_string_response(&req, 401, &HTTPD_JSON_VALUE_UNAUTHORIZED, HTTPD_JSON_VALUE_UNAUTHORIZED_LEN)
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_AUTHED:
+    !is_authed
+    !auth_token_ptr
+    !auth_token_len
+
+L_CHECK_CHAT:
+    is_chat = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_CHAT, HTTPD_ROUTE_CHAT_LEN)
+    is_chat_path = eq is_chat, 1
+    is_chat_ok = and is_chat_path, is_post
+    !is_chat
+    !is_chat_path
+    br is_chat_ok -> L_PROXY_CHAT, L_CHECK_RESP
+
+L_CHECK_RESP:
+    !is_chat_ok
+    is_resp = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_RESP, HTTPD_ROUTE_RESP_LEN)
+    is_resp_path = eq is_resp, 1
+    is_resp_ok = and is_resp_path, is_post
+    !is_resp
+    !is_resp_path
+    br is_resp_ok -> L_PROXY_RESP, L_CHECK_MODELS
+
+L_CHECK_MODELS:
+    !is_resp_ok
+    is_models = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_MODELS, HTTPD_ROUTE_MODELS_LEN)
+    is_models_path = eq is_models, 1
+    is_models_ok = and is_models_path, is_get
+    !is_models
+    !is_models_path
+    br is_models_ok -> L_PROXY_MODELS, L_CHECK_RPC
+
+L_CHECK_RPC:
+    !is_models_ok
+    is_rpc = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_RPC, HTTPD_ROUTE_RPC_LEN)
+    is_rpc_path = eq is_rpc, 1
+    is_rpc_ok = and is_rpc_path, is_post
+    !is_rpc
+    !is_rpc_path
+    br is_rpc_ok -> L_HANDLE_RPC, L_CHECK_EVENTS
+
+L_CHECK_EVENTS:
+    !is_rpc_ok
+    is_events = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_EVENTS, HTTPD_ROUTE_EVENTS_LEN)
+    is_events_path = eq is_events, 1
+    is_events_ok = and is_events_path, is_get
+    !is_events
+    !is_events_path
+    br is_events_ok -> L_HANDLE_EVENTS, L_NOT_FOUND
+
+L_PROXY_MODELS_PUBLIC:
+    is_models_ok = eq is_models_public_ok, 1
+    !is_models_public_ok
+    jmp L_PROXY_MODELS
+
+// ============================================================
+// /healthz and /readyz — Simple 200 OK
+// ============================================================
+L_HEALTH:
+    !is_health_ok
+    call @sa_print_bytes(&HTTPD_LOG_HEALTH, HTTPD_LOG_HEALTH_LEN)
+    h_send = call @send_json_bool_field_response(&req, 200, &HTTPD_JSON_KEY_OK, HTTPD_JSON_KEY_OK_LEN, 1)
+    !h_send
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+L_READY:
+    !is_ready_ok
+    call @sa_print_bytes(&HTTPD_LOG_HEALTH, HTTPD_LOG_HEALTH_LEN)
+    rdy_send = call @send_json_bool_field_response(&req, 200, &HTTPD_JSON_KEY_OK, HTTPD_JSON_KEY_OK_LEN, 1)
+    !rdy_send
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+// ============================================================
+// /v1/chat/completions — Reverse proxy with SSE streaming
+// + Token metering from SSE chunks
+// ============================================================
+L_PROXY_CHAT:
+    !is_chat_ok
+    chat_status = call @handle_chat_proxy(&req, &state_ptr, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, is_get, is_post)
+    !chat_status
+    return 0
+
+// ============================================================
+// /v1/responses — Reverse proxy with streaming
+// ============================================================
+L_PROXY_RESP:
+    !is_resp_ok
+    resp_status = call @handle_responses_proxy(&req, &state_ptr, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, is_get, is_post)
+    !resp_status
+    return 0
+
+// ============================================================
+// /v1/models — Proxy to upstream models endpoint
+// ============================================================
+L_PROXY_MODELS:
+    !is_models_ok
+    models_status = call @handle_models_proxy(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len)
+    !models_status
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+// ============================================================
+// /rpc — JSON-RPC dispatch (20+ methods)
+// ============================================================
+L_HANDLE_RPC:
+    !is_rpc_ok
+    call @sa_print_bytes(&HTTPD_LOG_RPC, HTTPD_LOG_RPC_LEN)
+
+    rpc_raw_ptr_slot = stack_alloc 8
+    rpc_raw_len_slot = stack_alloc 8
+    rpc_body_ptr_slot = stack_alloc 8
+    rpc_body_len_slot = stack_alloc 8
+    rpc_canon_buffer_slot = stack_alloc 8
+    rpc_body_status = call @sa_http_server_req_get_body(req, &rpc_raw_ptr_slot, &rpc_raw_len_slot)
+    rpc_raw_ptr = load rpc_raw_ptr_slot+0 as ptr
+    rpc_raw_len = load rpc_raw_len_slot+0 as u64
+    rpc_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &rpc_raw_ptr, rpc_raw_len)
+    !rpc_log_status
+    rpc_canon_status = call @rpc_canonicalize_body(&rpc_raw_ptr, rpc_raw_len, &rpc_body_ptr_slot, &rpc_body_len_slot, &rpc_canon_buffer_slot)
+    !rpc_canon_status
+    rpc_body_ptr = load rpc_body_ptr_slot+0 as ptr
+    rpc_body_len = load rpc_body_len_slot+0 as u64
+
+    rpc_dispatch_status = call @handle_rpc_request(&req, &rpc_body_ptr, rpc_body_len, &state_ptr, &cfg_ptr)
+    !rpc_dispatch_status
+    rpc_canon_buffer = load rpc_canon_buffer_slot+0 as ptr
+    has_rpc_canon_buffer = ne rpc_canon_buffer, 0
+    br has_rpc_canon_buffer -> L_RPC_FREE_CANON_BODY, L_RPC_NO_CANON_BODY
+
+L_RPC_FREE_CANON_BODY:
+    !has_rpc_canon_buffer
+    rpc_canon_dispose = call @json_buffer_dispose(rpc_canon_buffer)
+    !rpc_canon_dispose
+    !rpc_canon_buffer
+    jmp L_RPC_AFTER_CANON_BODY
+
+L_RPC_NO_CANON_BODY:
+    !has_rpc_canon_buffer
+    !rpc_canon_buffer
+    jmp L_RPC_AFTER_CANON_BODY
+
+L_RPC_AFTER_CANON_BODY:
+    !rpc_body_status
+    !rpc_raw_ptr
+    !rpc_raw_len
+    !rpc_body_ptr
+    !rpc_body_len
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+// ============================================================
+// /events — SSE notification stream
+// ============================================================
+L_HANDLE_EVENTS:
+    !is_events_ok
+    call @sa_print_bytes(&HTTPD_LOG_EVENTS, HTTPD_LOG_EVENTS_LEN)
+
+    ev_ctx = alloc EVENT_CTX_SIZE
+    store ev_ctx+EVENT_CTX_REQ, req as ptr
+    store ev_ctx+EVENT_CTX_STATE, state_ptr as ptr
+    call @spawn_event_stream(^ev_ctx)
+    !req
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    !state_ptr
+    !cfg_ptr
+    return 0
+
+// ============================================================
+// 404 Not Found
+// ============================================================
+L_NOT_FOUND:
+    !is_events_ok
+    nf_send = call @send_json_error_string_response(&req, 404, &HTTPD_JSON_VALUE_NOT_FOUND, HTTPD_JSON_VALUE_NOT_FOUND_LEN)
+    !nf_send
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !is_get
+    !is_post
+    call @sa_http_server_req_free(^req)
+    !state_ptr
+    !cfg_ptr
+    return 0

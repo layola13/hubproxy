@@ -1,0 +1,13 @@
+// http_dispatch.sai — HTTP request helper surface for SA HubProxy
+
+@extern body_is_blank(&body: ptr, body_len: u64) -> u32
+@extern check_auth(&req: ptr, &token_ptr: ptr, token_len: u64) -> u8
+@extern scan_chunk_for_tokens(&buf: ptr, len: u64) -> u64
+@extern json_writer_field_token_preview(writer: ptr, &key: ptr, key_len: u64, &token_ptr: ptr, token_len: u64) -> u32
+@extern write_auth_failure_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &token_ptr: ptr, token_len: u64) -> u32
+@extern write_api_request_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &body_ptr_in: ptr, body_len: u64) -> u32
+@extern send_builder_response(&req: ptr, ^buf: ptr) -> u32
+@extern handle_models_proxy(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64) -> u32
+@extern handle_chat_proxy(&req: ptr, &state_ptr: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, is_get: u8, is_post: u8) -> u32
+@extern handle_responses_proxy(&req: ptr, &state_ptr: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, is_get: u8, is_post: u8) -> u32
+@extern handle_rpc_request(&req: ptr, &rpc_body_ptr: ptr, rpc_body_len: u64, &state_ptr: ptr, &cfg_ptr: ptr) -> u32

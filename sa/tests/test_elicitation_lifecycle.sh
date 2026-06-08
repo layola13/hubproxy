@@ -4,40 +4,37 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
+source "${script_dir}/lib/runtime_env.sh"
 env_file="${project_dir}/.env"
-auth_token="$(awk -F= '/^AUTH=/{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
+tmp_dir="$(mktemp -d)"
+auth_token="client-secret"
+sa_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
 hub_pid=""
 
 cleanup() {
   if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${hub_pid}"
   fi
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+sa_test_assert_port_free "${sa_port}"
+sa_test_write_env_from_root "${env_file}" "${tmp_dir}/.env" "${sa_port}" "${auth_token}"
+
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy.log")"
+if ! sa_test_wait_port "${sa_port}" 50 0.1; then
+  echo "hubproxy did not start on ${sa_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
+  exit 1
 fi
-
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_elicitation.log 2>&1 < /dev/null &
-hub_pid=$!
-
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
-    break
-  fi
-  sleep 0.1
-done
 
 rpc() {
   curl -sS --max-time 15 \
     -H "authorization: Bearer ${auth_token}" \
     -H 'content-type: application/json' \
     --data "$1" \
-    'http://127.0.0.1:28080/rpc'
+    "http://127.0.0.1:${sa_port}/rpc"
 }
 
 thread_start="$(rpc '{"jsonrpc":"2.0","id":1,"method":"thread/start","params":{}}')"

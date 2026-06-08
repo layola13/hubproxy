@@ -4,18 +4,238 @@
 - Updated: 2026-06-08 Asia/Shanghai
 
 ## Completed
-- Converted many simple RPC response builders in `sa/main.sa` from low-level `sa_json_writer_*` sequences to `sa std` `JSON_WRITER_*` macros.
-- Converted multiple notify/event builders and remote/realtime helpers.
-- Converted `build_request_context_body` writer scaffolding and mode field writes.
-- Converted `build_native_progress_continuation` JSON writer scaffolding.
-- Converted normalized tool temporary array writers.
-- Converted `send_jsonrpc_envelope_with_id` writer scaffolding and null-field branches.
-- Converted `build_chat_proxy_body` and `build_responses_proxy_body` writer scaffolding and object end paths.
-- Converted `send_rpc_external_detect` object/array writer scaffolding.
-- Converted `send_rpc_experimental_enablement_set` raw object writer branch.
-- Converted thread/turn object helper internals to `JSON_WRITER_*` macros where applicable.
-- Converted response/chat tool helper internals to `JSON_WRITER_*` macros where applicable.
-- Converted final niche helper-level direct field/null writer calls.
+- Extracted first shared module: `sa/src/json_support.sa(.sai)`.
+- Moved common JSON/buffer/copy/dispose helpers out of `sa/main.sa` without changing behavior.
+- Kept existing SA compile and focused regression flow intact for the first modularization step.
+- Extracted shared RPC parsing module: `sa/src/rpc_parse.sa(.sai)`.
+- Moved RPC id extraction, JSON-RPC param lookup, string/number/bool/null helpers, thread-id resolution, and `bytes_has` out of `sa/main.sa`.
+- Removed the duplicated parse implementations from `sa/main.sa` and switched the build to the new module boundary.
+- Extracted shared events/SSE infrastructure module: `sa/src/events.sa(.sai)`.
+- Moved RPC builder helpers, SSE frame assembly, notify queue helpers, and detached `/events` stream worker infrastructure out of `sa/main.sa`.
+- Switched `main.sa` to consume the new event infrastructure module while preserving existing notification behavior.
+- Extracted shared response emission module: `sa/src/rpc_emit.sa(.sai)`.
+- Moved common HTTP JSON senders, JSON-RPC envelope writers, generic wrapped writer/raw send helpers, and JSON-RPC error envelope emission out of `sa/main.sa`.
+- Switched `main.sa` to consume the new emission module without changing existing RPC handler behavior.
+- Folded shared JSON writer helpers into `sa/src/rpc_emit.sa(.sai)`.
+- Moved reusable field writers for empty arrays/objects, begin-field helpers, default/null fallback helpers, param passthrough helpers, and realtime voice item writing out of `sa/main.sa`.
+- Extracted proxy/plugin helper module: `sa/src/proxy.sa(.sai)`.
+- Moved plugin buffer/free helpers, UUID/date plugin facades, HTTP response full-body reader, and client response normalization helpers out of `sa/main.sa`.
+- Removed stranded SSE normalization labels from `main.sa` after the module boundary change.
+- Extended `sa/src/proxy.sa(.sai)` with shared proxy decision/fallback helpers.
+- Moved tools/drop-key checks, Gemini request detection, and chat fallback request builder out of `sa/main.sa`.
+- Extended `sa/src/proxy.sa(.sai)` with top-level proxy body builders.
+- Moved Gemini responses drop-key filtering plus `build_responses_proxy_body` and `build_chat_proxy_body` out of `sa/main.sa`.
+- Revalidated SA build and focused runtime regressions after the proxy-body module extraction.
+- Extended `sa/src/proxy.sa(.sai)` with proxy tool normalization writer families.
+- Moved responses/chat tool writer helpers, namespace expansion, and normalized tools array emitters out of `sa/main.sa`.
+- Revalidated SA build plus focused runtime regressions after the proxy tool-normalization extraction; `sa/main.sa` dropped to `16055` lines.
+- Extracted low-coupling RPC/system module: `sa/src/rpc_system.sa(.sai)`.
+- Moved low-coupling RPC notifications and handlers out of `sa/main.sa`, including thread elicitation helpers, fs watch/unwatch, external import, experimental enablement, realtime start/thread, sandbox setup, fuzzy search/session, and server request resolved responses.
+- Preserved existing external helper names for shared bool/status RPC responses so remaining legacy handlers can keep calling the same surface during the staged split.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the system-handler extraction; `sa/main.sa` dropped to `14914` lines.
+- Extracted shared session JSON helper module: `sa/src/rpc_session.sa(.sai)`.
+- Moved thread/goal/turn JSON field writers and object writers out of `sa/main.sa`, including thread-id fallback writing, goal status/budget fields, mode fields, thread git info, thread object emission, and turn object/status/completion emitters.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the session-helper extraction; `sa/main.sa` dropped to `14069` lines.
+- Extended `sa/src/rpc_session.sa(.sai)` with shared session-domain notifications.
+- Moved thread/goal/turn notification emitters out of `sa/main.sa`, including thread started/status/name updates, generic thread-id notifications, goal updated notifications, and turn started/completed/diff/plan notifications.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the session-notification extraction; `sa/main.sa` dropped to `13759` lines.
+- Extended `sa/src/rpc_session.sa(.sai)` with shared goal response handlers.
+- Moved `send_rpc_goal_null_with_id`, `send_rpc_goal_obj`, and `send_rpc_goal_clear` out of `sa/main.sa` into the session module while preserving the existing response envelope and goal-cleared notification payload shape.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the goal-handler extraction; `sa/main.sa` dropped to `13634` lines.
+- Extended `sa/src/rpc_session.sa(.sai)` with low-coupling thread response handlers.
+- Moved `send_rpc_thread_archive` and `send_rpc_thread_name_set` out of `sa/main.sa` into the session module while preserving the existing archived/name response payloads and thread notification behavior.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the thread-handler extraction; `sa/main.sa` dropped to `13507` lines.
+- Extended `sa/src/rpc_session.sa(.sai)` with thread read/metadata helpers and handlers.
+- Moved `send_rpc_thread_read`, `send_rpc_thread_unarchive`, `send_rpc_thread_metadata_update`, and `apply_thread_git_info_from_body` out of `sa/main.sa` into the session module while preserving the existing thread object payloads, unarchive behavior, preview updates, and gitInfo handling.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the thread-read/metadata extraction; `sa/main.sa` dropped to `13222` lines.
+- Extended `sa/src/rpc_session.sa(.sai)` with low-coupling turn response handlers.
+- Moved `send_rpc_turns_list`, `send_rpc_turn_items_list`, `send_rpc_thread_rollback`, `send_rpc_turn_start`, and `send_rpc_turn_interrupt` out of `sa/main.sa` while preserving cursor fields, turn object payloads, rollback readback, start fallback timestamps, and interrupt notification/response behavior.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the turn-handler extraction; `sa/main.sa` dropped to `12936` lines.
+- Extended `sa/src/rpc_parse.sa(.sai)` and `sa/src/rpc_session.sa(.sai)` with steer/item support.
+- Moved `rpc_extract_param_array_json` into the parse module, then moved `send_rpc_turn_steer` plus turn input/injected item DOM notification helpers into the session module while preserving JSON DOM parsing, item notification order, and turn steer response shape.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the steer/item extraction; `sa/main.sa` dropped to `12207` lines.
+- Extended `sa/src/rpc_session.sa(.sai)` with memory reset handling.
+- Moved `send_rpc_memory_reset` out of `sa/main.sa` into the session module while preserving runtime state reset, thread closed notification for `*`, and reset/threadId response payload shape.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the memory-reset extraction; `sa/main.sa` dropped to `12182` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with low-coupling read-only system responses.
+- Moved `send_rpc_model_capabilities` and `send_rpc_collaboration_mode_list` out of `sa/main.sa` into the system module while preserving model capability booleans and default/plan collaboration mode payloads.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the read-only system response extraction; `sa/main.sa` dropped to `12119` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with read-only hooks/model/account/config responses.
+- Moved `send_rpc_hooks_list`, `send_rpc_model_list`, `send_rpc_account_read`, `send_rpc_rate_limits`, `send_rpc_chatgpt_tokens_refresh`, and `send_rpc_config_read` out of `sa/main.sa` while preserving config-derived fields, default account fallbacks, rate-limit shape, and token refresh timestamp handling.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the hooks/model/account/config extraction; `sa/main.sa` dropped to `11817` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with basic plugin responses.
+- Moved `send_rpc_plugin_read` and `send_rpc_plugin_uninstall` out of `sa/main.sa` while preserving marketplace/path defaults, plugin summary fields, and uninstall response payloads.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the basic plugin response extraction; `sa/main.sa` dropped to `11686` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with plugin share checkout/delete responses.
+- Moved `send_rpc_plugin_share_checkout` and `send_rpc_plugin_share_delete` out of `sa/main.sa` while preserving marketplace/plugin defaults and optional remotePluginId handling.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the plugin share checkout/delete extraction; `sa/main.sa` dropped to `11603` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with marketplace mutation responses.
+- Moved `send_rpc_marketplace_add`, `send_rpc_marketplace_remove`, and `send_rpc_marketplace_upgrade` out of `sa/main.sa` while preserving installedRoot, alreadyAdded, selectedMarketplaces, and upgradedRoots response shapes.
+- Revalidated `sa build sa/main.sa` plus focused runtime regressions after the marketplace response extraction; `sa/main.sa` dropped to `11471` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with initialization/login/environment/review/oauth/mock responses.
+- Moved `send_rpc_initialize`, `send_rpc_account_login_start`, `send_rpc_environment_add`, `send_rpc_review_start`, `send_rpc_oauth_login`, and `send_rpc_mock_experimental` out of `sa/main.sa` while preserving Deno facade metadata, config-derived OAuth URL, path/null fallback, and JSON DOM echo behavior.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh` after this system-handler extraction; `sa/main.sa` dropped to `11162` lines.
+- Extended `sa/src/rpc_emit.sa(.sai)` with common fixed-shape RPC response helpers.
+- Moved empty array/data page responses, config requirements, plugin marketplace/install fallbacks, experimental feature listing, account login state, approval/mcp elicitation accepts, permissions defaults, user input continuation, and realtime voice listing out of `sa/main.sa` while keeping all output on SA std JSON writer helpers.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh` after the common response-helper extraction; `sa/main.sa` dropped to `10880` lines.
+- Extended `sa/src/events.sa(.sai)` with MCP/user-input/world-warning/startup notification helpers.
+- Moved `notify_mcp_tool_progress`, `notify_user_input_request`, `notify_mcp_elicitation_request`, `notify_world_warning_params`, and `notify_mcp_startup_params` out of `sa/main.sa`, with explicit dependencies on RPC parsing, plugin UUID/free helpers, and SA std JSON writer helpers.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh` after the event-notification extraction; `sa/main.sa` dropped to `10596` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with plugin share save/update responses.
+- Moved `send_rpc_plugin_share_save`, `send_rpc_plugin_share_update_empty`, `send_rpc_plugin_share_update_node`, and `send_rpc_plugin_share_update_targets` out of `sa/main.sa` while preserving config-derived share URL generation, remote id prefixing, discoverability defaults, and principals array DOM validation.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh` after the plugin share save/update extraction; `sa/main.sa` dropped to `10422` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with low-coupling MCP helper responses.
+- Moved `send_rpc_mcp_reload` and `send_rpc_item_tool_call` out of `sa/main.sa` while preserving name/default extraction, reload acknowledgement shape, contentItems text payloads, and success flag output via SA std JSON writer helpers.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh` after this MCP helper extraction; `sa/main.sa` dropped to `10360` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with `mcp/tool/call` response handling.
+- Moved `send_rpc_mcp_tool_call` out of `sa/main.sa` while preserving content array output, structuredContent ok/tool/server payload, isError flag, and meta thread/turn/item fields including null turn fallback.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh` after this MCP tool-call extraction; `sa/main.sa` dropped to `10211` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with filesystem RPC handlers.
+- Moved `send_rpc_fs_read`, `send_rpc_fs_write`, `send_rpc_fs_mkdir`, `send_rpc_fs_readdir`, `send_rpc_fs_metadata`, `send_rpc_fs_remove`, and `send_rpc_fs_copy` out of `sa/main.sa` while preserving Deno facade file operations, JSON DOM directory entry wrapping, base64 read/write payloads, and existing JSON-RPC error/ok response shapes.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, and `sa build sa/tests/test_http_contract.sa` after the filesystem handler extraction; `sa/main.sa` dropped to `9784` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with command/process RPC handlers.
+- Moved `command/exec`, `process/spawn`, `process/kill`, command argv DOM parsing, base64 output delta encoding, and command/process notification helpers out of `sa/main.sa` while preserving Deno command facade usage, cwd/process id/handle defaults, stdout/stderr payloads, process state deletion semantics, and existing event/response shapes.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, and `sa build sa/tests/test_http_contract.sa` after the command/process handler extraction; `sa/main.sa` dropped to `8869` lines.
+- Extended `sa/src/rpc_session.sa(.sai)` with remaining low-coupling thread/session response handlers.
+- Moved thread start/list/loaded/resume/inject/simple-id/shell-command/memory-mode handlers plus thread envelope, dynamic turns array, and goal status parse helpers out of `sa/main.sa` while preserving thread object payloads, injected item notifications, shell warning emission, approval/sandbox defaults, and camelCase goal status parsing.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, and `sa build sa/tests/test_http_contract.sa` after this session-handler extraction; `sa/main.sa` dropped to `8117` lines.
+- Extended `sa/src/rpc_system.sa(.sai)` with remaining low-coupling system and MCP status responses.
+- Moved send-credits, attestation generation, external config detection, config write acknowledgement, remote status notification/response, MCP status listing, and MCP resource read fallback handlers out of `sa/main.sa` while preserving config-derived paths, attestation token prefixing, remote status payloads, and MCP resource/status response shapes.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, and `sa build sa/tests/test_http_contract.sa` after this system-tail extraction; `sa/main.sa` dropped to `7755` lines.
+- Added request-context/progress fallback module: `sa/src/request_context.sa(.sai)`.
+- Moved collaboration-mode request parsing, turn mode normalization, request-context body builders, progress-only SSE continuation, canonicalized body forwarding, chat fallback SSE conversion, and unsafe Gemini fallback detection out of `sa/main.sa` while keeping output on SA std JSON writer helpers.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, and `sa build sa/tests/test_http_contract.sa` after the request-context extraction; `sa/main.sa` dropped to `5871` lines, meeting the planned `<=6000` threshold.
+- Added `rpc_extract_param_string` as the public string-param parser wrapper in `sa/src/rpc_parse.sa(.sai)`.
+- Replaced business-module direct calls to the lower-level `rpc_extract_string_after(...)` with the wrapper; direct lower-level extractor use is now confined to `sa/src/rpc_parse.sa`.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, and `sa build sa/tests/test_http_contract.sa` after the parser API boundary cleanup.
+- Extended `sa/src/rpc_session.sa(.sai)` with goal-domain request handlers.
+- Moved `thread/goal/set`, `thread/goal/get`, and `thread/goal/clear` state mutation/readback, notification emission, status parsing, budget null handling, and response emission out of `sa/main.sa`; the main RPC switch now delegates these methods to session handlers.
+- Removed goal-only dead constants from `sa/main.sa`; `sa/main.sa` dropped to `5639` lines while staying below the planned `<=6000` threshold.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_goal_status_budget_null_parity.sh`, `sa/tests/test_goal_timestamp_current.sh`, `sa/tests/test_goal_update_timestamp_parity.sh`, and `sa/tests/test_turn_goal_event_thread_id_parity.sh` after this goal-handler extraction.
+- Extended `sa/src/rpc_session.sa(.sai)` with the `turn/start` request handler.
+- Moved turn creation, input item DOM extraction/storage, collaboration-mode normalization, turn notifications, and missing-thread error response out of `sa/main.sa`; the main RPC switch now delegates `turn/start` to the session module.
+- Removed the now-dead `FB_KEY_INPUT` constants from `sa/main.sa`; `sa/main.sa` dropped to `5586` lines.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_turn_start_collaboration_mode_rpc_parity.sh`, `sa/tests/test_turn_start_missing_thread.sh`, `sa/tests/test_turn_items_list.sh`, `sa/tests/test_turn_steer_items.sh`, and `sa/tests/test_thread_resume_envelope.sh` after this turn/start extraction.
+- Extended `sa/src/rpc_session.sa(.sai)` with the `thread/start` request handler.
+- Moved config default model/cwd/provider resolution, optional thread string id parsing, ephemeral parsing, thread creation, provider/ephemeral state updates, start notifications, and start response emission out of `sa/main.sa`; the main RPC switch now delegates `thread/start` to the session module.
+- Removed the now-dead `DEFAULT_OPENAI` constants from `sa/main.sa`; `sa/main.sa` dropped to `5520` lines.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_thread_start_fork_param_overrides.sh`, and `sa/tests/test_thread_string_id_lifecycle.sh` after this thread/start extraction.
+- Extended `sa/src/rpc_session.sa(.sai)` with the `thread/fork` request handler.
+- Moved source-thread lookup, fork override parsing, fork state creation, preview/name/gitInfo copy, started/status notifications, not-found error response, and fork response emission out of `sa/main.sa`; the main RPC switch now delegates `thread/fork` to the session module.
+- Removed the now-dead model/cwd/provider/ephemeral parser constants from `sa/main.sa`; `sa/main.sa` dropped to `5412` lines.
+- Revalidated `sa build sa/main.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, `sa/tests/test_turn_interrupt_lifecycle.sh`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_thread_start_fork_param_overrides.sh`, and `sa/tests/test_thread_string_id_lifecycle.sh` after this thread/fork extraction.
+- Added HTTP dispatch helper module: `sa/src/http_dispatch.sa(.sai)`.
+- Moved `body_is_blank`, `check_auth`, and `scan_chunk_for_tokens` out of `sa/main.sa` while preserving auth logging strings, request body blank detection, and streaming token scan behavior.
+- Updated the empty-body JSON-RPC error text to match the existing contract while continuing to emit it through the shared JSON response path.
+- Removed the now-dead HTTP dispatch constants/helpers from `sa/main.sa`; `sa/main.sa` dropped to `5114` lines.
+- Revalidated `sa build sa/main.sa`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Extended `sa/src/http_dispatch.sa(.sai)` with request/auth log writers.
+- Moved `json_writer_field_token_preview`, `write_auth_failure_log`, and `write_api_request_log` out of `sa/main.sa` while preserving token preview masking, log file names, request header capture, and JSON emission via SA std JSON writer helpers.
+- Removed log-only dead constants from `sa/main.sa`; `sa/main.sa` dropped to `4719` lines.
+- Revalidated `sa build sa/main.sa`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Extended `sa/src/http_dispatch.sa(.sai)` with builder-response emission.
+- Moved `send_builder_response` out of `sa/main.sa` while preserving the existing RPC builder data/length handoff and shared JSON response sender path.
+- Revalidated `sa build sa/main.sa`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; `sa/main.sa` dropped to `4682` lines and `.env`/`deno`/`codex` remained untouched.
+- Extended `sa/src/http_dispatch.sa(.sai)` with `/v1/models` proxy handling.
+- Moved models upstream URL construction, auth/header forwarding, response body/header forwarding, bad-gateway handling, missing-config response, and request/API logging out of `sa/main.sa`; top-level routing now delegates `/v1/models` to `handle_models_proxy` and retains request cleanup.
+- Removed models-only dead constants from `sa/main.sa`; `sa/main.sa` dropped to `4533` lines.
+- Revalidated `sa build sa/main.sa`, `sa test sa/tests/model_list_contract_test.sa --compile-only`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Extended `sa/src/http_dispatch.sa(.sai)` with `/v1/chat/completions` proxy handling.
+- Moved chat body loading/logging, empty-body response, upstream request construction, auth/header forwarding, JSON/non-SSE forwarding, SSE streaming, token scanning, and stream cleanup out of `sa/main.sa`; top-level routing now delegates `/v1/chat/completions` to `handle_chat_proxy`.
+- Removed chat-only dead log/buffer constants from `sa/main.sa`; `sa/main.sa` dropped to `4163` lines.
+- Revalidated `sa build sa/main.sa`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Extended `sa/src/http_dispatch.sa(.sai)` with `/v1/responses` proxy handling.
+- Moved responses body loading, empty-body handling, Gemini/proxy body normalization, responses/chat fallback routing, JSON/SSE normalization, upstream forwarding, and streaming response emission out of `sa/main.sa`; top-level routing now delegates `/v1/responses` to `handle_responses_proxy`.
+- Revalidated `sa build sa/main.sa`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; `sa/main.sa` dropped to `3335` lines and `.env`/`deno`/`codex` remained untouched.
+- Extended `sa/src/http_dispatch.sa` with top-level HTTP accept/request dispatch.
+- Moved `accept_and_handle_http_request` and `handle_http_request` out of `sa/main.sa`, including method/path extraction, public health/ready/models checks, auth gate, route dispatch, RPC/events delegation, and 404 handling; `sa/main.sa` now delegates accepted requests like the TypeScript entrypoint delegates to `handleHttpWithState`.
+- Revalidated `sa build sa/main.sa`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; `sa/main.sa` dropped to `2971` lines and `.env`/`deno`/`codex` remained untouched.
+- Added JSON-RPC dispatcher module: `sa/src/rpc_dispatch.sa(.sai)`.
+- Moved the full JSON-RPC method constant set and `handle_rpc_request` dispatcher out of `sa/main.sa`, including thread/turn/goal, filesystem/process, plugin/marketplace, MCP, config/account, permissions, and remote/status delegation branches.
+- Added `sa/src/hub_modules.sa` as the implementation bundle required by the current SA import/linking model, keeping `sa/main.sa` free of business-module implementation imports.
+- Reduced `sa/main.sa` to `92` lines: it now mirrors `src/main.ts` structurally by loading config, initializing state, starting the HTTP server, and delegating each accepted request to `accept_and_handle_http_request`.
+- Revalidated `sa build sa/main.sa`, `sa build sa/tests/test_http_contract.sa`, `sa/tests/test_responses_plan_large_tools_no_crash.sh`, and `sa/tests/test_turn_interrupt_lifecycle.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Added `sa/tests/lib/runtime_env.sh` with shared non-destructive runtime-test helpers for free port allocation, temporary `.env` generation, HubProxy startup, readiness waiting, and process cleanup.
+- Added `sa/tests/run_default_contracts.sh` as the default local runtime-contract gate; it builds SA and runs only the non-destructive shell contract set.
+- Migrated `test_responses_plan_large_tools_no_crash.sh` and `test_turn_interrupt_lifecycle.sh` to use the runtime helper and random isolated ports by default.
+- Updated `sa/README.md` to separate default non-destructive local contracts from legacy isolated fixed-port contracts.
+- Revalidated `bash sa/tests/run_default_contracts.sh`, `sa test sa/tests/unit_tests.sa --trace-panic`, `sa test sa/tests/test_strings.sa --trace-panic`, `sa test sa/tests/test_state.sa --trace-panic`, `sa test sa/tests/test_config.sa --trace-panic`, `sa test sa/tests/responses_chat_fallback_request_test.sa --trace-panic`, `sa test sa/tests/model_list_contract_test.sa --compile-only`, `sa build sa/tests/test_server_config.sa`, and `sa build sa/tests/test_deno_compat.sa`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Migrated `test_account_email.sh`, `test_account_plan_type.sh`, and `test_marketplace_installed_root.sh` from root `.env`/fixed `28080` mutation to the shared non-destructive runtime helper.
+- Added the three migrated RPC/account/marketplace contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated `bash sa/tests/test_account_email.sh`, `bash sa/tests/test_account_plan_type.sh`, `bash sa/tests/test_marketplace_installed_root.sh`, and `bash sa/tests/run_default_contracts.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Migrated `test_hooks_list_cwd.sh`, `test_config_read_nulls.sh`, `test_chatgpt_tokens_refresh_iso.sh`, and `test_initialize_runtime_info.sh` from root `.env`/fixed `28080` mutation to the shared non-destructive runtime helper.
+- Added the four migrated hooks/config/account/initialize contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated `bash sa/tests/test_hooks_list_cwd.sh`, `bash sa/tests/test_config_read_nulls.sh`, `bash sa/tests/test_chatgpt_tokens_refresh_iso.sh`, `bash sa/tests/test_initialize_runtime_info.sh`, and `bash sa/tests/run_default_contracts.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Migrated `test_attestation_uuid.sh`, `test_plugin_share_save_uuid.sh`, `test_external_detect_cwd.sh`, and `test_realtime_uuid.sh` from root `.env`/fixed `28080` mutation to the shared non-destructive runtime helper.
+- Added the four migrated attestation/plugin/external/realtime contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated `bash sa/tests/test_attestation_uuid.sh`, `bash sa/tests/test_plugin_share_save_uuid.sh`, `bash sa/tests/test_external_detect_cwd.sh`, `bash sa/tests/test_realtime_uuid.sh`, and `bash sa/tests/run_default_contracts.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Migrated `test_api_request_log.sh`, `test_api_request_log_disabled_by_default.sh`, and `test_auth_failure_log.sh` from root `.env`/fixed `28080` mutation to the shared non-destructive runtime helper.
+- Restored `/v1/responses` request logging in `sa/src/http_dispatch.sa`; the refactor had kept chat/models/rpc/auth request logging but missed the responses route.
+- Updated `sa/tests/run_default_contracts.sh` to build `main.sa -o hubproxy`, matching the binary used by runtime shell contracts.
+- Revalidated `sa build sa/main.sa -o sa/hubproxy`, `bash sa/tests/test_api_request_log.sh`, `bash sa/tests/test_api_request_log_disabled_by_default.sh`, `bash sa/tests/test_auth_failure_log.sh`, and `bash sa/tests/run_default_contracts.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Migrated `test_memory_reset_clears_state.sh`, `test_inject_items_lifecycle.sh`, and `test_item_tool_call_no_progress_event.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Added the three migrated state/item lifecycle contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated `bash sa/tests/test_memory_reset_clears_state.sh`, `bash sa/tests/test_inject_items_lifecycle.sh`, `bash sa/tests/test_item_tool_call_no_progress_event.sh`, and `bash sa/tests/run_default_contracts.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Migrated `test_command_exec_cwd.sh`, `test_process_lifecycle.sh`, and `test_config_write_cwd.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Added the three migrated command/process/config-write contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated `bash sa/tests/test_command_exec_cwd.sh`, `bash sa/tests/test_process_lifecycle.sh`, `bash sa/tests/test_config_write_cwd.sh`, and `bash sa/tests/run_default_contracts.sh`; confirmed no diff under `.env`, `deno`, or `codex`.
+- Added `sa/src/bootstrap.sa` as the SA startup/bootstrap module.
+- Reduced `sa/main.sa` from the already-thin 92-line entrypoint to a 6-line entrypoint that only imports the HubProxy module bundle and calls `hubproxy_main()`, making it structurally thinner than `src/main.ts` while preserving the same startup behavior.
+- Revalidated `sa build sa/main.sa -o sa/hubproxy` and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate passed all 22 contracts after the bootstrap extraction.
+- Migrated `test_external_import_iso.sh`, `test_fs_watch_unwatch.sh`, and `test_plugin_share_update_targets.sh` from root `.env`/fixed `28080` runtime setup to the shared non-destructive runtime helper.
+- Added the three migrated external/fs-watch/plugin-share contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated `bash sa/tests/test_external_import_iso.sh`, `bash sa/tests/test_fs_watch_unwatch.sh`, `bash sa/tests/test_plugin_share_update_targets.sh`, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 25 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_elicitation_lifecycle.sh`, `test_empty_body_reject.sh`, `test_item_event_timestamp_current.sh`, and `test_realtime_start_timestamp_current.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted `test_empty_body_reject.sh` to use both a temporary HubProxy port and a temporary upstream port, so it verifies empty-body rejection without touching root `.env`, binding `28080`, or depending on a fixed `28081` upstream.
+- Added the four migrated elicitation/HTTP-boundary/timestamp contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 29 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_responses_fallback_capture.sh`, `test_responses_fallback_json_tool_call.sh`, and `test_responses_fallback_stream_tool_call.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted those responses fallback contracts to use temporary HubProxy and upstream ports while preserving their request-capture, non-stream tool-call normalization, and stream tool-call normalization assertions.
+- Added the three migrated responses fallback contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 32 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_responses_fallback_json_tool_only.sh`, `test_responses_fallback_json_reasoning_content.sh`, `test_responses_fallback_json_thought_tag.sh`, and `test_responses_fallback_strips_responses_only_fields.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted those JSON fallback contracts to use temporary HubProxy and upstream ports while preserving tool-only output, reasoning_content mapping, thought-tag extraction, and responses-only field stripping assertions.
+- Added the four migrated JSON fallback contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 36 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_responses_fallback_stream_events.sh`, `test_responses_fallback_stream_reasoning_content.sh`, `test_responses_fallback_stream_thought_tag.sh`, and `test_responses_fallback_stream_tool_call_normalize.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted those stream fallback contracts to use temporary HubProxy and upstream ports while preserving SSE event conversion, reasoning summary streaming, split thought-tag extraction, and tool-call normalization assertions.
+- Added the four migrated stream fallback contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 40 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_responses_fallback_json_progress_continuation.sh`, `test_responses_fallback_json_progress_no_continuation.sh`, `test_responses_fallback_tool_history.sh`, and `test_responses_fallback_stream_tool_call_split.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted those fallback contracts to use temporary HubProxy and upstream ports while preserving progress-continuation injection, no-continuation control behavior, tool-history conversion, and split streaming tool-argument merge assertions.
+- Added the four migrated fallback contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 44 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_responses_fallback_stream_progress_continuation.sh`, `test_responses_fallback_stream_progress_no_continuation.sh`, `test_responses_fallback_stream_progress_no_exec_tool.sh`, and `test_responses_fallback_stream_tool_call_read_env_redact.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted those stream fallback contracts to use temporary HubProxy and upstream ports while preserving stream progress-continuation injection, no-continuation control behavior, no-exec-tool guard behavior, and `.env` read redaction assertions.
+- Added the four migrated stream fallback contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 48 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_responses_fallback_stream_tool_call_read_shell_quote.sh`, `test_responses_gemini_capture.sh`, `test_responses_gemini_tool_history_no_fallback.sh`, and `test_responses_missing_base_capture.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted those responses proxy/fallback contracts to use temporary HubProxy and upstream ports while preserving shell-quote normalization, Gemini incompatible-field stripping, Gemini tool-history no-fallback routing, and missing responses-base chat fallback assertions.
+- Added the four migrated responses proxy/fallback contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 52 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Migrated `test_large_non_sse_body.sh`, `test_responses_long_input_request_no_crash.sh`, `test_responses_native_large_sse_no_crash.sh`, and `test_responses_tools_capture.sh` from fixed/root runtime setup to the shared non-destructive runtime helper.
+- Converted those long-body/native-forwarding contracts to use temporary HubProxy and upstream ports while preserving large non-SSE body forwarding, long request forwarding and post-request health checks, large native SSE normalization, and native tool normalization assertions.
+- Added the four migrated long-body/native contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 56 contracts, and `.env`/`deno`/`codex` remain untouched.
+- Connected native Responses SSE progress-continuation injection in `sa/src/proxy.sa` to the existing request-context guard and `build_native_progress_continuation` JSON builder, matching Deno's behavior of injecting `exec_command` before completion only when the request allows it and the normalized native SSE contains no tool call.
+- Added `test_responses_native_progress_continuation.sh`, `test_responses_native_progress_no_continuation.sh`, `test_responses_native_thinking_json.sh`, and `test_responses_native_thinking_stream.sh` to the default non-destructive runtime gate.
+- Revalidated `sa build sa/main.sa -o sa/hubproxy` plus the four native Responses contracts individually; all passed with temporary HubProxy/upstream ports, and the fixed/root scan now finds 4 remaining legacy shell scripts instead of 8.
+- Revalidated `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 60 contracts through `sa_default_contracts_ok`, and `git diff -- .env deno codex --stat` remains empty.
+- Migrated `test_rpc_misc_parity.sh`, `test_upstream_auth_headers.sh`, and `test_user_input_event_shape.sh` from root `.env`/fixed `28080` runtime setup to the shared non-destructive runtime helper.
+- Converted those RPC/header/events contracts to use temporary HubProxy ports and, where needed, temporary upstream ports while preserving JSON-RPC parity assertions, upstream auth header rewriting checks, and `/events` requestUserInput shape validation.
+- Added the three migrated RPC/header/events contracts to `sa/tests/run_default_contracts.sh`.
+- Revalidated each migrated script individually, `bash -n` for the migrated scripts, and `bash sa/tests/run_default_contracts.sh`; the default non-destructive runtime gate now passes 63 contracts through `sa_default_contracts_ok`, `git diff -- .env deno codex --stat` remains empty, and the fixed/root scan now only finds `test_restart_sa_entry.sh`, which is intentionally isolated because it verifies 28080 takeover behavior.
+- Revalidated the 9 SA source/native or compile contracts: `unit_tests.sa`, `test_strings.sa`, `test_state.sa`, `test_config.sa`, `responses_chat_fallback_request_test.sa`, `model_list_contract_test.sa --compile-only`, `test_http_contract.sa`, `test_server_config.sa`, and `test_deno_compat.sa`; all commands exited 0.
+- Updated `sa/README.md` status wording to reflect the current 9 native/compile contracts, 96 shell contract scripts, 63 default non-destructive shell contracts, and isolated fixed-port restart contract split.
+- Replayed the 32 shell contracts that were still outside the default local gate but did not require fixed-port/root `.env` behavior; this exposed Deno parity gaps in turn status strings, `collaborationModeKind`, goal budget status spelling, and MCP unsupported-resource JSON-RPC error codes.
+- Updated `sa/src/rpc_session.sa` so shared turn JSON emits Deno-compatible `status: "inProgress"`, `collaborationModeKind`, and camelCase goal statuses such as `budgetLimited`/`usageLimited` via the existing JSON writer helpers.
+- Fixed `sa/src/rpc_emit.sa` MCP unsupported-resource string lengths so `send_error_with_id` correctly emits JSON-RPC `-32601` for those HTTP 404 unsupported-method responses.
+- Added all 32 newly passing non-destructive contracts to `sa/tests/run_default_contracts.sh`; the default local gate now covers 95/95 non-destructive shell contracts, leaving only `test_restart_sa_entry.sh` in the isolated fixed-port layer.
+- Revalidated the 32 newly added scripts individually and `bash sa/tests/run_default_contracts.sh`; the full default local gate passed through `sa_default_contracts_ok`.
+- Updated `sa/README.md` status wording from 63/63 to 95/95 default non-destructive shell contracts.
+- Revalidated the 9 SA source/native or compile contracts again after the turn/goal/MCP parity fixes; all commands exited 0.
 
-## Remaining
-- None for the targeted manual JSON writer patterns in `sa/main.sa`.
+## Operational Notes
+- Thin-entry refactor objective is complete: `sa/main.sa` is 6 lines and contains no startup internals, HTTP logic, or RPC business logic.
+- Keep `test_restart_sa_entry.sh` out of the default local gate and run it only in an isolated environment because it intentionally kills/replaces the listener on `28080` while validating the SA restart entrypoint.
+- Optional cleanup after a baseline commit: split still-large implementation modules such as `sa/src/rpc_system.sa`, `sa/src/rpc_session.sa`, and `sa/src/state.sa` by subdomain to reduce future review size without changing behavior.

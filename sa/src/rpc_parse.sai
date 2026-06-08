@@ -1,0 +1,14 @@
+// rpc_parse.sai — shared RPC/JSON parse helpers for SA HubProxy
+
+@extern rpc_extract_id_token(&body: ptr, body_len: u64, &out_buf: ptr, out_cap: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern rpc_jsonrpc_lookup_key(&key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern rpc_extract_u64_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: u64) -> u64
+@extern rpc_extract_bool_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: u8) -> u8
+@extern rpc_param_is_null(&body: ptr, body_len: u64, &key: ptr, key_len: u64) -> u8
+@extern rpc_extract_u64_number_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: u64) -> u64
+@extern rpc_extract_i64_number_after(&body: ptr, body_len: u64, &key: ptr, key_len: u64, fallback: i64) -> i64
+@extern rpc_extract_param_string(&body: ptr, body_len: u64, &key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern rpc_extract_string_or_default(&body: ptr, body_len: u64, &key: ptr, key_len: u64, &default_ptr: ptr, default_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32
+@extern rpc_extract_param_array_json(&body: ptr, body_len: u64, &field: ptr, field_len: u64, &out_ptr: ptr, &out_len: ptr, &out_buffer: ptr) -> u32
+@extern rpc_resolve_thread_id(&state_ptr: ptr, &body: ptr, body_len: u64, fallback: u64) -> u64
+@extern bytes_has(&body: ptr, body_len: u64, &needle: ptr, needle_len: u64) -> u32

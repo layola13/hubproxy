@@ -1,0 +1,78 @@
+// rpc_system.sai — low-coupling RPC/system handlers for SA HubProxy
+
+@extern notify_fs_changed(&state_ptr: ptr, &watch_id_ptr: ptr, watch_id_len: u64, &path_ptr: ptr, path_len: u64) -> u32
+@extern notify_thread_string(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64) -> u32
+@extern notify_realtime_started(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_rt_item_value(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64, &key: ptr, key_len: u64) -> u32
+@extern notify_rt_role_value(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &body: ptr, body_len: u64, &value_key: ptr, value_key_len: u64, &mid: ptr, mid_len: u64) -> u32
+@extern notify_fuzzy_events(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_server_resolved(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_empty_params(&state_ptr: ptr, &event_ptr: ptr, event_len: u64) -> u32
+@extern notify_sandbox_setup_params(&state_ptr: ptr) -> u32
+@extern send_rpc_bool_field_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, &key: ptr, key_len: u64, value: u8) -> u32
+@extern send_rpc_status_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, &status_ptr: ptr, status_len: u64) -> u32
+
+@extern send_rpc_thread_unsubscribe(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_thread_increment_elicitation(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_thread_decrement_elicitation(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_watch(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_unwatch(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_external_import(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_experimental_enablement_empty(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_experimental_enablement_set(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_realtime_start(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_realtime_thread(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64, kind: u8) -> u32
+@extern send_rpc_sandbox_setup(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fuzzy_search(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fuzzy_session(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64, is_stop: u8) -> u32
+@extern send_rpc_server_resolved(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_model_capabilities(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_collaboration_mode_list(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_hooks_list(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_model_list(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_account_read(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_rate_limits(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_chatgpt_tokens_refresh(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_config_read(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_plugin_read(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_plugin_uninstall(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_plugin_share_checkout(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_plugin_share_delete(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_plugin_share_save(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_plugin_share_update_empty(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_plugin_share_update_node(&req: ptr, &id_ptr: ptr, id_len: u64, principals_node: ptr) -> u32
+@extern send_rpc_plugin_share_update_targets(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_marketplace_add(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_marketplace_remove(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_marketplace_upgrade(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_initialize(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_account_login_start(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_environment_add(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_review_start(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_oauth_login(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_mock_experimental(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_mcp_reload(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_item_tool_call(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_mcp_tool_call(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_read(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_write(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_mkdir(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_readdir(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_metadata(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_remove(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_fs_copy(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern notify_command_output(&state_ptr: ptr, &process_id_ptr: ptr, process_id_len: u64, &stream_ptr: ptr, stream_len: u64, &data_ptr: ptr, data_len: u64) -> u32
+@extern send_rpc_command_exec(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_process_output(&state_ptr: ptr, &handle_ptr: ptr, handle_len: u64, &stream_ptr: ptr, stream_len: u64, &data_ptr: ptr, data_len: u64) -> u32
+@extern notify_process_exited(&state_ptr: ptr, &handle_ptr: ptr, handle_len: u64, exit_code: u64, &stdout_ptr: ptr, stdout_len: u64, &stderr_ptr: ptr, stderr_len: u64) -> u32
+@extern send_rpc_process_spawn(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_process_kill(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_send_credits(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_attestation_generate(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern send_rpc_external_detect(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern send_rpc_config_write(&req: ptr, &id_ptr: ptr, id_len: u64, &cfg_ptr: ptr) -> u32
+@extern json_writer_write_remote_status_params(writer: ptr, &body: ptr, body_len: u64, &status_ptr: ptr, status_len: u64) -> u32
+@extern notify_remote_status(&state_ptr: ptr, &body: ptr, body_len: u64, &status_ptr: ptr, status_len: u64) -> u32
+@extern send_rpc_remote_status(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64, &status_ptr: ptr, status_len: u64) -> u32
+@extern send_rpc_mcp_status_list(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32
+@extern send_rpc_mcp_resource_read(&req: ptr, &id_ptr: ptr, id_len: u64, &body: ptr, body_len: u64) -> u32

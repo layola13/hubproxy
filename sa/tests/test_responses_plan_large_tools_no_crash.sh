@@ -3,8 +3,9 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
-hub_port="${SA_TEST_PROXY_PORT:-28280}"
-upstream_port="${SA_TEST_UPSTREAM_PORT:-28281}"
+source "${script_dir}/lib/runtime_env.sh"
+hub_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
+upstream_port="${SA_TEST_UPSTREAM_PORT:-$(sa_test_free_port)}"
 tmp_dir="$(mktemp -d)"
 server_log="$(mktemp)"
 hub_log="$(mktemp)"
@@ -27,10 +28,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ss -ltn | rg -q "(:${hub_port}|:${upstream_port})\b"; then
-  echo "test ports already in use: hub=${hub_port}, upstream=${upstream_port}" >&2
-  exit 1
-fi
+sa_test_assert_port_free "${hub_port}"
+sa_test_assert_port_free "${upstream_port}"
 
 REQ_CAPTURE="${request_body}" UPSTREAM_PORT="${upstream_port}" python3 <<'PY' >"${server_log}" 2>&1 &
 import http.server
@@ -63,12 +62,7 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 PY
 server_pid=$!
 
-for _ in {1..80}; do
-  if ss -ltn | rg -q "127\.0\.0\.1:${upstream_port}"; then
-    break
-  fi
-  sleep 0.1
-done
+sa_test_wait_port "${upstream_port}" 80 0.1
 
 cat >"${tmp_dir}/.env" <<ENV
 SA_PORT=${hub_port}
@@ -87,13 +81,7 @@ ENV
 ) &
 hub_pid=$!
 
-for _ in {1..80}; do
-  if ss -ltn | rg -q ":${hub_port} "; then
-    break
-  fi
-  sleep 0.1
-done
-if ! ss -ltn | rg -q ":${hub_port} "; then
+if ! sa_test_wait_port "${hub_port}" 80 0.1; then
   echo "hubproxy did not start on ${hub_port}" >&2
   cat "${hub_log}" >&2 || true
   exit 1

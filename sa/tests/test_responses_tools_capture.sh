@@ -4,41 +4,39 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
+source "${script_dir}/lib/runtime_env.sh"
 env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+tmp_dir="$(mktemp -d)"
 server_log="$(mktemp)"
 request_body="$(mktemp)"
 response_body="$(mktemp)"
+hub_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
+upstream_port="${SA_TEST_UPSTREAM_PORT:-$(sa_test_free_port)}"
 server_pid=""
 hub_pid=""
 
 cleanup() {
   if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${hub_pid}"
   fi
   if [[ -n "${server_pid}" ]]; then
     kill "${server_pid}" 2>/dev/null || true
     wait "${server_pid}" 2>/dev/null || true
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}" "${server_log}" "${request_body}" "${response_body}"
+  rm -rf "${tmp_dir}"
+  rm -f "${server_log}" "${request_body}" "${response_body}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
+sa_test_assert_port_free "${hub_port}"
+sa_test_assert_port_free "${upstream_port}"
 
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
-fi
-
-python3 - "${request_body}" <<'PY' >"${server_log}" 2>&1 &
+python3 - "${request_body}" "${upstream_port}" <<'PY' >"${server_log}" 2>&1 &
 import http.server
 import sys
 
 capture_path = sys.argv[1]
+port = int(sys.argv[2])
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -58,46 +56,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_args):
         return
 
-http.server.ThreadingHTTPServer(("127.0.0.1", 28081), Handler).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 PY
 server_pid=$!
 
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '127\.0\.0\.1:28081'; then
-    break
-  fi
-  sleep 0.1
-done
+if ! sa_test_wait_port "${upstream_port}" 50 0.1; then
+  echo "upstream did not start on ${upstream_port}" >&2
+  cat "${server_log}" >&2 || true
+  exit 1
+fi
 
-awk '
+sa_test_write_env_from_root "${env_file}" "${tmp_dir}/.env.base" "${hub_port}" "client-secret"
+awk -v upstream_port="${upstream_port}" '
   BEGIN { wrote_chat=0; wrote_resp=0; wrote_sa_port=0 }
-  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:28081/v1"; wrote_chat=1; next }
-  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:28081/v1"; wrote_resp=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_sa_port=1; next }
+  /^CHAT_BASE_URL=/ { print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_chat=1; next }
+  /^RESPONSES_BASE_URL=/ { print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"; wrote_resp=1; next }
+  /^SA_PORT=/ { print; wrote_sa_port=1; next }
   { print }
   END {
-    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:28081/v1"
-    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:28081/v1"
-    if (!wrote_sa_port) print "SA_PORT=28080"
+    if (!wrote_chat) print "CHAT_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
+    if (!wrote_resp) print "RESPONSES_BASE_URL=http://127.0.0.1:" upstream_port "/v1"
   }
-' "${backup_file}" >"${env_file}"
+' "${tmp_dir}/.env.base" >"${tmp_dir}/.env"
 
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_responses_tools_capture.log 2>&1 < /dev/null &
-hub_pid=$!
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy.log")"
+if ! sa_test_wait_port "${hub_port}" 50 0.1; then
+  echo "hubproxy did not start on ${hub_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
+  exit 1
+fi
 
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
-    break
-  fi
-  sleep 0.1
-done
-
-auth="$(awk -F= '$1=="AUTH"{print substr($0, index($0, "=") + 1)}' "${env_file}")"
+auth="client-secret"
 curl -sS --max-time 15 \
   -H "authorization: Bearer ${auth}" \
   -H 'content-type: application/json' \
   --data '{"model":"mimo-v2.5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],"stream":false,"tools":[{"type":"namespace","name":"mcp__code_index__","tools":[{"type":"function","name":"search","description":"Search index","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}]},{"type":"web_search","external_web_access":true},{"type":"function","name":"custom_search","description":"Search docs","parameters":{"type":"object","properties":{"query":{"type":"string"}}},"strict":true},{"type":"function","function":{"name":"custom_read","description":"Read docs","parameters":{"type":"object","properties":{"path":{"type":"string"}}},"strict":false}}]}' \
-  'http://127.0.0.1:28080/v1/responses' >"${response_body}"
+  "http://127.0.0.1:${hub_port}/v1/responses" >"${response_body}"
 
 if ! rg -q '"status":"completed"' "${response_body}"; then
   echo "responses proxy did not return mock response" >&2

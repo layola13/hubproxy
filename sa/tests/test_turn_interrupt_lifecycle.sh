@@ -3,9 +3,10 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
+source "${script_dir}/lib/runtime_env.sh"
 env_file="${sa_dir}/.env"
 auth_token="test-secret"
-sa_port="${SA_TEST_PROXY_PORT:-28220}"
+sa_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
 base_url="http://127.0.0.1:${sa_port}"
 
 tmp_dir="$(mktemp -d)"
@@ -16,8 +17,7 @@ events_pid=""
 
 stop_events() {
   if [[ -n "${events_pid}" ]]; then
-    kill -TERM "-${events_pid}" 2>/dev/null || true
-    wait "${events_pid}" 2>/dev/null || true
+    sa_test_stop_pgid "${events_pid}"
     events_pid=""
   fi
 }
@@ -25,44 +25,23 @@ stop_events() {
 cleanup() {
   stop_events
   if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${hub_pid}"
   fi
   rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-if ss -ltn | rg -q ":${sa_port}\\b"; then
-  echo "test port already in use: ${sa_port}" >&2
+sa_test_assert_port_free "${sa_port}"
+
+sa_test_write_env_from_root "${env_file}" "${tmp_dir}/.env" "${sa_port}" "${auth_token}"
+
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy.log")"
+
+if ! sa_test_wait_port "${sa_port}" 50 0.1; then
+  echo "hubproxy did not start on ${sa_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
   exit 1
 fi
-
-awk -v port="${sa_port}" -v auth="${auth_token}" '
-  BEGIN { wrote_sa=0; wrote_port=0; wrote_auth=0 }
-  /^SA_PORT=/ { print "SA_PORT=" port; wrote_sa=1; next }
-  /^PORT=/ { print "PORT=" port; wrote_port=1; next }
-  /^AUTH=/ { print "AUTH=" auth; wrote_auth=1; next }
-  { print }
-  END {
-    if (!wrote_sa) print "SA_PORT=" port
-    if (!wrote_port) print "PORT=" port
-    if (!wrote_auth) print "AUTH=" auth
-  }
-' "${env_file}" > "${tmp_dir}/.env"
-
-(
-  cd "${tmp_dir}"
-  setsid "${sa_dir}/hubproxy" > "${tmp_dir}/hubproxy.log" 2>&1 < /dev/null &
-  echo "$!" > "${tmp_dir}/hubproxy.pid"
-)
-hub_pid="$(cat "${tmp_dir}/hubproxy.pid")"
-
-for _ in {1..50}; do
-  if ss -ltn | rg -q ":${sa_port} "; then
-    break
-  fi
-  sleep 0.1
-done
 
 rpc() {
   curl -sS --max-time 15 \

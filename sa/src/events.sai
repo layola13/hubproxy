@@ -1,0 +1,24 @@
+// events.sai — shared event/SSE infrastructure for SA HubProxy
+
+#def EVENT_CTX_SIZE = 16
+#def EVENT_CTX_REQ = +0
+#def EVENT_CTX_STATE = +8
+
+@extern rpc_builder_new() -> ^ptr
+@extern rpc_builder_new_capacity(capacity: u64) -> ^ptr
+@extern rpc_builder_len(&buf: ptr) -> u64
+@extern rpc_builder_data(&buf: ptr) -> &ptr
+@extern rpc_builder_append(&buf: ptr, &src: ptr, src_len: u64) -> u32
+@extern rpc_builder_append_sse_frame(&buf: ptr, &event_ptr: ptr, event_len: u64, &data_ptr: ptr, data_len: u64) -> u32
+@extern rpc_builder_append_byte(&buf: ptr, &byte_ptr: ptr) -> u32
+@extern rpc_builder_to_owned(buf: ptr, &out_len: ptr) -> ^ptr
+@extern notify_push_frame(&state_ptr: ptr, ^frame: ptr) -> u32
+@extern rpc_builder_push_state(&state_ptr: ptr, buf: ptr) -> u32
+@extern notify_const_params(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, &params_ptr: ptr, params_len: u64) -> u32
+@extern notify_writer_params(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, writer: ptr) -> u32
+@extern spawn_event_stream(^ctx: ptr) -> u32
+@extern notify_mcp_tool_progress(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_user_input_request(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_mcp_elicitation_request(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_world_warning_params(&state_ptr: ptr) -> u32
+@extern notify_mcp_startup_params(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32

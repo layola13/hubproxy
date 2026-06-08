@@ -4,36 +4,29 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
-env_file="${project_dir}/.env"
-auth_token="$(awk -F= '/^AUTH=/{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
-sa_port="$(awk -F= '$1=="SA_PORT"{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
-sa_port="${sa_port:-28080}"
-base_url="http://127.0.0.1:${sa_port}"
+source "${script_dir}/lib/runtime_env.sh"
+tmp_dir="$(mktemp -d)"
+hub_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
+auth_token="client-secret"
+base_url="http://127.0.0.1:${hub_port}"
 hub_pid=""
 
 cleanup() {
   if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${hub_pid}"
   fi
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-old_pid="$(ss -ltnp | sed -nE "s/.*:${sa_port} .*pid=([0-9]+).*/\\1/p" | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+sa_test_assert_port_free "${hub_port}"
+sa_test_write_env_from_root "${project_dir}/.env" "${tmp_dir}/.env" "${hub_port}" "${auth_token}"
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy.log")"
+if ! sa_test_wait_port "${hub_port}" 50 0.1; then
+  echo "hubproxy did not start on ${hub_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
+  exit 1
 fi
-
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_rpc_misc_parity.log 2>&1 < /dev/null &
-hub_pid=$!
-
-for _ in {1..50}; do
-  if ss -ltnp | rg -q ":${sa_port} "; then
-    break
-  fi
-  sleep 0.1
-done
 
 rpc() {
   curl -sS --max-time 15 \

@@ -1,0 +1,19 @@
+// request_context.sai — collaboration/request-context/progress fallback helpers for SA HubProxy
+
+@extern body_collaboration_mode(&body: ptr, body_len: u64) -> u8
+@extern collaboration_mode_known_code(&mode_ptr: ptr, mode_len: u64) -> u8
+@extern state_turn_set_normalized_mode_text(&state_ptr: ptr, thread_id: u64, turn_id: u64, &mode_ptr: ptr, mode_len: u64) -> u8
+@extern rpc_turn_start_collaboration_mode(&body: ptr, body_len: u64) -> u8
+@extern rpc_turn_start_set_collaboration_mode(&state_ptr: ptr, thread_id: u64, turn_id: u64, &body: ptr, body_len: u64) -> u8
+@extern body_collaboration_mode_fallback(&body: ptr, body_len: u64) -> u8
+@extern body_allows_progress_continuation(&body: ptr, body_len: u64) -> u32
+@extern build_request_context_body(&body: ptr, body_len: u64, mode: u8, &out_len: ptr) -> ^ptr
+@extern response_request_context_mode(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64) -> u8
+@extern build_response_request_context_body(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64, &out_len: ptr) -> ^ptr
+@extern responses_sse_is_progress_message(&body: ptr, body_len: u64) -> u32
+@extern build_native_progress_continuation(&out_len: ptr) -> ^ptr
+@extern rpc_canonicalize_body(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr, &out_buffer: ptr) -> u32
+@extern append_with_replacement(&buf: ptr, &src: ptr, src_len: u64, &needle: ptr, needle_len: u64, &replacement: ptr, replacement_len: u64) -> u32
+@extern chat_fallback_sse_to_responses_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr
+@extern body_has_responses_tool_history(&body: ptr, body_len: u64) -> u32
+@extern body_is_unsafe_gemini_chat_fallback(&body: ptr, body_len: u64) -> u32

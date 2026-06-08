@@ -4,22 +4,20 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
+source "${script_dir}/lib/runtime_env.sh"
 env_file="${project_dir}/.env"
-
-auth_token="$(awk -F= '$1=="AUTH"{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
-sa_port="$(awk -F= '$1=="SA_PORT"{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
-sa_port="${sa_port:-28080}"
+tmp_dir="$(mktemp -d)"
+events_out="${tmp_dir}/events.out"
+events_err="${tmp_dir}/events.err"
+auth_token="client-secret"
+sa_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
 base_url="http://127.0.0.1:${sa_port}"
-
-events_out="$(mktemp)"
-events_err="$(mktemp)"
 hub_pid=""
 events_pid=""
 
 stop_events() {
   if [[ -n "${events_pid}" ]]; then
-    kill -TERM "-${events_pid}" 2>/dev/null || true
-    wait "${events_pid}" 2>/dev/null || true
+    sa_test_stop_pgid "${events_pid}"
     events_pid=""
   fi
 }
@@ -27,28 +25,21 @@ stop_events() {
 cleanup() {
   stop_events
   if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${hub_pid}"
   fi
-  rm -f "${events_out}" "${events_err}"
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-old_pid="$(ss -ltnp | sed -nE "s/.*:${sa_port} .*pid=([0-9]+).*/\\1/p" | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
+sa_test_assert_port_free "${sa_port}"
+sa_test_write_env_from_root "${env_file}" "${tmp_dir}/.env" "${sa_port}" "${auth_token}"
+
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy.log")"
+if ! sa_test_wait_port "${sa_port}" 50 0.1; then
+  echo "hubproxy did not start on ${sa_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
+  exit 1
 fi
-
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_inject_items.log 2>&1 < /dev/null &
-hub_pid=$!
-
-for _ in {1..50}; do
-  if ss -ltnp | rg -q ":${sa_port} "; then
-    break
-  fi
-  sleep 0.1
-done
 
 rpc() {
   curl -sS --max-time 15 \

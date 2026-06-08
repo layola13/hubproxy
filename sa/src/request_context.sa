@@ -1,0 +1,2020 @@
+// request_context.sa — collaboration/request-context/progress fallback helpers for SA HubProxy
+@import "request_context.sai"
+@import "sa_std/encoding/json.sa"
+@import "sa_std/encoding/json.sai"
+@import "deno.sal"
+@import "sa_http_server.sai"
+@import "events.sai"
+@import "json_support.sai"
+@import "proxy.sai"
+@import "rpc_parse.sai"
+@import "state.sai"
+@import "strings.sai"
+
+@const CTX_HDR_THREAD_ID = utf8:"thread-id"
+@const CTX_HDR_TURN_ID = utf8:"turn-id"
+#def CTX_HDR_THREAD_ID_LEN = 9
+#def CTX_HDR_TURN_ID_LEN = 7
+@const CTX_FB_KEY_TYPE = utf8:"type"
+@const CTX_FB_KEY_PARAMS = utf8:"params"
+@const CTX_FB_KEY_COLLAB_MODE_KIND = utf8:"collaborationModeKind"
+@const CTX_FB_VALUE_PLAN = utf8:"plan"
+@const CTX_FB_VALUE_GOAL = utf8:"goal"
+@const CTX_FB_VALUE_CODE = utf8:"code"
+@const CTX_JSON_KEY_STATUS = utf8:"status"
+@const CTX_JSON_KEY_RESPONSE = utf8:"response"
+@const CTX_JSON_KEY_ID = utf8:"id"
+@const CTX_JSON_KEY_NAME = utf8:"name"
+@const CTX_JSON_KEY_CMD = utf8:"cmd"
+@const CTX_JSON_KEY_CALL_ID = utf8:"call_id"
+@const CTX_JSON_KEY_ARGUMENTS = utf8:"arguments"
+@const CTX_JSON_KEY_COLLABORATION_MODE = utf8:"collaborationMode"
+@const CTX_JSON_KEY_MODE = utf8:"mode"
+@const CTX_JSON_KEY_ITEM = utf8:"item"
+@const CTX_JSON_VALUE_COMPLETED = utf8:"completed"
+@const CTX_TOOL_NAME_EXEC_KEY = utf8:"\"name\":\"exec_command\""
+@const CTX_TOOL_NAME_EXEC = utf8:"exec_command"
+@const CTX_BODY_GOAL_CONTEXT = utf8:"<goal_context>"
+@const CTX_BODY_GOAL_CONTEXT_TEXT = utf8:"Continue working toward the active thread goal"
+@const CTX_BODY_MODE_PLAN = utf8:"\"mode\":\"plan\""
+@const CTX_BODY_KIND_PLAN = utf8:"\"kind\":\"plan\""
+@const CTX_BODY_COLLAB_PLAN = utf8:"\"collaborationModeKind\":\"plan\""
+@const CTX_BODY_MODE_GOAL = utf8:"\"mode\":\"goal\""
+@const CTX_BODY_KIND_GOAL = utf8:"\"kind\":\"goal\""
+@const CTX_BODY_COLLAB_GOAL = utf8:"\"collaborationModeKind\":\"goal\""
+@const CTX_BODY_MODE_CODE = utf8:"\"mode\":\"code\""
+@const CTX_BODY_KIND_CODE = utf8:"\"kind\":\"code\""
+@const CTX_BODY_COLLAB_CODE = utf8:"\"collaborationModeKind\":\"code\""
+@const CTX_BODY_COLLAB_DEFAULT_TEXT = utf8:"# Collaboration Mode: Default"
+@const CTX_BODY_COLLAB_CODE_TEXT = utf8:"# Collaboration Mode: Code"
+@const CTX_BODY_PLAN_TEXT = utf8:"# Plan Mode (Conversational)"
+@const CTX_CHAT_PROGRESS_EN_LET_ME = utf8:"Let me"
+@const CTX_CHAT_PROGRESS_EN_CHECK = utf8:"check"
+@const CTX_CHAT_PROGRESS_EN_INSPECT = utf8:"inspect"
+@const CTX_CHAT_PROGRESS_EN_READ = utf8:"read"
+@const CTX_CHAT_PROGRESS_CN_WOHUI = utf8:"我会"
+@const CTX_CHAT_PROGRESS_CN_JIXU = utf8:"继续"
+@const CTX_CHAT_PROGRESS_CN_READ = utf8:"读取"
+@const CTX_CHAT_PROGRESS_CN_CHECK = utf8:"检查"
+@const CTX_CHAT_PROGRESS_CN_RUN = utf8:"运行"
+@const CTX_CHAT_FINAL_CN_DONE = utf8:"我已完成"
+@const CTX_CHAT_PROPOSED_PLAN = utf8:"<proposed_plan>"
+@const CTX_RESP_EVENT_COMPLETED_PREFIX = utf8:"event: response.completed\n"
+@const CTX_RESP_EVENT_OUTPUT_ITEM_DONE = utf8:"response.output_item.done"
+@const CTX_RESP_EVENT_DONE = utf8:"response.done"
+@const CTX_RESP_ID_CHAT_CONTINUE = utf8:"tc_chat_continue"
+@const CTX_RESP_CALL_ID_CHAT_CONTINUE = utf8:"call_chat_continue"
+@const CTX_RESP_ID_CHAT_FB = utf8:"resp_chat_fb"
+@const CTX_RESP_CONTINUATION_CMD = utf8:"printf '%s\n' 'Progress-only message received in chat fallback. Continue now: call a read-only tool if more evidence is needed, otherwise provide the final answer.'"
+@const CTX_RESP_TYPE_FUNCTION_CALL = utf8:"function_call"
+@const CTX_RESP_TYPE_CUSTOM_TOOL_CALL = utf8:"custom_tool_call"
+@const CTX_RESP_TYPE_TOOL_SEARCH_CALL = utf8:"tool_search_call"
+@const CTX_RESP_TYPE_MCP_TOOL_CALL = utf8:"mcp_tool_call"
+@const CTX_RESP_TYPE_FUNCTION_OUTPUT = utf8:"function_call_output"
+@const CTX_RESP_TYPE_CUSTOM_OUTPUT = utf8:"custom_tool_call_output"
+@const CTX_RESP_TYPE_TOOL_SEARCH_OUTPUT = utf8:"tool_search_output"
+@const CTX_RESP_TYPE_MCP_OUTPUT = utf8:"mcp_tool_call_output"
+#def CTX_FB_KEY_TYPE_LEN = 4
+#def CTX_FB_KEY_PARAMS_LEN = 6
+#def CTX_FB_KEY_COLLAB_MODE_KIND_LEN = 21
+#def CTX_FB_VALUE_PLAN_LEN = 4
+#def CTX_FB_VALUE_GOAL_LEN = 4
+#def CTX_FB_VALUE_CODE_LEN = 4
+#def CTX_JSON_KEY_STATUS_LEN = 6
+#def CTX_JSON_KEY_RESPONSE_LEN = 8
+#def CTX_JSON_KEY_ID_LEN = 2
+#def CTX_JSON_KEY_NAME_LEN = 4
+#def CTX_JSON_KEY_CMD_LEN = 3
+#def CTX_JSON_KEY_CALL_ID_LEN = 7
+#def CTX_JSON_KEY_ARGUMENTS_LEN = 9
+#def CTX_JSON_KEY_COLLABORATION_MODE_LEN = 17
+#def CTX_JSON_KEY_MODE_LEN = 4
+#def CTX_JSON_KEY_ITEM_LEN = 4
+#def CTX_JSON_VALUE_COMPLETED_LEN = 9
+#def CTX_RESP_TYPE_FUNCTION_CALL_LEN = 13
+#def CTX_RESP_TYPE_CUSTOM_TOOL_CALL_LEN = 16
+#def CTX_RESP_TYPE_TOOL_SEARCH_CALL_LEN = 16
+#def CTX_RESP_TYPE_MCP_TOOL_CALL_LEN = 13
+#def CTX_RESP_TYPE_FUNCTION_OUTPUT_LEN = 20
+#def CTX_RESP_TYPE_CUSTOM_OUTPUT_LEN = 23
+#def CTX_RESP_TYPE_TOOL_SEARCH_OUTPUT_LEN = 18
+#def CTX_RESP_TYPE_MCP_OUTPUT_LEN = 20
+#def CTX_TOOL_NAME_EXEC_KEY_LEN = 21
+#def CTX_BODY_GOAL_CONTEXT_LEN = 14
+#def CTX_BODY_GOAL_CONTEXT_TEXT_LEN = 46
+#def CTX_BODY_MODE_PLAN_LEN = 13
+#def CTX_BODY_KIND_PLAN_LEN = 13
+#def CTX_BODY_COLLAB_PLAN_LEN = 30
+#def CTX_BODY_MODE_GOAL_LEN = 13
+#def CTX_BODY_KIND_GOAL_LEN = 13
+#def CTX_BODY_COLLAB_GOAL_LEN = 30
+#def CTX_BODY_MODE_CODE_LEN = 13
+#def CTX_BODY_KIND_CODE_LEN = 13
+#def CTX_BODY_COLLAB_CODE_LEN = 30
+#def CTX_BODY_COLLAB_DEFAULT_TEXT_LEN = 29
+#def CTX_BODY_COLLAB_CODE_TEXT_LEN = 26
+#def CTX_BODY_PLAN_TEXT_LEN = 28
+#def CTX_CHAT_PROGRESS_EN_LET_ME_LEN = 6
+#def CTX_CHAT_PROGRESS_EN_CHECK_LEN = 5
+#def CTX_CHAT_PROGRESS_EN_INSPECT_LEN = 7
+#def CTX_CHAT_PROGRESS_EN_READ_LEN = 4
+#def CTX_CHAT_PROGRESS_CN_WOHUI_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_JIXU_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_READ_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_CHECK_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_RUN_LEN = 6
+#def CTX_CHAT_FINAL_CN_DONE_LEN = 12
+#def CTX_CHAT_PROPOSED_PLAN_LEN = 15
+#def CTX_RESP_EVENT_COMPLETED_PREFIX_LEN = 26
+#def CTX_RESP_EVENT_OUTPUT_ITEM_DONE_LEN = 25
+#def CTX_RESP_EVENT_DONE_LEN = 13
+#def CTX_RESP_ID_CHAT_CONTINUE_LEN = 16
+#def CTX_RESP_CALL_ID_CHAT_CONTINUE_LEN = 18
+#def CTX_RESP_ID_CHAT_FB_LEN = 12
+#def CTX_RESP_CONTINUATION_CMD_LEN = 164
+#def CTX_TOOL_NAME_EXEC_LEN = 12
+
+@ffi_wrapper body_collaboration_mode(&body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    mode_slot = stack_alloc 4
+    infer_status = call @sa_deno_plugin_infer_collaboration_mode(&body, body_len, &mode_slot)
+    infer_ok = eq infer_status, 0
+    br infer_ok -> L_BODY_MODE_INFER_OK, L_BODY_MODE_FALLBACK_STATUS
+
+L_BODY_MODE_INFER_OK:
+    !infer_ok
+    mode32 = load mode_slot+0 as u32
+    has_mode = ne mode32, 0
+    br has_mode -> L_BODY_MODE_INFER_RETURN, L_BODY_MODE_FALLBACK_MODE
+
+L_BODY_MODE_INFER_RETURN:
+    !has_mode
+    store mode_slot+0, mode32 as u8
+    mode8 = load mode_slot+0 as u8
+    !mode32
+    !infer_status
+    !body
+    !body_len
+    return mode8
+
+L_BODY_MODE_FALLBACK_MODE:
+    !has_mode
+    !mode32
+    !infer_status
+    fallback_mode = call @body_collaboration_mode_fallback(&body, body_len)
+    !body
+    !body_len
+    return fallback_mode
+
+L_BODY_MODE_FALLBACK_STATUS:
+    !infer_ok
+    !infer_status
+    fallback_mode2 = call @body_collaboration_mode_fallback(&body, body_len)
+    !body
+    !body_len
+    return fallback_mode2
+
+@ffi_wrapper min_u64(a: u64, b: u64) -> u64:
+L_ENTRY:
+    a_le_b = ule a, b
+    br a_le_b -> L_MIN_U64_A, L_MIN_U64_B
+
+L_MIN_U64_A:
+    !a_le_b
+    !b
+    return a
+
+L_MIN_U64_B:
+    !a_le_b
+    !a
+    return b
+
+@ffi_wrapper ascii_is_trim_ws(byte: u8) -> u8:
+L_ENTRY:
+    is_space = eq byte, 32
+    is_tab = eq byte, 9
+    is_lf = eq byte, 10
+    is_cr = eq byte, 13
+    is_ff = eq byte, 12
+    tmp1 = or is_space, is_tab
+    tmp2 = or is_lf, is_cr
+    tmp3 = or tmp1, tmp2
+    out = or tmp3, is_ff
+    !tmp3
+    !tmp2
+    !tmp1
+    !is_ff
+    !is_cr
+    !is_lf
+    !is_tab
+    !is_space
+    !byte
+    return out
+
+@ffi_wrapper ascii_lower_byte(byte: u8) -> u8:
+L_ENTRY:
+    ge_a = uge byte, 65
+    le_z = ule byte, 90
+    is_upper = and ge_a, le_z
+    br is_upper -> L_ASCII_LOWER_UPPER, L_ASCII_LOWER_KEEP
+
+L_ASCII_LOWER_UPPER:
+    !is_upper
+    lowered = add byte, 32
+    !byte
+    !ge_a
+    !le_z
+    return lowered
+
+L_ASCII_LOWER_KEEP:
+    !is_upper
+    !ge_a
+    !le_z
+    return byte
+
+@ffi_wrapper collaboration_mode_known_code(&mode_ptr: ptr, mode_len: u64) -> u8:
+L_ENTRY:
+    start_slot = stack_alloc 8
+    end_slot = stack_alloc 8
+    store start_slot+0, 0 as u64
+    store end_slot+0, mode_len as u64
+    jmp L_MODE_TRIM_START_COND
+
+L_MODE_TRIM_START_COND:
+    start = load start_slot+0 as u64
+    has_start = ult start, mode_len
+    br has_start -> L_MODE_TRIM_START_BODY, L_MODE_TRIM_START_EXHAUSTED
+
+L_MODE_TRIM_START_EXHAUSTED:
+    !has_start
+    !start
+    jmp L_MODE_TRIM_END_COND
+
+L_MODE_TRIM_START_BODY:
+    !has_start
+    start_ptr = ptr_add mode_ptr, start
+    start_byte = load start_ptr+0 as u8
+    start_ws = call @ascii_is_trim_ws(start_byte)
+    is_start_ws = ne start_ws, 0
+    br is_start_ws -> L_MODE_TRIM_START_NEXT, L_MODE_TRIM_START_DONE
+
+L_MODE_TRIM_START_NEXT:
+    !is_start_ws
+    !start_ws
+    !start_byte
+    !start_ptr
+    next_start = add start, 1
+    store start_slot+0, next_start as u64
+    !next_start
+    !start
+    jmp L_MODE_TRIM_START_COND
+
+L_MODE_TRIM_START_DONE:
+    !is_start_ws
+    !start_ws
+    !start_byte
+    !start_ptr
+    !start
+    jmp L_MODE_TRIM_END_COND
+
+L_MODE_TRIM_END_COND:
+    end = load end_slot+0 as u64
+    start_for_end = load start_slot+0 as u64
+    has_end = ugt end, start_for_end
+    br has_end -> L_MODE_TRIM_END_BODY, L_MODE_TRIM_END_EXHAUSTED
+
+L_MODE_TRIM_END_EXHAUSTED:
+    !has_end
+    !end
+    !start_for_end
+    jmp L_MODE_LEN_CHECK
+
+L_MODE_TRIM_END_BODY:
+    !has_end
+    end_prev = sub end, 1
+    end_ptr = ptr_add mode_ptr, end_prev
+    end_byte = load end_ptr+0 as u8
+    end_ws = call @ascii_is_trim_ws(end_byte)
+    is_end_ws = ne end_ws, 0
+    br is_end_ws -> L_MODE_TRIM_END_NEXT, L_MODE_TRIM_END_DONE
+
+L_MODE_TRIM_END_NEXT:
+    !is_end_ws
+    !end_ws
+    !end_byte
+    !end_ptr
+    store end_slot+0, end_prev as u64
+    !end_prev
+    !end
+    !start_for_end
+    jmp L_MODE_TRIM_END_COND
+
+L_MODE_TRIM_END_DONE:
+    !is_end_ws
+    !end_ws
+    !end_byte
+    !end_ptr
+    !end_prev
+    !end
+    !start_for_end
+    jmp L_MODE_LEN_CHECK
+
+L_MODE_LEN_CHECK:
+    final_start = load start_slot+0 as u64
+    final_end = load end_slot+0 as u64
+    trimmed_len = sub final_end, final_start
+    len_ok = eq trimmed_len, 4
+    br len_ok -> L_MODE_LOAD_BYTES, L_MODE_NONE
+
+L_MODE_LOAD_BYTES:
+    !len_ok
+    p0 = ptr_add mode_ptr, final_start
+    idx1 = add final_start, 1
+    idx2 = add final_start, 2
+    idx3 = add final_start, 3
+    p1 = ptr_add mode_ptr, idx1
+    p2 = ptr_add mode_ptr, idx2
+    p3 = ptr_add mode_ptr, idx3
+    b0_raw = load p0+0 as u8
+    b1_raw = load p1+0 as u8
+    b2_raw = load p2+0 as u8
+    b3_raw = load p3+0 as u8
+    b0 = call @ascii_lower_byte(b0_raw)
+    b1 = call @ascii_lower_byte(b1_raw)
+    b2 = call @ascii_lower_byte(b2_raw)
+    b3 = call @ascii_lower_byte(b3_raw)
+    is_plan0 = eq b0, 112
+    is_plan1 = eq b1, 108
+    is_plan2 = eq b2, 97
+    is_plan3 = eq b3, 110
+    plan01 = and is_plan0, is_plan1
+    plan23 = and is_plan2, is_plan3
+    is_plan = and plan01, plan23
+    br is_plan -> L_MODE_PLAN, L_MODE_GOAL_CHECK
+
+L_MODE_PLAN:
+    !is_plan
+    !plan23
+    !plan01
+    !is_plan3
+    !is_plan2
+    !is_plan1
+    !is_plan0
+    !b3
+    !b2
+    !b1
+    !b0
+    !b3_raw
+    !b2_raw
+    !b1_raw
+    !b0_raw
+    !p3
+    !p2
+    !p1
+    !p0
+    !idx3
+    !idx2
+    !idx1
+    !trimmed_len
+    !final_end
+    !final_start
+    !mode_ptr
+    !mode_len
+    return 1
+
+L_MODE_GOAL_CHECK:
+    !is_plan
+    !plan23
+    !plan01
+    !is_plan3
+    !is_plan2
+    !is_plan1
+    !is_plan0
+    is_goal0 = eq b0, 103
+    is_goal1 = eq b1, 111
+    is_goal2 = eq b2, 97
+    is_goal3 = eq b3, 108
+    goal01 = and is_goal0, is_goal1
+    goal23 = and is_goal2, is_goal3
+    is_goal = and goal01, goal23
+    br is_goal -> L_MODE_GOAL, L_MODE_CODE_CHECK
+
+L_MODE_GOAL:
+    !is_goal
+    !goal23
+    !goal01
+    !is_goal3
+    !is_goal2
+    !is_goal1
+    !is_goal0
+    !b3
+    !b2
+    !b1
+    !b0
+    !b3_raw
+    !b2_raw
+    !b1_raw
+    !b0_raw
+    !p3
+    !p2
+    !p1
+    !p0
+    !idx3
+    !idx2
+    !idx1
+    !trimmed_len
+    !final_end
+    !final_start
+    !mode_ptr
+    !mode_len
+    return 2
+
+L_MODE_CODE_CHECK:
+    !is_goal
+    !goal23
+    !goal01
+    !is_goal3
+    !is_goal2
+    !is_goal1
+    !is_goal0
+    is_code0 = eq b0, 99
+    is_code1 = eq b1, 111
+    is_code2 = eq b2, 100
+    is_code3 = eq b3, 101
+    code01 = and is_code0, is_code1
+    code23 = and is_code2, is_code3
+    is_code = and code01, code23
+    br is_code -> L_MODE_CODE, L_MODE_NONE_FROM_BYTES
+
+L_MODE_CODE:
+    !is_code
+    !code23
+    !code01
+    !is_code3
+    !is_code2
+    !is_code1
+    !is_code0
+    !b3
+    !b2
+    !b1
+    !b0
+    !b3_raw
+    !b2_raw
+    !b1_raw
+    !b0_raw
+    !p3
+    !p2
+    !p1
+    !p0
+    !idx3
+    !idx2
+    !idx1
+    !trimmed_len
+    !final_end
+    !final_start
+    !mode_ptr
+    !mode_len
+    return 3
+
+L_MODE_NONE_FROM_BYTES:
+    !is_code
+    !code23
+    !code01
+    !is_code3
+    !is_code2
+    !is_code1
+    !is_code0
+    !b3
+    !b2
+    !b1
+    !b0
+    !b3_raw
+    !b2_raw
+    !b1_raw
+    !b0_raw
+    !p3
+    !p2
+    !p1
+    !p0
+    !idx3
+    !idx2
+    !idx1
+    jmp L_MODE_NONE_SHARED
+
+L_MODE_NONE:
+    !len_ok
+    jmp L_MODE_NONE_SHARED
+
+L_MODE_NONE_SHARED:
+    !trimmed_len
+    !final_end
+    !final_start
+    !mode_ptr
+    !mode_len
+    return 0
+
+@ffi_wrapper state_turn_set_normalized_mode_text(&state_ptr: ptr, thread_id: u64, turn_id: u64, &mode_ptr: ptr, mode_len: u64) -> u8:
+L_ENTRY:
+    start_slot = stack_alloc 8
+    end_slot = stack_alloc 8
+    store start_slot+0, 0 as u64
+    store end_slot+0, mode_len as u64
+    jmp L_SET_MODE_TRIM_START_COND
+
+L_SET_MODE_TRIM_START_COND:
+    start = load start_slot+0 as u64
+    has_start = ult start, mode_len
+    br has_start -> L_SET_MODE_TRIM_START_BODY, L_SET_MODE_TRIM_START_EXHAUSTED
+
+L_SET_MODE_TRIM_START_EXHAUSTED:
+    !has_start
+    !start
+    jmp L_SET_MODE_TRIM_END_COND
+
+L_SET_MODE_TRIM_START_BODY:
+    !has_start
+    start_ptr = ptr_add mode_ptr, start
+    start_byte = load start_ptr+0 as u8
+    start_ws = call @ascii_is_trim_ws(start_byte)
+    is_start_ws = ne start_ws, 0
+    br is_start_ws -> L_SET_MODE_TRIM_START_NEXT, L_SET_MODE_TRIM_START_DONE
+
+L_SET_MODE_TRIM_START_NEXT:
+    !is_start_ws
+    !start_ws
+    !start_byte
+    !start_ptr
+    next_start = add start, 1
+    store start_slot+0, next_start as u64
+    !next_start
+    !start
+    jmp L_SET_MODE_TRIM_START_COND
+
+L_SET_MODE_TRIM_START_DONE:
+    !is_start_ws
+    !start_ws
+    !start_byte
+    !start_ptr
+    !start
+    jmp L_SET_MODE_TRIM_END_COND
+
+L_SET_MODE_TRIM_END_COND:
+    end = load end_slot+0 as u64
+    start_for_end = load start_slot+0 as u64
+    has_end = ugt end, start_for_end
+    br has_end -> L_SET_MODE_TRIM_END_BODY, L_SET_MODE_TRIM_END_EXHAUSTED
+
+L_SET_MODE_TRIM_END_EXHAUSTED:
+    !has_end
+    !end
+    !start_for_end
+    jmp L_SET_MODE_LEN_CHECK
+
+L_SET_MODE_TRIM_END_BODY:
+    !has_end
+    end_prev = sub end, 1
+    end_ptr = ptr_add mode_ptr, end_prev
+    end_byte = load end_ptr+0 as u8
+    end_ws = call @ascii_is_trim_ws(end_byte)
+    is_end_ws = ne end_ws, 0
+    br is_end_ws -> L_SET_MODE_TRIM_END_NEXT, L_SET_MODE_TRIM_END_DONE
+
+L_SET_MODE_TRIM_END_NEXT:
+    !is_end_ws
+    !end_ws
+    !end_byte
+    !end_ptr
+    store end_slot+0, end_prev as u64
+    !end_prev
+    !end
+    !start_for_end
+    jmp L_SET_MODE_TRIM_END_COND
+
+L_SET_MODE_TRIM_END_DONE:
+    !is_end_ws
+    !end_ws
+    !end_byte
+    !end_ptr
+    !end_prev
+    !end
+    !start_for_end
+    jmp L_SET_MODE_LEN_CHECK
+
+L_SET_MODE_LEN_CHECK:
+    final_start = load start_slot+0 as u64
+    final_end = load end_slot+0 as u64
+    trimmed_len = sub final_end, final_start
+    has_trimmed = ugt trimmed_len, 0
+    br has_trimmed -> L_SET_MODE_ALLOC, L_SET_MODE_CLEAR
+
+L_SET_MODE_CLEAR:
+    !has_trimmed
+    clear_status = call @state_turn_set_mode_text(&state_ptr, thread_id, turn_id, 0, &mode_ptr, 0)
+    !clear_status
+    !trimmed_len
+    !final_end
+    !final_start
+    !mode_ptr
+    !mode_len
+    !thread_id
+    !turn_id
+    !state_ptr
+    return 0
+
+L_SET_MODE_ALLOC:
+    !has_trimmed
+    copy_len = call @min_u64(trimmed_len, TURN_MODE_CAP)
+    norm_ptr = alloc copy_len
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    jmp L_SET_MODE_COPY_COND
+
+L_SET_MODE_COPY_COND:
+    i = load i_slot+0 as u64
+    done = uge i, copy_len
+    br done -> L_SET_MODE_SAVE, L_SET_MODE_COPY_BODY
+
+L_SET_MODE_COPY_BODY:
+    !done
+    src_idx = add final_start, i
+    src_ptr = ptr_add mode_ptr, src_idx
+    raw = load src_ptr+0 as u8
+    lowered = call @ascii_lower_byte(raw)
+    dst_ptr = ptr_add norm_ptr, i
+    store dst_ptr+0, lowered as u8
+    next_i = add i, 1
+    store i_slot+0, next_i as u64
+    !next_i
+    !dst_ptr
+    !lowered
+    !raw
+    !src_ptr
+    !src_idx
+    !i
+    jmp L_SET_MODE_COPY_COND
+
+L_SET_MODE_SAVE:
+    !done
+    mode_code = call @collaboration_mode_known_code(&norm_ptr, copy_len)
+    set_status = call @state_turn_set_mode_text(&state_ptr, thread_id, turn_id, mode_code, &norm_ptr, copy_len)
+    !set_status
+    !norm_ptr
+    !copy_len
+    !i
+    !trimmed_len
+    !final_end
+    !final_start
+    !mode_ptr
+    !mode_len
+    !thread_id
+    !turn_id
+    !state_ptr
+    return mode_code
+
+@ffi_wrapper rpc_turn_start_collaboration_mode(&body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_RPC_TMODE_ROOT, L_RPC_TMODE_NONE
+
+L_RPC_TMODE_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &CTX_FB_KEY_PARAMS, CTX_FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_RPC_TMODE_PARAMS, L_RPC_TMODE_FREE_NONE
+
+L_RPC_TMODE_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    collab_slot = stack_alloc 8
+    collab_status = call @sa_json_object_get(params_node, &CTX_JSON_KEY_COLLABORATION_MODE, CTX_JSON_KEY_COLLABORATION_MODE_LEN, &collab_slot)
+    collab_ok = eq collab_status, 0
+    br collab_ok -> L_RPC_TMODE_COLLAB, L_RPC_TMODE_FREE_NONE2
+
+L_RPC_TMODE_COLLAB:
+    !collab_ok
+    collab_node = load collab_slot+0 as ptr
+    mode_ptr_slot = stack_alloc 8
+    mode_len_slot = stack_alloc 8
+    mode_status = call @sa_json_object_get_string(collab_node, &CTX_JSON_KEY_MODE, CTX_JSON_KEY_MODE_LEN, &mode_ptr_slot, &mode_len_slot)
+    mode_ok = eq mode_status, 0
+    br mode_ok -> L_RPC_TMODE_VALUE, L_RPC_TMODE_FREE_NONE3
+
+L_RPC_TMODE_VALUE:
+    !mode_ok
+    mode_ptr = load mode_ptr_slot+0 as ptr
+    mode_len = load mode_len_slot+0 as u64
+    mode_code = call @collaboration_mode_known_code(&mode_ptr, mode_len)
+    is_plan = eq mode_code, 1
+    br is_plan -> L_RPC_TMODE_PLAN, L_RPC_TMODE_GOAL_CHECK
+
+L_RPC_TMODE_PLAN:
+    !is_plan
+    !mode_code
+    root_free_plan = call @sa_json_free(^root)
+    !root_free_plan
+    !mode_ptr
+    !mode_len
+    !collab_node
+    !body
+    !body_len
+    return 1
+
+L_RPC_TMODE_GOAL_CHECK:
+    !is_plan
+    is_goal = eq mode_code, 2
+    br is_goal -> L_RPC_TMODE_GOAL, L_RPC_TMODE_CODE_CHECK
+
+L_RPC_TMODE_GOAL:
+    !is_goal
+    !mode_code
+    root_free_goal = call @sa_json_free(^root)
+    !root_free_goal
+    !mode_ptr
+    !mode_len
+    !collab_node
+    !body
+    !body_len
+    return 2
+
+L_RPC_TMODE_CODE_CHECK:
+    !is_goal
+    is_code = eq mode_code, 3
+    br is_code -> L_RPC_TMODE_CODE, L_RPC_TMODE_FREE_NONE4
+
+L_RPC_TMODE_CODE:
+    !is_code
+    !mode_code
+    root_free_code = call @sa_json_free(^root)
+    !root_free_code
+    !mode_ptr
+    !mode_len
+    !collab_node
+    !body
+    !body_len
+    return 3
+
+L_RPC_TMODE_FREE_NONE4:
+    !is_code
+    !mode_code
+    !mode_ptr
+    !mode_len
+    !mode_status
+    !collab_node
+    !collab_status
+    !params_node
+    !params_status
+    free_status_none4 = call @sa_json_free(^root)
+    !free_status_none4
+    !body
+    !body_len
+    return 0
+
+L_RPC_TMODE_FREE_NONE3:
+    !mode_ok
+    !mode_status
+    !collab_node
+    !collab_status
+    !params_node
+    !params_status
+    free_status_none3 = call @sa_json_free(^root)
+    !free_status_none3
+    !body
+    !body_len
+    return 0
+
+L_RPC_TMODE_FREE_NONE2:
+    !collab_ok
+    !collab_status
+    !params_node
+    !params_status
+    free_status_none2 = call @sa_json_free(^root)
+    !free_status_none2
+    !body
+    !body_len
+    return 0
+
+L_RPC_TMODE_FREE_NONE:
+    !params_ok
+    !params_status
+    free_status_none = call @sa_json_free(^root)
+    !free_status_none
+    !body
+    !body_len
+    return 0
+
+L_RPC_TMODE_NONE:
+    !has_root
+    !root
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper rpc_turn_start_set_collaboration_mode(&state_ptr: ptr, thread_id: u64, turn_id: u64, &body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_RPC_SET_TMODE_ROOT, L_RPC_SET_TMODE_NONE
+
+L_RPC_SET_TMODE_ROOT:
+    !has_root
+    params_slot = stack_alloc 8
+    params_status = call @sa_json_object_get(root, &CTX_FB_KEY_PARAMS, CTX_FB_KEY_PARAMS_LEN, &params_slot)
+    params_ok = eq params_status, 0
+    br params_ok -> L_RPC_SET_TMODE_PARAMS, L_RPC_SET_TMODE_FREE_NONE
+
+L_RPC_SET_TMODE_PARAMS:
+    !params_ok
+    params_node = load params_slot+0 as ptr
+    collab_slot = stack_alloc 8
+    collab_status = call @sa_json_object_get(params_node, &CTX_JSON_KEY_COLLABORATION_MODE, CTX_JSON_KEY_COLLABORATION_MODE_LEN, &collab_slot)
+    collab_ok = eq collab_status, 0
+    br collab_ok -> L_RPC_SET_TMODE_COLLAB, L_RPC_SET_TMODE_FREE_NONE2
+
+L_RPC_SET_TMODE_COLLAB:
+    !collab_ok
+    collab_node = load collab_slot+0 as ptr
+    mode_ptr_slot = stack_alloc 8
+    mode_len_slot = stack_alloc 8
+    mode_status = call @sa_json_object_get_string(collab_node, &CTX_JSON_KEY_MODE, CTX_JSON_KEY_MODE_LEN, &mode_ptr_slot, &mode_len_slot)
+    mode_ok = eq mode_status, 0
+    br mode_ok -> L_RPC_SET_TMODE_VALUE, L_RPC_SET_TMODE_FREE_NONE3
+
+L_RPC_SET_TMODE_VALUE:
+    !mode_ok
+    mode_ptr = load mode_ptr_slot+0 as ptr
+    mode_len = load mode_len_slot+0 as u64
+    mode_code = call @state_turn_set_normalized_mode_text(&state_ptr, thread_id, turn_id, &mode_ptr, mode_len)
+    root_free_value = call @sa_json_free(^root)
+    !root_free_value
+    !mode_ptr
+    !mode_len
+    !collab_node
+    !params_node
+    !state_ptr
+    !thread_id
+    !turn_id
+    !body
+    !body_len
+    return mode_code
+
+L_RPC_SET_TMODE_FREE_NONE3:
+    !mode_ok
+    !mode_status
+    !collab_node
+    !collab_status
+    !params_node
+    !params_status
+    free_status_none3 = call @sa_json_free(^root)
+    !free_status_none3
+    !state_ptr
+    !thread_id
+    !turn_id
+    !body
+    !body_len
+    return 0
+
+L_RPC_SET_TMODE_FREE_NONE2:
+    !collab_ok
+    !collab_status
+    !params_node
+    !params_status
+    free_status_none2 = call @sa_json_free(^root)
+    !free_status_none2
+    !state_ptr
+    !thread_id
+    !turn_id
+    !body
+    !body_len
+    return 0
+
+L_RPC_SET_TMODE_FREE_NONE:
+    !params_ok
+    !params_status
+    free_status_none = call @sa_json_free(^root)
+    !free_status_none
+    !state_ptr
+    !thread_id
+    !turn_id
+    !body
+    !body_len
+    return 0
+
+L_RPC_SET_TMODE_NONE:
+    !has_root
+    !root
+    !state_ptr
+    !thread_id
+    !turn_id
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper body_collaboration_mode_fallback(&body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    dom_mode = call @rpc_turn_start_collaboration_mode(&body, body_len)
+    dom_has_mode = ne dom_mode, 0
+    br dom_has_mode -> L_BODY_MODE_DOM_RETURN, L_BODY_MODE_TEXT_FALLBACK
+
+L_BODY_MODE_DOM_RETURN:
+    !dom_has_mode
+    !body
+    !body_len
+    return dom_mode
+
+L_BODY_MODE_TEXT_FALLBACK:
+    !dom_has_mode
+    !dom_mode
+    mode_code = call @bytes_has(&body, body_len, &CTX_BODY_MODE_CODE, CTX_BODY_MODE_CODE_LEN)
+    kind_code = call @bytes_has(&body, body_len, &CTX_BODY_KIND_CODE, CTX_BODY_KIND_CODE_LEN)
+    collab_code = call @bytes_has(&body, body_len, &CTX_BODY_COLLAB_CODE, CTX_BODY_COLLAB_CODE_LEN)
+    default_text = call @bytes_has(&body, body_len, &CTX_BODY_COLLAB_DEFAULT_TEXT, CTX_BODY_COLLAB_DEFAULT_TEXT_LEN)
+    code_text = call @bytes_has(&body, body_len, &CTX_BODY_COLLAB_CODE_TEXT, CTX_BODY_COLLAB_CODE_TEXT_LEN)
+    code1 = or mode_code, kind_code
+    code2 = or collab_code, default_text
+    code3 = or code1, code2
+    code_any = or code3, code_text
+    is_code = ne code_any, 0
+    br is_code -> L_BODY_MODE_CODE, L_BODY_MODE_GOAL_CHECK
+
+L_BODY_MODE_CODE:
+    !is_code
+    !code_any
+    !code3
+    !code2
+    !code1
+    !code_text
+    !default_text
+    !collab_code
+    !kind_code
+    !mode_code
+    !body
+    !body_len
+    return 3
+
+L_BODY_MODE_GOAL_CHECK:
+    !is_code
+    !code_any
+    !code3
+    !code2
+    !code1
+    !code_text
+    !default_text
+    !collab_code
+    !kind_code
+    !mode_code
+    goal_ctx = call @bytes_has(&body, body_len, &CTX_BODY_GOAL_CONTEXT, CTX_BODY_GOAL_CONTEXT_LEN)
+    goal_text = call @bytes_has(&body, body_len, &CTX_BODY_GOAL_CONTEXT_TEXT, CTX_BODY_GOAL_CONTEXT_TEXT_LEN)
+    mode_goal = call @bytes_has(&body, body_len, &CTX_BODY_MODE_GOAL, CTX_BODY_MODE_GOAL_LEN)
+    kind_goal = call @bytes_has(&body, body_len, &CTX_BODY_KIND_GOAL, CTX_BODY_KIND_GOAL_LEN)
+    collab_goal = call @bytes_has(&body, body_len, &CTX_BODY_COLLAB_GOAL, CTX_BODY_COLLAB_GOAL_LEN)
+    any1 = or goal_ctx, goal_text
+    any2 = or mode_goal, kind_goal
+    any3 = or collab_goal, any2
+    any12 = or any1, any2
+    any = or any12, any3
+    has_goal = ne any, 0
+    br has_goal -> L_BODY_MODE_GOAL, L_BODY_MODE_PLAN_CHECK
+
+L_BODY_MODE_GOAL:
+    !has_goal
+    !any
+    !any12
+    !any3
+    !any2
+    !any1
+    !collab_goal
+    !kind_goal
+    !mode_goal
+    !goal_text
+    !goal_ctx
+    !body
+    !body_len
+    return 2
+
+L_BODY_MODE_PLAN_CHECK:
+    !has_goal
+    !any
+    !any12
+    !any3
+    !any2
+    !any1
+    !collab_goal
+    !kind_goal
+    !mode_goal
+    !goal_text
+    !goal_ctx
+    mode_plan = call @bytes_has(&body, body_len, &CTX_BODY_MODE_PLAN, CTX_BODY_MODE_PLAN_LEN)
+    kind_plan = call @bytes_has(&body, body_len, &CTX_BODY_KIND_PLAN, CTX_BODY_KIND_PLAN_LEN)
+    collab_plan = call @bytes_has(&body, body_len, &CTX_BODY_COLLAB_PLAN, CTX_BODY_COLLAB_PLAN_LEN)
+    plan_text = call @bytes_has(&body, body_len, &CTX_BODY_PLAN_TEXT, CTX_BODY_PLAN_TEXT_LEN)
+    plan1 = or mode_plan, kind_plan
+    plan2 = or collab_plan, plan_text
+    plan_any = or plan1, plan2
+    is_plan = ne plan_any, 0
+    br is_plan -> L_BODY_MODE_PLAN, L_BODY_MODE_NONE
+
+L_BODY_MODE_PLAN:
+    !is_plan
+    !plan_any
+    !plan2
+    !plan1
+    !plan_text
+    !collab_plan
+    !kind_plan
+    !mode_plan
+    !body
+    !body_len
+    return 1
+
+L_BODY_MODE_NONE:
+    !is_plan
+    !plan_any
+    !plan2
+    !plan1
+    !plan_text
+    !collab_plan
+    !kind_plan
+    !mode_plan
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper body_allows_progress_continuation(&body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    exec_status = call @bytes_has(&body, body_len, &CTX_TOOL_NAME_EXEC_KEY, CTX_TOOL_NAME_EXEC_KEY_LEN)
+    has_exec = eq exec_status, 1
+    br has_exec -> L_CONT_MODE_CHECK, L_CONT_MODE_NO_EXEC
+
+L_CONT_MODE_CHECK:
+    !has_exec
+    !exec_status
+    mode = call @body_collaboration_mode(&body, body_len)
+    is_goal = eq mode, 2
+    is_code = eq mode, 3
+    allowed = or is_goal, is_code
+    has_allowed = ne allowed, 0
+    br has_allowed -> L_CONT_MODE_YES, L_CONT_MODE_NO
+
+L_CONT_MODE_YES:
+    !has_allowed
+    !allowed
+    !is_code
+    !is_goal
+    !mode
+    !body
+    !body_len
+    return 1
+
+L_CONT_MODE_NO:
+    !has_allowed
+    !allowed
+    !is_code
+    !is_goal
+    !mode
+    !body
+    !body_len
+    return 0
+
+L_CONT_MODE_NO_EXEC:
+    !has_exec
+    !exec_status
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper build_request_context_body(&body: ptr, body_len: u64, mode: u8, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    has_mode = ne mode, 0
+    br has_mode -> L_CTX_PARSE_BODY, L_CTX_ORIGINAL
+
+L_CTX_PARSE_BODY:
+    !has_mode
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_CTX_CHECK_OBJECT, L_CTX_MODE_ONLY_NO_ROOT
+
+L_CTX_MODE_ONLY_NO_ROOT:
+    !has_root
+    !root
+    jmp L_CTX_MODE_ONLY
+
+L_CTX_CHECK_OBJECT:
+    !has_root
+    root_kind = call @sa_json_kind(root)
+    root_is_object = eq root_kind, SA_JSON_KIND_OBJECT
+    !root_kind
+    br root_is_object -> L_CTX_WRITER_INIT, L_CTX_FREE_MODE_ONLY
+
+L_CTX_WRITER_INIT:
+    !root_is_object
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    count_slot = stack_alloc 8
+    count_status = call @sa_json_value_count(root, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_CTX_LOOP_INIT, L_CTX_WRITE_MODE_FIELD_COUNT_BAD
+
+L_CTX_WRITE_MODE_FIELD_COUNT_BAD:
+    !count_ok
+    !count_status
+    jmp L_CTX_WRITE_MODE_FIELD
+
+L_CTX_LOOP_INIT:
+    !count_ok
+    count = load count_slot+0 as u64
+    index_slot = stack_alloc 8
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    value_slot = stack_alloc 8
+    store index_slot+0, 0 as u64
+    jmp L_CTX_LOOP_COND
+
+L_CTX_LOOP_COND:
+    index = load index_slot+0 as u64
+    has_next = ult index, count
+    br has_next -> L_CTX_LOOP_BODY, L_CTX_LOOP_DONE
+
+L_CTX_LOOP_BODY:
+    !has_next
+    key_status = call @sa_json_object_key_at(root, index, &key_ptr_slot, &key_len_slot)
+    key_ok = eq key_status, 0
+    br key_ok -> L_CTX_KEY, L_CTX_ADVANCE_BAD_KEY
+
+L_CTX_KEY:
+    !key_ok
+    key_ptr = load key_ptr_slot+0 as ptr
+    key_len = load key_len_slot+0 as u64
+    is_collab_raw = call @sa_bytes_eq(&key_ptr, key_len, &CTX_FB_KEY_COLLAB_MODE_KIND, CTX_FB_KEY_COLLAB_MODE_KIND_LEN)
+    is_collab = eq is_collab_raw, 1
+    br is_collab -> L_CTX_SKIP_EXISTING_MODE, L_CTX_COPY_FIELD
+
+L_CTX_COPY_FIELD:
+    !is_collab
+    !is_collab_raw
+    value_status = call @sa_json_object_get(root, &key_ptr, key_len, &value_slot)
+    value_ok = eq value_status, 0
+    br value_ok -> L_CTX_WRITE_FIELD_NODE, L_CTX_ADVANCE_AFTER_VALUE
+
+L_CTX_WRITE_FIELD_NODE:
+    !value_ok
+    value_node = load value_slot+0 as ptr
+    field_status = call @sa_json_writer_field_node(writer, &key_ptr, key_len, value_node)
+    value_free = call @sa_json_free(^value_node)
+    !value_free
+    !field_status
+    !value_status
+    jmp L_CTX_ADVANCE_AFTER_KEY
+
+L_CTX_ADVANCE_AFTER_VALUE:
+    !value_ok
+    !value_status
+    jmp L_CTX_ADVANCE_AFTER_KEY
+
+L_CTX_SKIP_EXISTING_MODE:
+    !is_collab
+    !is_collab_raw
+    jmp L_CTX_ADVANCE_AFTER_KEY
+
+L_CTX_ADVANCE_BAD_KEY:
+    !key_ok
+    !key_status
+    jmp L_CTX_ADVANCE
+
+L_CTX_ADVANCE_AFTER_KEY:
+    !key_ptr
+    !key_len
+    !key_status
+    jmp L_CTX_ADVANCE
+
+L_CTX_ADVANCE:
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !index
+    jmp L_CTX_LOOP_COND
+
+L_CTX_LOOP_DONE:
+    !has_next
+    !index
+    !count
+    !count_status
+    jmp L_CTX_WRITE_MODE_FIELD
+
+L_CTX_WRITE_MODE_FIELD:
+    is_plan2 = eq mode, 1
+    br is_plan2 -> L_CTX_FIELD_PLAN, L_CTX_FIELD_GOAL_CHECK
+
+L_CTX_FIELD_PLAN:
+    !is_plan2
+    EXPAND JSON_WRITER_FIELD_STRING mode_field_status_plan, writer, CTX_FB_KEY_COLLAB_MODE_KIND, CTX_FB_KEY_COLLAB_MODE_KIND_LEN, CTX_FB_VALUE_PLAN, CTX_FB_VALUE_PLAN_LEN
+    !mode_field_status_plan
+    jmp L_CTX_FINISH_WRITER
+
+L_CTX_FIELD_GOAL_CHECK:
+    !is_plan2
+    is_goal2 = eq mode, 2
+    br is_goal2 -> L_CTX_FIELD_GOAL, L_CTX_FIELD_CODE_CHECK
+
+L_CTX_FIELD_GOAL:
+    !is_goal2
+    EXPAND JSON_WRITER_FIELD_STRING mode_field_status_goal, writer, CTX_FB_KEY_COLLAB_MODE_KIND, CTX_FB_KEY_COLLAB_MODE_KIND_LEN, CTX_FB_VALUE_GOAL, CTX_FB_VALUE_GOAL_LEN
+    !mode_field_status_goal
+    jmp L_CTX_FINISH_WRITER
+
+L_CTX_FIELD_CODE_CHECK:
+    !is_goal2
+    is_code2 = eq mode, 3
+    br is_code2 -> L_CTX_FIELD_CODE, L_CTX_FINISH_WRITER
+
+L_CTX_FIELD_CODE:
+    !is_code2
+    EXPAND JSON_WRITER_FIELD_STRING mode_field_status_code, writer, CTX_FB_KEY_COLLAB_MODE_KIND, CTX_FB_KEY_COLLAB_MODE_KIND_LEN, CTX_FB_VALUE_CODE, CTX_FB_VALUE_CODE_LEN
+    !mode_field_status_code
+    jmp L_CTX_FINISH_WRITER
+
+L_CTX_FINISH_WRITER:
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    data_ptr_slot = stack_alloc 8
+    data_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_ptr_slot, &data_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data_ptr = load data_ptr_slot+0 as ptr
+    data_len = load data_len_slot+0 as u64
+    out_json = call @json_buffer_to_owned_and_free(buffer, &data_ptr, data_len, &out_len)
+    writer_dispose = call @json_writer_dispose(writer)
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !writer_dispose
+    !end_status
+    !finish_status
+    !begin_status
+    !writer_status
+    !body
+    !body_len
+    !mode
+    !out_len
+    return out_json
+
+L_CTX_FREE_MODE_ONLY:
+    !root_is_object
+    root_free_mode_only = call @sa_json_free(^root)
+    !root_free_mode_only
+    jmp L_CTX_MODE_ONLY
+
+L_CTX_MODE_ONLY:
+    buffer_slot2 = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status2, writer2
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status2, writer2
+    is_plan3 = eq mode, 1
+    br is_plan3 -> L_CTX_MODE_ONLY_PLAN, L_CTX_MODE_ONLY_GOAL_CHECK
+
+L_CTX_MODE_ONLY_PLAN:
+    !is_plan3
+    EXPAND JSON_WRITER_FIELD_STRING mode_only_plan, writer2, CTX_FB_KEY_COLLAB_MODE_KIND, CTX_FB_KEY_COLLAB_MODE_KIND_LEN, CTX_FB_VALUE_PLAN, CTX_FB_VALUE_PLAN_LEN
+    !mode_only_plan
+    jmp L_CTX_MODE_ONLY_FINISH
+
+L_CTX_MODE_ONLY_GOAL_CHECK:
+    !is_plan3
+    is_goal3 = eq mode, 2
+    br is_goal3 -> L_CTX_MODE_ONLY_GOAL, L_CTX_MODE_ONLY_CODE_CHECK
+
+L_CTX_MODE_ONLY_GOAL:
+    !is_goal3
+    EXPAND JSON_WRITER_FIELD_STRING mode_only_goal, writer2, CTX_FB_KEY_COLLAB_MODE_KIND, CTX_FB_KEY_COLLAB_MODE_KIND_LEN, CTX_FB_VALUE_GOAL, CTX_FB_VALUE_GOAL_LEN
+    !mode_only_goal
+    jmp L_CTX_MODE_ONLY_FINISH
+
+L_CTX_MODE_ONLY_CODE_CHECK:
+    !is_goal3
+    is_code3 = eq mode, 3
+    br is_code3 -> L_CTX_MODE_ONLY_CODE, L_CTX_MODE_ONLY_FINISH
+
+L_CTX_MODE_ONLY_CODE:
+    !is_code3
+    EXPAND JSON_WRITER_FIELD_STRING mode_only_code, writer2, CTX_FB_KEY_COLLAB_MODE_KIND, CTX_FB_KEY_COLLAB_MODE_KIND_LEN, CTX_FB_VALUE_CODE, CTX_FB_VALUE_CODE_LEN
+    !mode_only_code
+    jmp L_CTX_MODE_ONLY_FINISH
+
+L_CTX_MODE_ONLY_FINISH:
+    EXPAND JSON_WRITER_END_OBJECT end_status2, writer2
+    json_ptr_slot2 = stack_alloc 8
+    json_len_slot2 = stack_alloc 8
+    finish_status2 = call @json_writer_finish_view(writer2, &buffer_slot2, &json_ptr_slot2, &json_len_slot2)
+    buffer2 = load buffer_slot2+0 as ptr
+    json_ptr2 = load json_ptr_slot2+0 as ptr
+    json_len2 = load json_len_slot2+0 as u64
+    out_json2 = call @json_buffer_to_owned_and_free(buffer2, &json_ptr2, json_len2, &out_len)
+    writer_dispose2 = call @json_writer_dispose(writer2)
+    !writer_dispose2
+    !finish_status2
+    !end_status2
+    !begin_status2
+    !writer_status2
+    !body
+    !body_len
+    !mode
+    !out_len
+    return out_json2
+
+L_CTX_ORIGINAL:
+    !has_mode
+    out = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !mode
+    !out_len
+    return out
+
+@ffi_wrapper response_request_context_mode(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    body_mode = call @body_collaboration_mode(&body, body_len)
+    thread_ptr_slot = stack_alloc 8
+    thread_len_slot = stack_alloc 8
+    turn_ptr_slot = stack_alloc 8
+    turn_len_slot = stack_alloc 8
+    store thread_ptr_slot+0, 0 as ptr
+    store thread_len_slot+0, 0 as u64
+    store turn_ptr_slot+0, 0 as ptr
+    store turn_len_slot+0, 0 as u64
+    thread_hdr_status = call @sa_http_server_req_get_header(req, &CTX_HDR_THREAD_ID, CTX_HDR_THREAD_ID_LEN, &thread_ptr_slot, &thread_len_slot)
+    turn_hdr_status = call @sa_http_server_req_get_header(req, &CTX_HDR_TURN_ID, CTX_HDR_TURN_ID_LEN, &turn_ptr_slot, &turn_len_slot)
+    thread_ptr = load thread_ptr_slot+0 as ptr
+    thread_len = load thread_len_slot+0 as u64
+    turn_ptr = load turn_ptr_slot+0 as ptr
+    turn_len = load turn_len_slot+0 as u64
+    !thread_hdr_status
+    !turn_hdr_status
+    has_thread = ne thread_ptr, 0
+    br has_thread -> L_RESP_CTX_HAS_THREAD, L_RESP_CTX_BODY_MODE
+
+L_RESP_CTX_HAS_THREAD:
+    !has_thread
+    has_turn = ne turn_ptr, 0
+    br has_turn -> L_RESP_CTX_PARSE, L_RESP_CTX_BODY_MODE_AFTER_THREAD
+
+L_RESP_CTX_PARSE:
+    !has_turn
+    parsed_turn = call @sa_bytes_to_u64(&turn_ptr, turn_len)
+    turn_ok = sgt parsed_turn, 0
+    br turn_ok -> L_RESP_CTX_RESOLVE_THREAD, L_RESP_CTX_BODY_MODE_AFTER_PARSE
+
+L_RESP_CTX_RESOLVE_THREAD:
+    !turn_ok
+    thread_slot = call @state_thread_find_by_key(&state_ptr, &thread_ptr, thread_len)
+    thread_found = ne thread_slot, 0
+    br thread_found -> L_RESP_CTX_LOOKUP_KEY, L_RESP_CTX_PARSE_THREAD_NUMERIC
+
+L_RESP_CTX_LOOKUP_KEY:
+    !thread_found
+    key_thread_id = load thread_slot+THR_ID as u64
+    !thread_slot
+    key_turn_id = bitcast parsed_turn as u64
+    slot_key = call @state_turn_find(&state_ptr, key_thread_id, key_turn_id)
+    missing_key = eq slot_key, 0
+    br missing_key -> L_RESP_CTX_BODY_MODE_AFTER_LOOKUP_KEY, L_RESP_CTX_LOAD_MODE_KEY
+
+L_RESP_CTX_PARSE_THREAD_NUMERIC:
+    !thread_found
+    !thread_slot
+    parsed_thread = call @sa_bytes_to_u64(&thread_ptr, thread_len)
+    thread_ok = sgt parsed_thread, 0
+    br thread_ok -> L_RESP_CTX_LOOKUP_THREAD_NUMERIC, L_RESP_CTX_BODY_MODE_AFTER_PARSE_THREAD
+
+L_RESP_CTX_LOOKUP_THREAD_NUMERIC:
+    !thread_ok
+    numeric_thread_id = bitcast parsed_thread as u64
+    !parsed_thread
+    numeric_turn_id = bitcast parsed_turn as u64
+    slot_num = call @state_turn_find(&state_ptr, numeric_thread_id, numeric_turn_id)
+    missing_num = eq slot_num, 0
+    br missing_num -> L_RESP_CTX_BODY_MODE_AFTER_LOOKUP_NUM, L_RESP_CTX_LOAD_MODE_NUM
+
+L_RESP_CTX_LOAD_MODE_KEY:
+    !missing_key
+    mode_key = load slot_key+TURN_MODE as u8
+    has_mode_key = ne mode_key, 0
+    br has_mode_key -> L_RESP_CTX_STATE_MODE_KEY, L_RESP_CTX_BODY_MODE_AFTER_STATE_ZERO_KEY
+
+L_RESP_CTX_STATE_MODE_KEY:
+    !has_mode_key
+    !slot_key
+    !key_thread_id
+    !key_turn_id
+    !parsed_turn
+    !thread_ptr
+    !thread_len
+    !turn_ptr
+    !turn_len
+    !body_mode
+    !body
+    !body_len
+    !state_ptr
+    !req
+    return mode_key
+
+L_RESP_CTX_BODY_MODE_AFTER_STATE_ZERO_KEY:
+    !has_mode_key
+    !mode_key
+    !slot_key
+    jmp L_RESP_CTX_BODY_MODE_AFTER_IDS_KEY
+
+L_RESP_CTX_BODY_MODE_AFTER_LOOKUP_KEY:
+    !missing_key
+    !slot_key
+    jmp L_RESP_CTX_BODY_MODE_AFTER_IDS_KEY
+
+L_RESP_CTX_BODY_MODE_AFTER_IDS_KEY:
+    !key_thread_id
+    !key_turn_id
+    !parsed_turn
+    jmp L_RESP_CTX_BODY_MODE_KEEP_PTRS
+
+L_RESP_CTX_LOAD_MODE_NUM:
+    !missing_num
+    mode_num = load slot_num+TURN_MODE as u8
+    has_mode_num = ne mode_num, 0
+    br has_mode_num -> L_RESP_CTX_STATE_MODE_NUM, L_RESP_CTX_BODY_MODE_AFTER_STATE_ZERO_NUM
+
+L_RESP_CTX_STATE_MODE_NUM:
+    !has_mode_num
+    !slot_num
+    !numeric_thread_id
+    !numeric_turn_id
+    !parsed_turn
+    !thread_ptr
+    !thread_len
+    !turn_ptr
+    !turn_len
+    !body_mode
+    !body
+    !body_len
+    !state_ptr
+    !req
+    return mode_num
+
+L_RESP_CTX_BODY_MODE_AFTER_STATE_ZERO_NUM:
+    !has_mode_num
+    !mode_num
+    !slot_num
+    jmp L_RESP_CTX_BODY_MODE_AFTER_IDS_NUM
+
+L_RESP_CTX_BODY_MODE_AFTER_LOOKUP_NUM:
+    !missing_num
+    !slot_num
+    jmp L_RESP_CTX_BODY_MODE_AFTER_IDS_NUM
+
+L_RESP_CTX_BODY_MODE_AFTER_IDS_NUM:
+    !numeric_thread_id
+    !numeric_turn_id
+    !parsed_turn
+    jmp L_RESP_CTX_BODY_MODE_KEEP_PTRS
+
+L_RESP_CTX_BODY_MODE_AFTER_PARSE:
+    !turn_ok
+    !parsed_turn
+    jmp L_RESP_CTX_BODY_MODE_KEEP_PTRS
+
+L_RESP_CTX_BODY_MODE_AFTER_PARSE_THREAD:
+    !thread_ok
+    !parsed_thread
+    !parsed_turn
+    jmp L_RESP_CTX_BODY_MODE_KEEP_PTRS
+
+L_RESP_CTX_BODY_MODE_AFTER_THREAD:
+    !has_turn
+    jmp L_RESP_CTX_BODY_MODE_KEEP_PTRS
+
+L_RESP_CTX_BODY_MODE:
+    !has_thread
+    jmp L_RESP_CTX_BODY_MODE_KEEP_PTRS
+
+L_RESP_CTX_BODY_MODE_KEEP_PTRS:
+    !thread_ptr
+    !thread_len
+    !turn_ptr
+    !turn_len
+    !body
+    !body_len
+    !state_ptr
+    !req
+    return body_mode
+
+@ffi_wrapper build_response_request_context_body(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    mode = call @response_request_context_mode(&req, &state_ptr, &body, body_len)
+    out = call @build_request_context_body(&body, body_len, mode, &out_len)
+    !mode
+    !req
+    !state_ptr
+    !body
+    !body_len
+    !out_len
+    return out
+
+@ffi_wrapper responses_sse_is_progress_message(&body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    final_cn = call @bytes_has(&body, body_len, &CTX_CHAT_FINAL_CN_DONE, CTX_CHAT_FINAL_CN_DONE_LEN)
+    proposed = call @bytes_has(&body, body_len, &CTX_CHAT_PROPOSED_PLAN, CTX_CHAT_PROPOSED_PLAN_LEN)
+    final_any = or final_cn, proposed
+    is_final = ne final_any, 0
+    br is_final -> L_RESP_PROGRESS_NO_FINAL, L_RESP_PROGRESS_MATCH
+
+L_RESP_PROGRESS_MATCH:
+    !is_final
+    !final_any
+    !proposed
+    !final_cn
+    en_let = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_LET_ME, CTX_CHAT_PROGRESS_EN_LET_ME_LEN)
+    en_check = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_CHECK, CTX_CHAT_PROGRESS_EN_CHECK_LEN)
+    en_inspect = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_INSPECT, CTX_CHAT_PROGRESS_EN_INSPECT_LEN)
+    en_read = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_READ, CTX_CHAT_PROGRESS_EN_READ_LEN)
+    en_tmp1 = or en_check, en_inspect
+    en_tmp2 = or en_tmp1, en_read
+    en_has_action = ne en_tmp2, 0
+    en_progress_raw = and en_let, en_has_action
+    cn_will = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_WOHUI, CTX_CHAT_PROGRESS_CN_WOHUI_LEN)
+    cn_continue = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_JIXU, CTX_CHAT_PROGRESS_CN_JIXU_LEN)
+    cn_read = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_READ, CTX_CHAT_PROGRESS_CN_READ_LEN)
+    cn_check = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_CHECK, CTX_CHAT_PROGRESS_CN_CHECK_LEN)
+    cn_run = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_RUN, CTX_CHAT_PROGRESS_CN_RUN_LEN)
+    cn_tmp_will = or cn_will, cn_continue
+    cn_tmp_action1 = or cn_read, cn_check
+    cn_tmp_action2 = or cn_tmp_action1, cn_run
+    cn_has_action = ne cn_tmp_action2, 0
+    cn_progress_raw = and cn_tmp_will, cn_has_action
+    progress_any = or en_progress_raw, cn_progress_raw
+    is_progress = ne progress_any, 0
+    br is_progress -> L_RESP_PROGRESS_YES, L_RESP_PROGRESS_NO_MATCH
+
+L_RESP_PROGRESS_YES:
+    !is_progress
+    !progress_any
+    !cn_progress_raw
+    !cn_has_action
+    !cn_tmp_action2
+    !cn_tmp_action1
+    !cn_tmp_will
+    !cn_run
+    !cn_check
+    !cn_read
+    !cn_continue
+    !cn_will
+    !en_progress_raw
+    !en_has_action
+    !en_tmp2
+    !en_tmp1
+    !en_read
+    !en_inspect
+    !en_check
+    !en_let
+    !body
+    !body_len
+    return 1
+
+L_RESP_PROGRESS_NO_MATCH:
+    !is_progress
+    !progress_any
+    !cn_progress_raw
+    !cn_has_action
+    !cn_tmp_action2
+    !cn_tmp_action1
+    !cn_tmp_will
+    !cn_run
+    !cn_check
+    !cn_read
+    !cn_continue
+    !cn_will
+    !en_progress_raw
+    !en_has_action
+    !en_tmp2
+    !en_tmp1
+    !en_read
+    !en_inspect
+    !en_check
+    !en_let
+    !body
+    !body_len
+    return 0
+
+L_RESP_PROGRESS_NO_FINAL:
+    !is_final
+    !final_any
+    !proposed
+    !final_cn
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper build_native_progress_continuation(&out_len: ptr) -> ^ptr:
+L_ENTRY:
+    args_buffer_slot = stack_alloc 8
+    args_ptr_slot = stack_alloc 8
+    args_len_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED args_writer_status, args_writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT args_begin, args_writer
+    EXPAND JSON_WRITER_FIELD_STRING cmd_status, args_writer, CTX_JSON_KEY_CMD, CTX_JSON_KEY_CMD_LEN, CTX_RESP_CONTINUATION_CMD, CTX_RESP_CONTINUATION_CMD_LEN
+    EXPAND JSON_WRITER_END_OBJECT args_end, args_writer
+    args_finish = call @json_writer_finish_view(args_writer, &args_buffer_slot, &args_ptr_slot, &args_len_slot)
+    args_buffer = load args_buffer_slot+0 as ptr
+    args_ptr = load args_ptr_slot+0 as ptr
+    args_len = load args_len_slot+0 as u64
+
+    item_buffer_slot = stack_alloc 8
+    item_ptr_slot = stack_alloc 8
+    item_len_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED item_writer_status, item_writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT item_begin, item_writer
+    EXPAND JSON_WRITER_FIELD_STRING item_type_status, item_writer, CTX_FB_KEY_TYPE, CTX_FB_KEY_TYPE_LEN, CTX_RESP_EVENT_OUTPUT_ITEM_DONE, CTX_RESP_EVENT_OUTPUT_ITEM_DONE_LEN
+    item_obj_begin = call @json_writer_begin_field_object(item_writer, &CTX_JSON_KEY_ITEM, CTX_JSON_KEY_ITEM_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING item_id_status, item_writer, CTX_JSON_KEY_ID, CTX_JSON_KEY_ID_LEN, CTX_RESP_ID_CHAT_CONTINUE, CTX_RESP_ID_CHAT_CONTINUE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING item_call_type_status, item_writer, CTX_FB_KEY_TYPE, CTX_FB_KEY_TYPE_LEN, CTX_RESP_TYPE_FUNCTION_CALL, CTX_RESP_TYPE_FUNCTION_CALL_LEN
+    EXPAND JSON_WRITER_FIELD_STRING item_call_id_status, item_writer, CTX_JSON_KEY_CALL_ID, CTX_JSON_KEY_CALL_ID_LEN, CTX_RESP_CALL_ID_CHAT_CONTINUE, CTX_RESP_CALL_ID_CHAT_CONTINUE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING item_name_status, item_writer, CTX_JSON_KEY_NAME, CTX_JSON_KEY_NAME_LEN, CTX_TOOL_NAME_EXEC, CTX_TOOL_NAME_EXEC_LEN
+    EXPAND JSON_WRITER_FIELD_STRING item_args_status, item_writer, CTX_JSON_KEY_ARGUMENTS, CTX_JSON_KEY_ARGUMENTS_LEN, args_ptr, args_len
+    EXPAND JSON_WRITER_END_OBJECT item_obj_end, item_writer
+    EXPAND JSON_WRITER_END_OBJECT item_end, item_writer
+    item_finish = call @json_writer_finish_view(item_writer, &item_buffer_slot, &item_ptr_slot, &item_len_slot)
+    item_buffer = load item_buffer_slot+0 as ptr
+    item_ptr = load item_ptr_slot+0 as ptr
+    item_len = load item_len_slot+0 as u64
+
+    done_buffer_slot = stack_alloc 8
+    done_ptr_slot = stack_alloc 8
+    done_len_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED done_writer_status, done_writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT done_begin, done_writer
+    EXPAND JSON_WRITER_FIELD_STRING done_type_status, done_writer, CTX_FB_KEY_TYPE, CTX_FB_KEY_TYPE_LEN, CTX_RESP_EVENT_DONE, CTX_RESP_EVENT_DONE_LEN
+    response_begin = call @json_writer_begin_field_object(done_writer, &CTX_JSON_KEY_RESPONSE, CTX_JSON_KEY_RESPONSE_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING response_id_status, done_writer, CTX_JSON_KEY_ID, CTX_JSON_KEY_ID_LEN, CTX_RESP_ID_CHAT_FB, CTX_RESP_ID_CHAT_FB_LEN
+    EXPAND JSON_WRITER_FIELD_STRING response_status, done_writer, CTX_JSON_KEY_STATUS, CTX_JSON_KEY_STATUS_LEN, CTX_JSON_VALUE_COMPLETED, CTX_JSON_VALUE_COMPLETED_LEN
+    EXPAND JSON_WRITER_END_OBJECT response_end, done_writer
+    EXPAND JSON_WRITER_END_OBJECT done_end, done_writer
+    done_finish = call @json_writer_finish_view(done_writer, &done_buffer_slot, &done_ptr_slot, &done_len_slot)
+    done_buffer = load done_buffer_slot+0 as ptr
+    done_ptr = load done_ptr_slot+0 as ptr
+    done_len = load done_len_slot+0 as u64
+
+    capacity_a = add item_len, done_len
+    capacity_b = add capacity_a, 256
+    frame = call @rpc_builder_new_capacity(capacity_b)
+    item_frame_status = call @rpc_builder_append_sse_frame(&frame, &CTX_RESP_EVENT_OUTPUT_ITEM_DONE, CTX_RESP_EVENT_OUTPUT_ITEM_DONE_LEN, &item_ptr, item_len)
+    done_frame_status = call @rpc_builder_append_sse_frame(&frame, &CTX_RESP_EVENT_DONE, CTX_RESP_EVENT_DONE_LEN, &done_ptr, done_len)
+    call @rpc_builder_append(&frame, &CTX_RESP_EVENT_COMPLETED_PREFIX, CTX_RESP_EVENT_COMPLETED_PREFIX_LEN)
+    out = call @rpc_builder_to_owned(frame, &out_len)
+    frame_len = load out_len+0 as u64
+
+    args_dispose_status = call @json_writer_dispose_finished(args_buffer, args_writer)
+    item_dispose_status = call @json_writer_dispose_finished(item_buffer, item_writer)
+    done_dispose_status = call @json_writer_dispose_finished(done_buffer, done_writer)
+    !done_dispose_status
+    !item_dispose_status
+    !args_dispose_status
+    !frame_len
+    !frame
+    !capacity_b
+    !capacity_a
+    !done_ptr
+    !done_len
+    !done_frame_status
+    !item_frame_status
+    !done_finish
+    !done_end
+    !response_end
+    !response_status
+    !response_id_status
+    !response_begin
+    !done_type_status
+    !done_begin
+    !done_writer_status
+    !item_ptr
+    !item_len
+    !item_finish
+    !item_end
+    !item_obj_end
+    !item_args_status
+    !item_name_status
+    !item_call_id_status
+    !item_call_type_status
+    !item_id_status
+    !item_obj_begin
+    !item_type_status
+    !item_begin
+    !item_writer_status
+    !args_ptr
+    !args_len
+    !args_finish
+    !args_end
+    !cmd_status
+    !args_begin
+    !args_writer_status
+    !out_len
+    return out
+
+
+@ffi_wrapper rpc_canonicalize_body(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr, &out_buffer: ptr) -> u32:
+L_ENTRY:
+    root = call @sa_json_parse(&body, body_len)
+    has_root = ne root, 0
+    br has_root -> L_CANON_STRINGIFY, L_CANON_FALLBACK
+
+L_CANON_STRINGIFY:
+    !has_root
+    buffer_slot = stack_alloc 8
+    data_ptr_slot = stack_alloc 8
+    data_len_slot = stack_alloc 8
+    stringify_status = call @json_stringify_view(root, &buffer_slot, &data_ptr_slot, &data_len_slot)
+    stringify_ok = eq stringify_status, 0
+    br stringify_ok -> L_CANON_OK, L_CANON_STRINGIFY_FAIL
+
+L_CANON_OK:
+    !stringify_ok
+    buffer = load buffer_slot+0 as ptr
+    data_ptr = load data_ptr_slot+0 as ptr
+    data_len = load data_len_slot+0 as u64
+    store out_ptr+0, data_ptr as ptr
+    store out_len+0, data_len as u64
+    store out_buffer+0, buffer as ptr
+    root_free = call @sa_json_free(^root)
+    !root_free
+    !data_ptr
+    !data_len
+    !buffer
+    !stringify_status
+    !body
+    !body_len
+    !out_ptr
+    !out_len
+    !out_buffer
+    return 1
+
+L_CANON_STRINGIFY_FAIL:
+    !stringify_ok
+    !stringify_status
+    root_free_bad = call @sa_json_free(^root)
+    !root_free_bad
+    store out_ptr+0, body as ptr
+    store out_len+0, body_len as u64
+    store out_buffer+0, 0 as ptr
+    !body
+    !body_len
+    !out_ptr
+    !out_len
+    !out_buffer
+    return 0
+
+L_CANON_FALLBACK:
+    !has_root
+    store out_ptr+0, body as ptr
+    store out_len+0, body_len as u64
+    store out_buffer+0, 0 as ptr
+    !body
+    !body_len
+    !out_ptr
+    !out_len
+    !out_buffer
+    return 0
+
+@ffi_wrapper append_with_replacement(&buf: ptr, &src: ptr, src_len: u64, &needle: ptr, needle_len: u64, &replacement: ptr, replacement_len: u64) -> u32:
+L_ENTRY:
+    i_slot = stack_alloc 8
+    store i_slot+0, 0 as u64
+    jmp L_REPL_COND
+
+L_REPL_COND:
+    i = load i_slot+0 as u64
+    done = uge i, src_len
+    br done -> L_REPL_DONE, L_REPL_BODY
+
+L_REPL_BODY:
+    !done
+    remaining = sub src_len, i
+    can_match = uge remaining, needle_len
+    br can_match -> L_REPL_CHECK, L_REPL_COPY_ONE
+
+L_REPL_CHECK:
+    !can_match
+    cur_ptr = ptr_add src, i
+    match_raw = call @sa_bytes_eq(&cur_ptr, needle_len, &needle, needle_len)
+    is_match = eq match_raw, 1
+    br is_match -> L_REPL_WRITE_REPLACEMENT, L_REPL_COPY_ONE_FROM_CHECK
+
+L_REPL_WRITE_REPLACEMENT:
+    !is_match
+    !match_raw
+    append_status = call @rpc_builder_append(&buf, &replacement, replacement_len)
+    !append_status
+    next_i = add i, needle_len
+    store i_slot+0, next_i as u64
+    !next_i
+    !cur_ptr
+    !remaining
+    !i
+    jmp L_REPL_COND
+
+L_REPL_COPY_ONE_FROM_CHECK:
+    !is_match
+    !match_raw
+    !cur_ptr
+    jmp L_REPL_COPY_ONE_AFTER_CHECK
+
+L_REPL_COPY_ONE:
+    !can_match
+    jmp L_REPL_COPY_ONE_AFTER_CHECK
+
+L_REPL_COPY_ONE_AFTER_CHECK:
+    ch_ptr = ptr_add src, i
+    one_status = call @rpc_builder_append_byte(&buf, &ch_ptr)
+    !one_status
+    !ch_ptr
+    next_one = add i, 1
+    store i_slot+0, next_one as u64
+    !next_one
+    !remaining
+    !i
+    jmp L_REPL_COND
+
+L_REPL_DONE:
+    !done
+    !i
+    !buf
+    !src
+    !src_len
+    !needle
+    !needle_len
+    !replacement
+    !replacement_len
+    return 0
+
+@ffi_wrapper chat_fallback_sse_to_responses_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    std_sse_ptr_slot = stack_alloc 8
+    std_sse_len_slot = stack_alloc 8
+    std_sse_status = call @sa_deno_plugin_chat_sse_to_responses(&body, body_len, &req_body, req_body_len, &std_sse_ptr_slot, &std_sse_len_slot)
+    std_sse_ok = eq std_sse_status, 0
+    br std_sse_ok -> L_CHAT_SSE_STD_COPY, L_CHAT_SSE_STD_COPY_ORIGINAL
+
+L_CHAT_SSE_STD_COPY:
+    !std_sse_ok
+    std_sse_ptr = load std_sse_ptr_slot+0 as ptr
+    std_sse_len = load std_sse_len_slot+0 as u64
+    out_std = call @plugin_buffer_to_owned_and_free(std_sse_ptr, std_sse_len, &out_len)
+    !std_sse_ptr
+    !std_sse_len
+    !std_sse_status
+    !body
+    !body_len
+    !req_body
+    !req_body_len
+    !out_len
+    return out_std
+
+L_CHAT_SSE_STD_COPY_ORIGINAL:
+    !std_sse_ok
+    !std_sse_status
+    out_std_orig = call @copy_bytes_owned(&body, body_len, &out_len)
+    !body
+    !body_len
+    !req_body
+    !req_body_len
+    !out_len
+    return out_std_orig
+
+@ffi_wrapper body_has_responses_tool_history(&body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    idx_fn = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_FUNCTION_CALL, CTX_RESP_TYPE_FUNCTION_CALL_LEN)
+    has_fn = sge idx_fn, 0
+    !idx_fn
+    br has_fn -> L_TOOL_HIST_YES_FN, L_TOOL_HIST_CHECK_CUSTOM
+
+L_TOOL_HIST_YES_FN:
+    !has_fn
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_CHECK_CUSTOM:
+    !has_fn
+    idx_custom = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_CUSTOM_TOOL_CALL, CTX_RESP_TYPE_CUSTOM_TOOL_CALL_LEN)
+    has_custom = sge idx_custom, 0
+    !idx_custom
+    br has_custom -> L_TOOL_HIST_YES_CUSTOM, L_TOOL_HIST_CHECK_SEARCH
+
+L_TOOL_HIST_YES_CUSTOM:
+    !has_custom
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_CHECK_SEARCH:
+    !has_custom
+    idx_search = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_TOOL_SEARCH_CALL, CTX_RESP_TYPE_TOOL_SEARCH_CALL_LEN)
+    has_search = sge idx_search, 0
+    !idx_search
+    br has_search -> L_TOOL_HIST_YES_SEARCH, L_TOOL_HIST_CHECK_MCP
+
+L_TOOL_HIST_YES_SEARCH:
+    !has_search
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_CHECK_MCP:
+    !has_search
+    idx_mcp = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_MCP_TOOL_CALL, CTX_RESP_TYPE_MCP_TOOL_CALL_LEN)
+    has_mcp = sge idx_mcp, 0
+    !idx_mcp
+    br has_mcp -> L_TOOL_HIST_YES_MCP, L_TOOL_HIST_CHECK_FN_OUT
+
+L_TOOL_HIST_YES_MCP:
+    !has_mcp
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_CHECK_FN_OUT:
+    !has_mcp
+    idx_fn_out = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_FUNCTION_OUTPUT, CTX_RESP_TYPE_FUNCTION_OUTPUT_LEN)
+    has_fn_out = sge idx_fn_out, 0
+    !idx_fn_out
+    br has_fn_out -> L_TOOL_HIST_YES_FN_OUT, L_TOOL_HIST_CHECK_CUSTOM_OUT
+
+L_TOOL_HIST_YES_FN_OUT:
+    !has_fn_out
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_CHECK_CUSTOM_OUT:
+    !has_fn_out
+    idx_custom_out = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_CUSTOM_OUTPUT, CTX_RESP_TYPE_CUSTOM_OUTPUT_LEN)
+    has_custom_out = sge idx_custom_out, 0
+    !idx_custom_out
+    br has_custom_out -> L_TOOL_HIST_YES_CUSTOM_OUT, L_TOOL_HIST_CHECK_SEARCH_OUT
+
+L_TOOL_HIST_YES_CUSTOM_OUT:
+    !has_custom_out
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_CHECK_SEARCH_OUT:
+    !has_custom_out
+    idx_search_out = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_TOOL_SEARCH_OUTPUT, CTX_RESP_TYPE_TOOL_SEARCH_OUTPUT_LEN)
+    has_search_out = sge idx_search_out, 0
+    !idx_search_out
+    br has_search_out -> L_TOOL_HIST_YES_SEARCH_OUT, L_TOOL_HIST_CHECK_MCP_OUT
+
+L_TOOL_HIST_YES_SEARCH_OUT:
+    !has_search_out
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_CHECK_MCP_OUT:
+    !has_search_out
+    idx_mcp_out = call @sa_bytes_find(&body, body_len, &CTX_RESP_TYPE_MCP_OUTPUT, CTX_RESP_TYPE_MCP_OUTPUT_LEN)
+    has_mcp_out = sge idx_mcp_out, 0
+    !idx_mcp_out
+    br has_mcp_out -> L_TOOL_HIST_YES_MCP_OUT, L_TOOL_HIST_NO
+
+L_TOOL_HIST_YES_MCP_OUT:
+    !has_mcp_out
+    !body
+    !body_len
+    return 1
+
+L_TOOL_HIST_NO:
+    !has_mcp_out
+    !body
+    !body_len
+    return 0
+
+@ffi_wrapper body_is_unsafe_gemini_chat_fallback(&body: ptr, body_len: u64) -> u32:
+L_ENTRY:
+    is_gemini = call @body_is_gemini_responses_request(&body, body_len)
+    gemini_ok = eq is_gemini, 1
+    br gemini_ok -> L_UNSAFE_GEMINI_CHECK_TOOLS, L_UNSAFE_GEMINI_NO
+
+L_UNSAFE_GEMINI_CHECK_TOOLS:
+    !gemini_ok
+    has_tools = call @body_has_responses_tool_history(&body, body_len)
+    unsafe = eq has_tools, 1
+    !has_tools
+    !is_gemini
+    !body
+    !body_len
+    return unsafe
+
+L_UNSAFE_GEMINI_NO:
+    !gemini_ok
+    !is_gemini
+    !body
+    !body_len
+    return 0
+
+
+

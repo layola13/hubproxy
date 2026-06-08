@@ -4,57 +4,49 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sa_dir="$(cd "${script_dir}/.." && pwd)"
 project_dir="$(cd "${sa_dir}/.." && pwd)"
+source "${script_dir}/lib/runtime_env.sh"
 env_file="${project_dir}/.env"
-backup_file="$(mktemp)"
+tmp_dir="$(mktemp -d)"
+sa_port="${SA_TEST_PROXY_PORT:-$(sa_test_free_port)}"
 hub_pid=""
 
 cleanup() {
   if [[ -n "${hub_pid}" ]]; then
-    kill "${hub_pid}" 2>/dev/null || true
-    wait "${hub_pid}" 2>/dev/null || true
+    sa_test_stop_pid "${hub_pid}"
   fi
-  cp "${backup_file}" "${env_file}"
-  rm -f "${backup_file}"
+  rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-cp "${env_file}" "${backup_file}"
+sa_test_assert_port_free "${sa_port}"
 
-old_pid="$(ss -ltnp | sed -n 's/.*0\.0\.0\.0:28080.*pid=\([0-9]*\).*/\1/p' | head -n 1)"
-if [[ -n "${old_pid}" ]]; then
-  kill "${old_pid}" 2>/dev/null || true
-  sleep 0.3
-fi
-
-awk '
+awk -v port="${sa_port}" '
   BEGIN { wrote_auth=0; wrote_port=0; wrote_plan=0 }
   /^AUTH=/ { print "AUTH=client-secret"; wrote_auth=1; next }
-  /^SA_PORT=/ { print "SA_PORT=28080"; wrote_port=1; next }
+  /^SA_PORT=/ { print "SA_PORT=" port; wrote_port=1; next }
+  /^PORT=/ { print "PORT=" port; next }
   /^ACCOUNT_PLAN_TYPE=/ { print "ACCOUNT_PLAN_TYPE=enterprise"; wrote_plan=1; next }
   { print }
   END {
     if (!wrote_auth) print "AUTH=client-secret"
-    if (!wrote_port) print "SA_PORT=28080"
+    if (!wrote_port) print "SA_PORT=" port
     if (!wrote_plan) print "ACCOUNT_PLAN_TYPE=enterprise"
   }
-' "${backup_file}" >"${env_file}"
+' "${env_file}" >"${tmp_dir}/.env"
 
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_account_plan_type.log 2>&1 < /dev/null &
-hub_pid=$!
-
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
-    break
-  fi
-  sleep 0.1
-done
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy.log")"
+if ! sa_test_wait_port "${sa_port}" 50 0.1; then
+  echo "hubproxy did not start on ${sa_port}" >&2
+  cat "${tmp_dir}/hubproxy.log" >&2 || true
+  exit 1
+fi
 
 rpc() {
   curl -sS --max-time 15 \
     -H 'authorization: Bearer client-secret' \
     -H 'content-type: application/json' \
     --data "$1" \
-    'http://127.0.0.1:28080/rpc'
+    "http://127.0.0.1:${sa_port}/rpc"
 }
 
 account="$(rpc '{"jsonrpc":"2.0","id":1,"method":"account/read","params":{}}')"
@@ -71,28 +63,24 @@ if ! rg -q '"planType":"enterprise"' <<<"${rates}"; then
   exit 1
 fi
 
-cp "${backup_file}" "${env_file}"
-kill "${hub_pid}" 2>/dev/null || true
-wait "${hub_pid}" 2>/dev/null || true
+sa_test_stop_pid "${hub_pid}"
 hub_pid=""
 sleep 0.3
 
-setsid "${sa_dir}/hubproxy" > /tmp/hubproxy_sa_account_plan_type_default.log 2>&1 < /dev/null &
-hub_pid=$!
+sa_test_write_env_from_root "${env_file}" "${tmp_dir}/.env" "${sa_port}" "client-secret"
+hub_pid="$(sa_test_start_hubproxy "${sa_dir}" "${tmp_dir}" "${tmp_dir}/hubproxy-default.log")"
 
-for _ in {1..50}; do
-  if ss -ltnp | rg -q '0\.0\.0\.0:28080'; then
-    break
-  fi
-  sleep 0.1
-done
+if ! sa_test_wait_port "${sa_port}" 50 0.1; then
+  echo "hubproxy did not restart on ${sa_port}" >&2
+  cat "${tmp_dir}/hubproxy-default.log" >&2 || true
+  exit 1
+fi
 
-auth_token="$(awk -F= '/^AUTH=/{print substr($0, index($0,"=")+1)}' "${env_file}" | tail -n 1)"
 default_account="$(curl -sS --max-time 15 \
-  -H "authorization: Bearer ${auth_token}" \
+  -H 'authorization: Bearer client-secret' \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":3,"method":"account/read","params":{}}' \
-  'http://127.0.0.1:28080/rpc')"
+  "http://127.0.0.1:${sa_port}/rpc")"
 
 if ! rg -q '"planType":"plus"' <<<"${default_account}"; then
   echo "account/read did not default planType to plus" >&2

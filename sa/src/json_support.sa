@@ -1,0 +1,87 @@
+// json_support.sa — shared JSON/buffer/copy helpers for SA HubProxy
+@import "json_support.sai"
+@import "sa_std/encoding/json.sa"
+@import "sa_std/encoding/json.sai"
+@import "strings.sai"
+
+@ffi_wrapper json_writer_finish_view(writer: ptr, &out_buffer: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    finish_status = call @sa_json_writer_finish(writer, &out_buffer)
+    buffer = load out_buffer+0 as ptr
+    data_ptr = call @sa_json_buffer_data(&buffer)
+    data_len = call @sa_json_buffer_len(&buffer)
+    store out_ptr+0, data_ptr as ptr
+    store out_len+0, data_len as u64
+    !finish_status
+    !buffer
+    !data_ptr
+    !data_len
+    !writer
+    !out_buffer
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper json_stringify_view(node: ptr, &out_buffer: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    stringify_status = call @sa_json_stringify(node, &out_buffer)
+    buffer = load out_buffer+0 as ptr
+    data_ptr = call @sa_json_buffer_data(&buffer)
+    data_len = call @sa_json_buffer_len(&buffer)
+    store out_ptr+0, data_ptr as ptr
+    store out_len+0, data_len as u64
+    !stringify_status
+    !buffer
+    !data_ptr
+    !data_len
+    !node
+    !out_buffer
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper json_buffer_to_owned_and_free(buffer: ptr, &data_ptr: ptr, data_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out = call @bytes_to_owned(&data_ptr, data_len, &out_len)
+    free_status = call @sa_json_buffer_free(^buffer)
+    !free_status
+    !data_ptr
+    !data_len
+    !out_len
+    return out
+
+@ffi_wrapper copy_bytes_owned(&src_ptr: ptr, src_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out = call @bytes_to_owned(&src_ptr, src_len, &out_len)
+    !src_ptr
+    !src_len
+    !out_len
+    return out
+
+@ffi_wrapper copy_bytes_into(&dst_ptr: ptr, &src_ptr: ptr, src_len: u64) -> u64:
+L_ENTRY:
+    copied = call @sa_bytes_copy(&dst_ptr, &src_ptr, src_len)
+    !dst_ptr
+    !src_ptr
+    !src_len
+    return copied
+
+@ffi_wrapper json_writer_dispose_finished(buffer: ptr, writer: ptr) -> u32:
+L_ENTRY:
+    buffer_free = call @sa_json_buffer_free(^buffer)
+    writer_free = call @sa_json_writer_free(^writer)
+    !writer_free
+    !buffer_free
+    return 0
+
+@ffi_wrapper json_buffer_dispose(buffer: ptr) -> u32:
+L_ENTRY:
+    buffer_free = call @sa_json_buffer_free(^buffer)
+    !buffer_free
+    return 0
+
+@ffi_wrapper json_writer_dispose(writer: ptr) -> u32:
+L_ENTRY:
+    writer_free = call @sa_json_writer_free(^writer)
+    !writer_free
+    return 0

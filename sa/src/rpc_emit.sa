@@ -1,0 +1,939 @@
+// rpc_emit.sa — shared JSON/JSON-RPC response emission helpers for SA HubProxy
+@import "rpc_emit.sai"
+@import "sa_std/encoding/json.sa"
+@import "sa_std/encoding/json.sai"
+@import "sa_http_server.sai"
+@import "strings.sai"
+@import "json_support.sai"
+@import "rpc_parse.sai"
+
+@const RPC_EMIT_MIME_JSON = utf8:"application/json"
+@const RPC_EMIT_RPC_KEY_JSONRPC = utf8:"jsonrpc"
+@const RPC_EMIT_RPC_VALUE_2_0 = utf8:"2.0"
+@const RPC_EMIT_RPC_KEY_ID = utf8:"id"
+@const RPC_EMIT_RPC_KEY_RESULT = utf8:"result"
+@const RPC_EMIT_RPC_KEY_ERROR = utf8:"error"
+@const RPC_EMIT_JSON_KEY_ERROR = utf8:"error"
+@const RPC_EMIT_JSON_KEY_NAME = utf8:"name"
+@const RPC_EMIT_JSON_KEY_CODE = utf8:"code"
+@const RPC_EMIT_JSON_KEY_MESSAGE = utf8:"message"
+@const RPC_EMIT_JSON_KEY_DATA = utf8:"data"
+@const RPC_EMIT_JSON_KEY_NEXT_CURSOR = utf8:"nextCursor"
+@const RPC_EMIT_JSON_KEY_CONTENTS = utf8:"contents"
+@const RPC_EMIT_JSON_KEY_CONTENT = utf8:"content"
+@const RPC_EMIT_JSON_KEY_META = utf8:"meta"
+@const RPC_EMIT_JSON_KEY_DESCRIPTION = utf8:"description"
+@const RPC_EMIT_JSON_KEY_HOOKS = utf8:"hooks"
+@const RPC_EMIT_JSON_KEY_REQUIREMENTS = utf8:"requirements"
+@const RPC_EMIT_JSON_KEY_ALLOWED_APPROVAL_POLICIES = utf8:"allowedApprovalPolicies"
+@const RPC_EMIT_JSON_KEY_ALLOWED_APPROVALS_REVIEWERS = utf8:"allowedApprovalsReviewers"
+@const RPC_EMIT_JSON_KEY_ALLOWED_SANDBOX_MODES = utf8:"allowedSandboxModes"
+@const RPC_EMIT_JSON_KEY_ALLOWED_WEB_SEARCH_MODES = utf8:"allowedWebSearchModes"
+@const RPC_EMIT_JSON_KEY_ALLOW_MANAGED_HOOKS_ONLY = utf8:"allowManagedHooksOnly"
+@const RPC_EMIT_JSON_KEY_FEATURE_REQUIREMENTS = utf8:"featureRequirements"
+@const RPC_EMIT_JSON_KEY_ENFORCE_RESIDENCY = utf8:"enforceResidency"
+@const RPC_EMIT_JSON_KEY_NETWORK = utf8:"network"
+@const RPC_EMIT_JSON_KEY_FEATURED_PLUGIN_IDS = utf8:"featuredPluginIds"
+@const RPC_EMIT_JSON_KEY_MARKETPLACE_LOAD_ERRORS = utf8:"marketplaceLoadErrors"
+@const RPC_EMIT_JSON_KEY_MARKETPLACES = utf8:"marketplaces"
+@const RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH = utf8:"appsNeedingAuth"
+@const RPC_EMIT_JSON_KEY_AUTH_POLICY = utf8:"authPolicy"
+@const RPC_EMIT_JSON_KEY_STAGE = utf8:"stage"
+@const RPC_EMIT_JSON_KEY_DISPLAY_NAME = utf8:"displayName"
+@const RPC_EMIT_JSON_KEY_ANNOUNCEMENT = utf8:"announcement"
+@const RPC_EMIT_JSON_KEY_ENABLED = utf8:"enabled"
+@const RPC_EMIT_JSON_KEY_DEFAULT_ENABLED = utf8:"defaultEnabled"
+@const RPC_EMIT_JSON_KEY_CANCELED = utf8:"canceled"
+@const RPC_EMIT_JSON_KEY_LOGGED_OUT = utf8:"loggedOut"
+@const RPC_EMIT_JSON_KEY_DECISION = utf8:"decision"
+@const RPC_EMIT_JSON_KEY_ACTION = utf8:"action"
+@const RPC_EMIT_JSON_KEY_PERMISSIONS = utf8:"permissions"
+@const RPC_EMIT_JSON_KEY_SCOPE = utf8:"scope"
+@const RPC_EMIT_JSON_KEY_STRICT_AUTO_REVIEW = utf8:"strictAutoReview"
+@const RPC_EMIT_JSON_KEY_ANSWERS = utf8:"answers"
+@const RPC_EMIT_JSON_KEY_VOICES = utf8:"voices"
+@const RPC_EMIT_JSON_VALUE_HTTP_400 = utf8:"http_400"
+@const RPC_EMIT_JSON_VALUE_EMPTY_BODY_MESSAGE = utf8:"Request body must be a non-empty JSON document."
+@const RPC_EMIT_JSON_VALUE_BAD_REQUEST = utf8:"bad_request"
+@const RPC_EMIT_JSON_VALUE_NOT_AVAILABLE = utf8:"NOT_AVAILABLE"
+@const RPC_EMIT_JSON_VALUE_STABLE = utf8:"stable"
+@const RPC_EMIT_JSON_VALUE_REASONING_TITLE = utf8:"Reasoning"
+@const RPC_EMIT_JSON_VALUE_REASONING_DESCRIPTION = utf8:"Reasoning item formatting."
+@const RPC_EMIT_JSON_VALUE_ACCEPT = utf8:"accept"
+@const RPC_EMIT_JSON_VALUE_TURN = utf8:"turn"
+@const RPC_EMIT_JSON_VALUE_DEFAULT = utf8:"default"
+@const RPC_EMIT_JSON_VALUE_CONTINUE_LOWER = utf8:"continue"
+@const RPC_EMIT_JSON_VALUE_ALLOY = utf8:"alloy"
+@const RPC_EMIT_JSON_VALUE_ALLOY_NAME = utf8:"Alloy"
+@const RPC_EMIT_JSON_VALUE_ECHO = utf8:"echo"
+@const RPC_EMIT_JSON_VALUE_ECHO_NAME = utf8:"Echo"
+@const RPC_EMIT_JSON_VALUE_FABLE = utf8:"fable"
+@const RPC_EMIT_JSON_VALUE_FABLE_NAME = utf8:"Fable"
+@const RPC_EMIT_JSON_VALUE_ONYX = utf8:"onyx"
+@const RPC_EMIT_JSON_VALUE_ONYX_NAME = utf8:"Onyx"
+@const RPC_EMIT_JSON_VALUE_NOVA = utf8:"nova"
+@const RPC_EMIT_JSON_VALUE_NOVA_NAME = utf8:"Nova"
+@const RPC_EMIT_JSON_VALUE_SHIMMER = utf8:"shimmer"
+@const RPC_EMIT_JSON_VALUE_SHIMMER_NAME = utf8:"Shimmer"
+@const RPC_EMIT_FB_KEY_TYPE = utf8:"type"
+@const RPC_EMIT_CHAT_DROP_REASONING = utf8:"reasoning"
+@const RPC_EMIT_ERR_NOT_FOUND = utf8:"method not found"
+@const RPC_EMIT_ERR_MCP_RESOURCE_LIST_UNSUPPORTED = utf8:"unsupported method: mcpServer/resource/list"
+@const RPC_EMIT_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED = utf8:"unsupported method: mcpServer/resource/templates"
+
+#def RPC_EMIT_MIME_JSON_LEN = 16
+#def RPC_EMIT_RPC_KEY_JSONRPC_LEN = 7
+#def RPC_EMIT_RPC_VALUE_2_0_LEN = 3
+#def RPC_EMIT_RPC_KEY_ID_LEN = 2
+#def RPC_EMIT_RPC_KEY_RESULT_LEN = 6
+#def RPC_EMIT_RPC_KEY_ERROR_LEN = 5
+#def RPC_EMIT_JSON_KEY_ERROR_LEN = 5
+#def RPC_EMIT_JSON_KEY_NAME_LEN = 4
+#def RPC_EMIT_JSON_KEY_CODE_LEN = 4
+#def RPC_EMIT_JSON_KEY_MESSAGE_LEN = 7
+#def RPC_EMIT_JSON_KEY_DATA_LEN = 4
+#def RPC_EMIT_JSON_KEY_NEXT_CURSOR_LEN = 10
+#def RPC_EMIT_JSON_KEY_CONTENTS_LEN = 8
+#def RPC_EMIT_JSON_KEY_CONTENT_LEN = 7
+#def RPC_EMIT_JSON_KEY_META_LEN = 4
+#def RPC_EMIT_JSON_KEY_DESCRIPTION_LEN = 11
+#def RPC_EMIT_JSON_KEY_HOOKS_LEN = 5
+#def RPC_EMIT_JSON_KEY_REQUIREMENTS_LEN = 12
+#def RPC_EMIT_JSON_KEY_ALLOWED_APPROVAL_POLICIES_LEN = 23
+#def RPC_EMIT_JSON_KEY_ALLOWED_APPROVALS_REVIEWERS_LEN = 25
+#def RPC_EMIT_JSON_KEY_ALLOWED_SANDBOX_MODES_LEN = 19
+#def RPC_EMIT_JSON_KEY_ALLOWED_WEB_SEARCH_MODES_LEN = 21
+#def RPC_EMIT_JSON_KEY_ALLOW_MANAGED_HOOKS_ONLY_LEN = 21
+#def RPC_EMIT_JSON_KEY_FEATURE_REQUIREMENTS_LEN = 19
+#def RPC_EMIT_JSON_KEY_ENFORCE_RESIDENCY_LEN = 16
+#def RPC_EMIT_JSON_KEY_NETWORK_LEN = 7
+#def RPC_EMIT_JSON_KEY_FEATURED_PLUGIN_IDS_LEN = 17
+#def RPC_EMIT_JSON_KEY_MARKETPLACE_LOAD_ERRORS_LEN = 21
+#def RPC_EMIT_JSON_KEY_MARKETPLACES_LEN = 12
+#def RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH_LEN = 15
+#def RPC_EMIT_JSON_KEY_AUTH_POLICY_LEN = 10
+#def RPC_EMIT_JSON_KEY_STAGE_LEN = 5
+#def RPC_EMIT_JSON_KEY_DISPLAY_NAME_LEN = 11
+#def RPC_EMIT_JSON_KEY_ANNOUNCEMENT_LEN = 12
+#def RPC_EMIT_JSON_KEY_ENABLED_LEN = 7
+#def RPC_EMIT_JSON_KEY_DEFAULT_ENABLED_LEN = 14
+#def RPC_EMIT_JSON_KEY_CANCELED_LEN = 8
+#def RPC_EMIT_JSON_KEY_LOGGED_OUT_LEN = 9
+#def RPC_EMIT_JSON_KEY_DECISION_LEN = 8
+#def RPC_EMIT_JSON_KEY_ACTION_LEN = 6
+#def RPC_EMIT_JSON_KEY_PERMISSIONS_LEN = 11
+#def RPC_EMIT_JSON_KEY_SCOPE_LEN = 5
+#def RPC_EMIT_JSON_KEY_STRICT_AUTO_REVIEW_LEN = 16
+#def RPC_EMIT_JSON_KEY_ANSWERS_LEN = 7
+#def RPC_EMIT_JSON_KEY_VOICES_LEN = 6
+#def RPC_EMIT_JSON_VALUE_HTTP_400_LEN = 8
+#def RPC_EMIT_JSON_VALUE_EMPTY_BODY_MESSAGE_LEN = 47
+#def RPC_EMIT_JSON_VALUE_BAD_REQUEST_LEN = 11
+#def RPC_EMIT_JSON_VALUE_NOT_AVAILABLE_LEN = 13
+#def RPC_EMIT_JSON_VALUE_STABLE_LEN = 6
+#def RPC_EMIT_JSON_VALUE_REASONING_TITLE_LEN = 9
+#def RPC_EMIT_JSON_VALUE_REASONING_DESCRIPTION_LEN = 26
+#def RPC_EMIT_JSON_VALUE_ACCEPT_LEN = 6
+#def RPC_EMIT_JSON_VALUE_TURN_LEN = 4
+#def RPC_EMIT_JSON_VALUE_DEFAULT_LEN = 7
+#def RPC_EMIT_JSON_VALUE_CONTINUE_LOWER_LEN = 8
+#def RPC_EMIT_JSON_VALUE_ALLOY_LEN = 5
+#def RPC_EMIT_JSON_VALUE_ALLOY_NAME_LEN = 5
+#def RPC_EMIT_JSON_VALUE_ECHO_LEN = 4
+#def RPC_EMIT_JSON_VALUE_ECHO_NAME_LEN = 4
+#def RPC_EMIT_JSON_VALUE_FABLE_LEN = 5
+#def RPC_EMIT_JSON_VALUE_FABLE_NAME_LEN = 5
+#def RPC_EMIT_JSON_VALUE_ONYX_LEN = 4
+#def RPC_EMIT_JSON_VALUE_ONYX_NAME_LEN = 4
+#def RPC_EMIT_JSON_VALUE_NOVA_LEN = 4
+#def RPC_EMIT_JSON_VALUE_NOVA_NAME_LEN = 4
+#def RPC_EMIT_JSON_VALUE_SHIMMER_LEN = 7
+#def RPC_EMIT_JSON_VALUE_SHIMMER_NAME_LEN = 7
+#def RPC_EMIT_FB_KEY_TYPE_LEN = 4
+#def RPC_EMIT_CHAT_DROP_REASONING_LEN = 9
+#def RPC_EMIT_ERR_NOT_FOUND_LEN = 16
+#def RPC_EMIT_ERR_MCP_RESOURCE_LIST_UNSUPPORTED_LEN = 43
+#def RPC_EMIT_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED_LEN = 48
+
+@ffi_wrapper rpc_emit_begin_field_object(writer: ptr, &key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    field_status = call @sa_json_writer_object_field(writer, &key, key_len)
+    begin_status = call @sa_json_writer_begin_object(writer)
+    !begin_status
+    !field_status
+    !writer
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper send_rpc_json(&req: ptr, status: u16, &json_ptr: ptr, json_len: u64) -> u32:
+L_ENTRY:
+    resp_slot = stack_alloc 8
+    s = call @sa_http_server_resp_new(req, status, &resp_slot)
+    resp = load resp_slot+0 as ptr
+    send_s = call @sa_http_server_resp_send(resp, &json_ptr, json_len)
+    !send_s
+    !s
+    call @sa_http_server_resp_free(^resp)
+    return 0
+
+@ffi_wrapper send_json_response(&req: ptr, status: u16, &json_ptr: ptr, json_len: u64) -> u32:
+L_ENTRY:
+    resp_slot = stack_alloc 8
+    s = call @sa_http_server_resp_new(req, status, &resp_slot)
+    resp = load resp_slot+0 as ptr
+    ct_s = call @sa_http_server_resp_set_content_type(resp, &RPC_EMIT_MIME_JSON, RPC_EMIT_MIME_JSON_LEN)
+    send_s = call @sa_http_server_resp_send(resp, &json_ptr, json_len)
+    !send_s
+    !ct_s
+    !s
+    call @sa_http_server_resp_free(^resp)
+    return 0
+
+@ffi_wrapper send_jsonrpc_envelope_with_id(&req: ptr, status: u16, &id_ptr: ptr, id_len: u64, &payload_ptr: ptr, payload_len: u64, is_error: u8) -> u32:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING jsonrpc_status, writer, RPC_EMIT_RPC_KEY_JSONRPC, RPC_EMIT_RPC_KEY_JSONRPC_LEN, RPC_EMIT_RPC_VALUE_2_0, RPC_EMIT_RPC_VALUE_2_0_LEN
+    !jsonrpc_status
+    id_node = call @sa_json_parse(&id_ptr, id_len)
+    id_has_node = ne id_node, 0
+    br id_has_node -> L_JSONRPC_ID_NODE, L_JSONRPC_ID_NULL
+
+L_JSONRPC_ID_NODE:
+    !id_has_node
+    id_field_status = call @sa_json_writer_field_node(writer, &RPC_EMIT_RPC_KEY_ID, RPC_EMIT_RPC_KEY_ID_LEN, id_node)
+    id_free_status = call @sa_json_free(^id_node)
+    !id_free_status
+    !id_field_status
+    jmp L_JSONRPC_PAYLOAD_PARSE
+
+L_JSONRPC_ID_NULL:
+    !id_has_node
+    !id_node
+    EXPAND JSON_WRITER_FIELD_NULL id_null_status, writer, RPC_EMIT_RPC_KEY_ID, RPC_EMIT_RPC_KEY_ID_LEN
+    !id_null_status
+    jmp L_JSONRPC_PAYLOAD_PARSE
+
+L_JSONRPC_PAYLOAD_PARSE:
+    payload_node = call @sa_json_parse(&payload_ptr, payload_len)
+    payload_has_node = ne payload_node, 0
+    br payload_has_node -> L_JSONRPC_PAYLOAD_NODE, L_JSONRPC_PAYLOAD_NULL
+
+L_JSONRPC_PAYLOAD_NODE:
+    !payload_has_node
+    is_error_flag = eq is_error, 1
+    br is_error_flag -> L_JSONRPC_ERROR_NODE, L_JSONRPC_RESULT_NODE
+
+L_JSONRPC_RESULT_NODE:
+    !is_error_flag
+    payload_field_status = call @sa_json_writer_field_node(writer, &RPC_EMIT_RPC_KEY_RESULT, RPC_EMIT_RPC_KEY_RESULT_LEN, payload_node)
+    payload_free_status = call @sa_json_free(^payload_node)
+    !payload_free_status
+    !payload_field_status
+    jmp L_JSONRPC_FINISH
+
+L_JSONRPC_ERROR_NODE:
+    !is_error_flag
+    payload_error_status = call @sa_json_writer_field_node(writer, &RPC_EMIT_RPC_KEY_ERROR, RPC_EMIT_RPC_KEY_ERROR_LEN, payload_node)
+    payload_error_free_status = call @sa_json_free(^payload_node)
+    !payload_error_free_status
+    !payload_error_status
+    jmp L_JSONRPC_FINISH
+
+L_JSONRPC_PAYLOAD_NULL:
+    !payload_has_node
+    !payload_node
+    is_error_null = eq is_error, 1
+    br is_error_null -> L_JSONRPC_ERROR_NULL, L_JSONRPC_RESULT_NULL
+
+L_JSONRPC_RESULT_NULL:
+    !is_error_null
+    EXPAND JSON_WRITER_FIELD_NULL payload_null_status, writer, RPC_EMIT_RPC_KEY_RESULT, RPC_EMIT_RPC_KEY_RESULT_LEN
+    !payload_null_status
+    jmp L_JSONRPC_FINISH
+
+L_JSONRPC_ERROR_NULL:
+    !is_error_null
+    EXPAND JSON_WRITER_FIELD_NULL payload_error_null_status, writer, RPC_EMIT_RPC_KEY_ERROR, RPC_EMIT_RPC_KEY_ERROR_LEN
+    !payload_error_null_status
+    jmp L_JSONRPC_FINISH
+
+L_JSONRPC_FINISH:
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    json_ptr_slot = stack_alloc 8
+    json_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &json_ptr_slot, &json_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    json_ptr = load json_ptr_slot+0 as ptr
+    json_len = load json_len_slot+0 as u64
+    send_status = call @send_rpc_json(&req, status, &json_ptr, json_len)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !send_status
+    !json_ptr
+    !json_len
+    !finish_status
+    !end_status
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !payload_ptr
+    !payload_len
+    !is_error
+    !status
+    !req
+    return 0
+
+@ffi_wrapper send_wrapped_writer_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, writer: ptr) -> u32:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    result_ptr_slot = stack_alloc 8
+    result_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &result_ptr_slot, &result_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    result_ptr = load result_ptr_slot+0 as ptr
+    result_len = load result_len_slot+0 as u64
+    send_status = call @send_jsonrpc_envelope_with_id(&req, 200, &id_ptr, id_len, &result_ptr, result_len, 0)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !send_status
+    !result_ptr
+    !result_len
+    !finish_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_json_writer_response(&req: ptr, status: u16, writer: ptr) -> u32:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    json_ptr_slot = stack_alloc 8
+    json_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &json_ptr_slot, &json_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    json_ptr = load json_ptr_slot+0 as ptr
+    json_len = load json_len_slot+0 as u64
+    send_status = call @send_json_response(&req, status, &json_ptr, json_len)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !send_status
+    !json_ptr
+    !json_len
+    !finish_status
+    !status
+    !req
+    return 0
+
+@ffi_wrapper send_wrapped_raw_json_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, &result_ptr: ptr, result_len: u64) -> u32:
+L_ENTRY:
+    send_status = call @send_jsonrpc_envelope_with_id(&req, 200, &id_ptr, id_len, &result_ptr, result_len, 0)
+    !send_status
+    !id_ptr
+    !id_len
+    !result_ptr
+    !result_len
+    !req
+    return 0
+
+@ffi_wrapper send_json_bool_field_response(&req: ptr, status: u16, &key: ptr, key_len: u64, value: u8) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_BOOL field_status, writer, key, key_len, value
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_json_writer_response(&req, status, writer)
+    !end_status
+    !field_status
+    !begin_status
+    !writer_status
+    !key
+    !key_len
+    !value
+    !status
+    !req
+    return 0
+
+@ffi_wrapper send_json_error_string_response(&req: ptr, status: u16, &msg_ptr: ptr, msg_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING error_status, writer, RPC_EMIT_JSON_KEY_ERROR, RPC_EMIT_JSON_KEY_ERROR_LEN, msg_ptr, msg_len
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_json_writer_response(&req, status, writer)
+    !end_status
+    !error_status
+    !begin_status
+    !writer_status
+    !msg_ptr
+    !msg_len
+    !status
+    !req
+    return 0
+
+@ffi_wrapper send_empty_body_error_response(&req: ptr) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    error_begin = call @rpc_emit_begin_field_object(writer, &RPC_EMIT_JSON_KEY_ERROR, RPC_EMIT_JSON_KEY_ERROR_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING code_status, writer, RPC_EMIT_JSON_KEY_CODE, RPC_EMIT_JSON_KEY_CODE_LEN, RPC_EMIT_JSON_VALUE_HTTP_400, RPC_EMIT_JSON_VALUE_HTTP_400_LEN
+    EXPAND JSON_WRITER_FIELD_STRING message_status, writer, RPC_EMIT_JSON_KEY_MESSAGE, RPC_EMIT_JSON_KEY_MESSAGE_LEN, RPC_EMIT_JSON_VALUE_EMPTY_BODY_MESSAGE, RPC_EMIT_JSON_VALUE_EMPTY_BODY_MESSAGE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING type_status, writer, RPC_EMIT_FB_KEY_TYPE, RPC_EMIT_FB_KEY_TYPE_LEN, RPC_EMIT_JSON_VALUE_BAD_REQUEST, RPC_EMIT_JSON_VALUE_BAD_REQUEST_LEN
+    EXPAND JSON_WRITER_END_OBJECT error_end, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_json_writer_response(&req, 400, writer)
+    !end_status
+    !error_end
+    !type_status
+    !message_status
+    !code_status
+    !error_begin
+    !begin_status
+    !writer_status
+    !req
+    return 0
+
+@ffi_wrapper send_error_with_id(&req: ptr, status: u16, &id_ptr: ptr, id_len: u64, &error_ptr: ptr, error_len: u64) -> u32:
+L_ENTRY:
+    code_slot = stack_alloc 8
+    method_raw = call @sa_bytes_eq(&error_ptr, error_len, &RPC_EMIT_ERR_NOT_FOUND, RPC_EMIT_ERR_NOT_FOUND_LEN)
+    method_ok = eq method_raw, 1
+    br method_ok -> L_ERR_CODE_METHOD_DIRECT, L_ERR_CODE_CHECK_MCP_LIST
+
+L_ERR_CODE_METHOD_DIRECT:
+    !method_ok
+    !method_raw
+    jmp L_ERR_CODE_METHOD_SET
+
+L_ERR_CODE_CHECK_MCP_LIST:
+    !method_ok
+    !method_raw
+    mcp_list_raw = call @sa_bytes_eq(&error_ptr, error_len, &RPC_EMIT_ERR_MCP_RESOURCE_LIST_UNSUPPORTED, RPC_EMIT_ERR_MCP_RESOURCE_LIST_UNSUPPORTED_LEN)
+    mcp_list_ok = eq mcp_list_raw, 1
+    br mcp_list_ok -> L_ERR_CODE_METHOD_FROM_LIST, L_ERR_CODE_CHECK_MCP_TEMPLATES
+
+L_ERR_CODE_METHOD_FROM_LIST:
+    !mcp_list_ok
+    !mcp_list_raw
+    jmp L_ERR_CODE_METHOD_SET
+
+L_ERR_CODE_CHECK_MCP_TEMPLATES:
+    !mcp_list_ok
+    !mcp_list_raw
+    mcp_templates_raw = call @sa_bytes_eq(&error_ptr, error_len, &RPC_EMIT_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED, RPC_EMIT_ERR_MCP_RESOURCE_TEMPLATES_UNSUPPORTED_LEN)
+    mcp_templates_ok = eq mcp_templates_raw, 1
+    br mcp_templates_ok -> L_ERR_CODE_METHOD_FROM_TEMPLATES, L_ERR_CODE_CHECK_INVALID
+
+L_ERR_CODE_METHOD_FROM_TEMPLATES:
+    !mcp_templates_ok
+    !mcp_templates_raw
+    jmp L_ERR_CODE_METHOD_SET
+
+L_ERR_CODE_CHECK_INVALID:
+    !mcp_templates_ok
+    !mcp_templates_raw
+    is_bad_params = eq status, 400
+    br is_bad_params -> L_ERR_CODE_INVALID, L_ERR_CODE_INTERNAL
+
+L_ERR_CODE_METHOD_SET:
+    method_code_u = sub 0, 32601
+    method_code_i = bitcast method_code_u as i64
+    store code_slot+0, method_code_i as i64
+    !method_code_i
+    !method_code_u
+    jmp L_ERR_WRITE
+
+L_ERR_CODE_INVALID:
+    !is_bad_params
+    invalid_code_u = sub 0, 32602
+    invalid_code_i = bitcast invalid_code_u as i64
+    store code_slot+0, invalid_code_i as i64
+    !invalid_code_i
+    !invalid_code_u
+    jmp L_ERR_WRITE
+
+L_ERR_CODE_INTERNAL:
+    !is_bad_params
+    internal_code_u = sub 0, 32000
+    internal_code_i = bitcast internal_code_u as i64
+    store code_slot+0, internal_code_i as i64
+    !internal_code_i
+    !internal_code_u
+    jmp L_ERR_WRITE
+
+L_ERR_WRITE:
+    code = load code_slot+0 as i64
+    buffer_slot = stack_alloc 8
+    payload_ptr_slot = stack_alloc 8
+    payload_len_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    code_status = call @sa_json_writer_field_i64(writer, &RPC_EMIT_JSON_KEY_CODE, RPC_EMIT_JSON_KEY_CODE_LEN, code)
+    EXPAND JSON_WRITER_FIELD_STRING message_status, writer, RPC_EMIT_JSON_KEY_MESSAGE, RPC_EMIT_JSON_KEY_MESSAGE_LEN, error_ptr, error_len
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &payload_ptr_slot, &payload_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    payload_ptr = load payload_ptr_slot+0 as ptr
+    payload_len = load payload_len_slot+0 as u64
+    send_status = call @send_jsonrpc_envelope_with_id(&req, status, &id_ptr, id_len, &payload_ptr, payload_len, 1)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    !dispose_status
+    !payload_ptr
+    !payload_len
+    !finish_status
+    !end_status
+    !message_status
+    !code_status
+    !begin_status
+    !writer_status
+    !code
+    !send_status
+    !id_ptr
+    !id_len
+    !error_ptr
+    !error_len
+    !status
+    !req
+    return 0
+
+@ffi_wrapper json_writer_write_voice(writer: ptr, &id_ptr: ptr, id_len: u64, &name_ptr: ptr, name_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING id_status, writer, RPC_EMIT_RPC_KEY_ID, RPC_EMIT_RPC_KEY_ID_LEN, id_ptr, id_len
+    EXPAND JSON_WRITER_FIELD_STRING name_status, writer, RPC_EMIT_JSON_KEY_NAME, RPC_EMIT_JSON_KEY_NAME_LEN, name_ptr, name_len
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    !end_status
+    !name_status
+    !id_status
+    !begin_status
+    !writer
+    !id_ptr
+    !id_len
+    !name_ptr
+    !name_len
+    return 0
+
+@ffi_wrapper json_writer_field_string_or_empty(writer: ptr, &key: ptr, key_len: u64, &value_ptr: ptr, value_len: u64) -> u32:
+L_ENTRY:
+    fallback_status = call @json_writer_field_default_or_null(writer, &key, key_len, &value_ptr, value_len, 0)
+    !fallback_status
+    !writer
+    !key
+    !key_len
+    !value_ptr
+    !value_len
+    return 0
+
+@ffi_wrapper json_writer_field_empty_array(writer: ptr, &key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    field_status = call @sa_json_writer_object_field(writer, &key, key_len)
+    begin_status = call @sa_json_writer_begin_array(writer)
+    end_status = call @sa_json_writer_end_array(writer)
+    !end_status
+    !begin_status
+    !field_status
+    !writer
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper json_writer_field_empty_object(writer: ptr, &key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    field_status = call @sa_json_writer_object_field(writer, &key, key_len)
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    !end_status
+    !begin_status
+    !field_status
+    !writer
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper json_writer_begin_field_array(writer: ptr, &key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    field_status = call @sa_json_writer_object_field(writer, &key, key_len)
+    begin_status = call @sa_json_writer_begin_array(writer)
+    !begin_status
+    !field_status
+    !writer
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper json_writer_begin_field_object(writer: ptr, &key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    field_status = call @sa_json_writer_object_field(writer, &key, key_len)
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    !begin_status
+    !field_status
+    !writer
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper json_writer_field_default_or_null(writer: ptr, &field_key: ptr, field_key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8) -> u32:
+L_ENTRY:
+    emit_null = eq emit_null_if_missing, 1
+    br emit_null -> L_JW_DEFAULT_NULL, L_JW_DEFAULT_STRING
+
+L_JW_DEFAULT_NULL:
+    !emit_null
+    EXPAND JSON_WRITER_FIELD_NULL null_status, writer, field_key, field_key_len
+    !null_status
+    !writer
+    !field_key
+    !field_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+L_JW_DEFAULT_STRING:
+    !emit_null
+    EXPAND JSON_WRITER_FIELD_STRING default_status, writer, field_key, field_key_len, fallback, fallback_len
+    !default_status
+    !writer
+    !field_key
+    !field_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+@ffi_wrapper json_writer_field_param_or_default_from_params(writer: ptr, &field_key: ptr, field_key_len: u64, params_node: ptr, &lookup_key: ptr, lookup_key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8) -> u32:
+L_ENTRY:
+    lookup_ptr_slot = stack_alloc 8
+    lookup_len_slot = stack_alloc 8
+    lookup_status = call @rpc_jsonrpc_lookup_key(&lookup_key, lookup_key_len, &lookup_ptr_slot, &lookup_len_slot)
+    !lookup_status
+    lookup_ptr = load lookup_ptr_slot+0 as ptr
+    lookup_len = load lookup_len_slot+0 as u64
+    value_slot = stack_alloc 8
+    value_status = call @sa_json_object_get(params_node, &lookup_ptr, lookup_len, &value_slot)
+    value_ok = eq value_status, 0
+    br value_ok -> L_JW_PARAM_FROM_PARAMS_NODE, L_JW_PARAM_FROM_PARAMS_MISSING
+
+L_JW_PARAM_FROM_PARAMS_NODE:
+    !value_ok
+    value_node = load value_slot+0 as ptr
+    field_status = call @sa_json_writer_field_node(writer, &field_key, field_key_len, value_node)
+    value_free = call @sa_json_free(^value_node)
+    !value_free
+    !field_status
+    !value_status
+    !lookup_ptr
+    !lookup_len
+    !writer
+    !field_key
+    !field_key_len
+    !params_node
+    !lookup_key
+    !lookup_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+L_JW_PARAM_FROM_PARAMS_MISSING:
+    !value_ok
+    !value_status
+    !lookup_ptr
+    !lookup_len
+    fallback_status_missing = call @json_writer_field_default_or_null(writer, &field_key, field_key_len, &fallback, fallback_len, emit_null_if_missing)
+    !fallback_status_missing
+    !writer
+    !field_key
+    !field_key_len
+    !params_node
+    !lookup_key
+    !lookup_key_len
+    !fallback
+    !fallback_len
+    !emit_null_if_missing
+    return 0
+
+@ffi_wrapper send_rpc_empty_array_field_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, &field_key: ptr, field_key_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    array_status = call @json_writer_field_empty_array(writer, &field_key, field_key_len)
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !array_status
+    !begin_status
+    !writer_status
+    !field_key
+    !field_key_len
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_empty_data_page_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    data_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_DATA, RPC_EMIT_JSON_KEY_DATA_LEN)
+    EXPAND JSON_WRITER_FIELD_NULL cursor_status, writer, RPC_EMIT_JSON_KEY_NEXT_CURSOR, RPC_EMIT_JSON_KEY_NEXT_CURSOR_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !cursor_status
+    !data_status
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_config_requirements_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    req_begin = call @json_writer_begin_field_object(writer, &RPC_EMIT_JSON_KEY_REQUIREMENTS, RPC_EMIT_JSON_KEY_REQUIREMENTS_LEN)
+    EXPAND JSON_WRITER_FIELD_NULL allowed_status, writer, RPC_EMIT_JSON_KEY_ALLOWED_APPROVAL_POLICIES, RPC_EMIT_JSON_KEY_ALLOWED_APPROVAL_POLICIES_LEN
+    EXPAND JSON_WRITER_FIELD_NULL reviewers_status, writer, RPC_EMIT_JSON_KEY_ALLOWED_APPROVALS_REVIEWERS, RPC_EMIT_JSON_KEY_ALLOWED_APPROVALS_REVIEWERS_LEN
+    EXPAND JSON_WRITER_FIELD_NULL sandbox_status, writer, RPC_EMIT_JSON_KEY_ALLOWED_SANDBOX_MODES, RPC_EMIT_JSON_KEY_ALLOWED_SANDBOX_MODES_LEN
+    EXPAND JSON_WRITER_FIELD_NULL web_status, writer, RPC_EMIT_JSON_KEY_ALLOWED_WEB_SEARCH_MODES, RPC_EMIT_JSON_KEY_ALLOWED_WEB_SEARCH_MODES_LEN
+    EXPAND JSON_WRITER_FIELD_NULL managed_status, writer, RPC_EMIT_JSON_KEY_ALLOW_MANAGED_HOOKS_ONLY, RPC_EMIT_JSON_KEY_ALLOW_MANAGED_HOOKS_ONLY_LEN
+    EXPAND JSON_WRITER_FIELD_NULL feature_status, writer, RPC_EMIT_JSON_KEY_FEATURE_REQUIREMENTS, RPC_EMIT_JSON_KEY_FEATURE_REQUIREMENTS_LEN
+    EXPAND JSON_WRITER_FIELD_NULL hooks_status, writer, RPC_EMIT_JSON_KEY_HOOKS, RPC_EMIT_JSON_KEY_HOOKS_LEN
+    EXPAND JSON_WRITER_FIELD_NULL residency_status, writer, RPC_EMIT_JSON_KEY_ENFORCE_RESIDENCY, RPC_EMIT_JSON_KEY_ENFORCE_RESIDENCY_LEN
+    EXPAND JSON_WRITER_FIELD_NULL network_status, writer, RPC_EMIT_JSON_KEY_NETWORK, RPC_EMIT_JSON_KEY_NETWORK_LEN
+    EXPAND JSON_WRITER_END_OBJECT req_end, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !req_end
+    !network_status
+    !residency_status
+    !hooks_status
+    !feature_status
+    !managed_status
+    !web_status
+    !sandbox_status
+    !reviewers_status
+    !allowed_status
+    !req_begin
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_plugin_marketplaces_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    featured_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_FEATURED_PLUGIN_IDS, RPC_EMIT_JSON_KEY_FEATURED_PLUGIN_IDS_LEN)
+    errors_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_MARKETPLACE_LOAD_ERRORS, RPC_EMIT_JSON_KEY_MARKETPLACE_LOAD_ERRORS_LEN)
+    markets_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_MARKETPLACES, RPC_EMIT_JSON_KEY_MARKETPLACES_LEN)
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !markets_status
+    !errors_status
+    !featured_status
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_plugin_install_unavailable_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    apps_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH, RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING policy_status, writer, RPC_EMIT_JSON_KEY_AUTH_POLICY, RPC_EMIT_JSON_KEY_AUTH_POLICY_LEN, RPC_EMIT_JSON_VALUE_NOT_AVAILABLE, RPC_EMIT_JSON_VALUE_NOT_AVAILABLE_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !policy_status
+    !apps_status
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_experimental_features_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    data_begin = call @json_writer_begin_field_array(writer, &RPC_EMIT_JSON_KEY_DATA, RPC_EMIT_JSON_KEY_DATA_LEN)
+    EXPAND JSON_WRITER_BEGIN_OBJECT feature_begin, writer
+    EXPAND JSON_WRITER_FIELD_STRING name_status, writer, RPC_EMIT_JSON_KEY_NAME, RPC_EMIT_JSON_KEY_NAME_LEN, RPC_EMIT_CHAT_DROP_REASONING, RPC_EMIT_CHAT_DROP_REASONING_LEN
+    EXPAND JSON_WRITER_FIELD_STRING stage_status, writer, RPC_EMIT_JSON_KEY_STAGE, RPC_EMIT_JSON_KEY_STAGE_LEN, RPC_EMIT_JSON_VALUE_STABLE, RPC_EMIT_JSON_VALUE_STABLE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING display_status, writer, RPC_EMIT_JSON_KEY_DISPLAY_NAME, RPC_EMIT_JSON_KEY_DISPLAY_NAME_LEN, RPC_EMIT_JSON_VALUE_REASONING_TITLE, RPC_EMIT_JSON_VALUE_REASONING_TITLE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING desc_status, writer, RPC_EMIT_JSON_KEY_DESCRIPTION, RPC_EMIT_JSON_KEY_DESCRIPTION_LEN, RPC_EMIT_JSON_VALUE_REASONING_DESCRIPTION, RPC_EMIT_JSON_VALUE_REASONING_DESCRIPTION_LEN
+    EXPAND JSON_WRITER_FIELD_NULL announcement_status, writer, RPC_EMIT_JSON_KEY_ANNOUNCEMENT, RPC_EMIT_JSON_KEY_ANNOUNCEMENT_LEN
+    EXPAND JSON_WRITER_FIELD_BOOL enabled_status, writer, RPC_EMIT_JSON_KEY_ENABLED, RPC_EMIT_JSON_KEY_ENABLED_LEN, 1
+    EXPAND JSON_WRITER_FIELD_BOOL default_enabled_status, writer, RPC_EMIT_JSON_KEY_DEFAULT_ENABLED, RPC_EMIT_JSON_KEY_DEFAULT_ENABLED_LEN, 1
+    EXPAND JSON_WRITER_END_OBJECT feature_end, writer
+    EXPAND JSON_WRITER_END_ARRAY data_end, writer
+    EXPAND JSON_WRITER_FIELD_NULL cursor_status, writer, RPC_EMIT_JSON_KEY_NEXT_CURSOR, RPC_EMIT_JSON_KEY_NEXT_CURSOR_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !cursor_status
+    !data_end
+    !feature_end
+    !default_enabled_status
+    !enabled_status
+    !announcement_status
+    !desc_status
+    !display_status
+    !stage_status
+    !name_status
+    !feature_begin
+    !data_begin
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_account_login_state_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, canceled: u8, logged_out: u8) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_BOOL canceled_status, writer, RPC_EMIT_JSON_KEY_CANCELED, RPC_EMIT_JSON_KEY_CANCELED_LEN, canceled
+    EXPAND JSON_WRITER_FIELD_BOOL logged_status, writer, RPC_EMIT_JSON_KEY_LOGGED_OUT, RPC_EMIT_JSON_KEY_LOGGED_OUT_LEN, logged_out
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !logged_status
+    !canceled_status
+    !begin_status
+    !writer_status
+    !canceled
+    !logged_out
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_approval_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING decision_status, writer, RPC_EMIT_JSON_KEY_DECISION, RPC_EMIT_JSON_KEY_DECISION_LEN, RPC_EMIT_JSON_VALUE_ACCEPT, RPC_EMIT_JSON_VALUE_ACCEPT_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !decision_status
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_mcp_elicit_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING action_status, writer, RPC_EMIT_JSON_KEY_ACTION, RPC_EMIT_JSON_KEY_ACTION_LEN, RPC_EMIT_JSON_VALUE_ACCEPT, RPC_EMIT_JSON_VALUE_ACCEPT_LEN
+    EXPAND JSON_WRITER_FIELD_NULL content_status, writer, RPC_EMIT_JSON_KEY_CONTENT, RPC_EMIT_JSON_KEY_CONTENT_LEN
+    EXPAND JSON_WRITER_FIELD_NULL meta_status, writer, RPC_EMIT_JSON_KEY_META, RPC_EMIT_JSON_KEY_META_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !meta_status
+    !content_status
+    !action_status
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_permissions_default_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    permissions_status = call @json_writer_field_empty_object(writer, &RPC_EMIT_JSON_KEY_PERMISSIONS, RPC_EMIT_JSON_KEY_PERMISSIONS_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING scope_status, writer, RPC_EMIT_JSON_KEY_SCOPE, RPC_EMIT_JSON_KEY_SCOPE_LEN, RPC_EMIT_JSON_VALUE_TURN, RPC_EMIT_JSON_VALUE_TURN_LEN
+    EXPAND JSON_WRITER_FIELD_NULL review_status, writer, RPC_EMIT_JSON_KEY_STRICT_AUTO_REVIEW, RPC_EMIT_JSON_KEY_STRICT_AUTO_REVIEW_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !review_status
+    !scope_status
+    !permissions_status
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_user_input_continue_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    answers_begin = call @json_writer_begin_field_object(writer, &RPC_EMIT_JSON_KEY_ANSWERS, RPC_EMIT_JSON_KEY_ANSWERS_LEN)
+    default_begin = call @json_writer_begin_field_object(writer, &RPC_EMIT_JSON_VALUE_DEFAULT, RPC_EMIT_JSON_VALUE_DEFAULT_LEN)
+    inner_begin = call @json_writer_begin_field_array(writer, &RPC_EMIT_JSON_KEY_ANSWERS, RPC_EMIT_JSON_KEY_ANSWERS_LEN)
+    continue_status = call @sa_json_writer_write_string(writer, &RPC_EMIT_JSON_VALUE_CONTINUE_LOWER, RPC_EMIT_JSON_VALUE_CONTINUE_LOWER_LEN)
+    EXPAND JSON_WRITER_END_ARRAY inner_end, writer
+    EXPAND JSON_WRITER_END_OBJECT default_end, writer
+    EXPAND JSON_WRITER_END_OBJECT answers_end, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !answers_end
+    !default_end
+    !inner_end
+    !continue_status
+    !inner_begin
+    !default_begin
+    !answers_begin
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
+
+@ffi_wrapper send_rpc_realtime_voices_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    voices_begin = call @json_writer_begin_field_array(writer, &RPC_EMIT_JSON_KEY_VOICES, RPC_EMIT_JSON_KEY_VOICES_LEN)
+    alloy_status = call @json_writer_write_voice(writer, &RPC_EMIT_JSON_VALUE_ALLOY, RPC_EMIT_JSON_VALUE_ALLOY_LEN, &RPC_EMIT_JSON_VALUE_ALLOY_NAME, RPC_EMIT_JSON_VALUE_ALLOY_NAME_LEN)
+    echo_status = call @json_writer_write_voice(writer, &RPC_EMIT_JSON_VALUE_ECHO, RPC_EMIT_JSON_VALUE_ECHO_LEN, &RPC_EMIT_JSON_VALUE_ECHO_NAME, RPC_EMIT_JSON_VALUE_ECHO_NAME_LEN)
+    fable_status = call @json_writer_write_voice(writer, &RPC_EMIT_JSON_VALUE_FABLE, RPC_EMIT_JSON_VALUE_FABLE_LEN, &RPC_EMIT_JSON_VALUE_FABLE_NAME, RPC_EMIT_JSON_VALUE_FABLE_NAME_LEN)
+    onyx_status = call @json_writer_write_voice(writer, &RPC_EMIT_JSON_VALUE_ONYX, RPC_EMIT_JSON_VALUE_ONYX_LEN, &RPC_EMIT_JSON_VALUE_ONYX_NAME, RPC_EMIT_JSON_VALUE_ONYX_NAME_LEN)
+    nova_status = call @json_writer_write_voice(writer, &RPC_EMIT_JSON_VALUE_NOVA, RPC_EMIT_JSON_VALUE_NOVA_LEN, &RPC_EMIT_JSON_VALUE_NOVA_NAME, RPC_EMIT_JSON_VALUE_NOVA_NAME_LEN)
+    shimmer_status = call @json_writer_write_voice(writer, &RPC_EMIT_JSON_VALUE_SHIMMER, RPC_EMIT_JSON_VALUE_SHIMMER_LEN, &RPC_EMIT_JSON_VALUE_SHIMMER_NAME, RPC_EMIT_JSON_VALUE_SHIMMER_NAME_LEN)
+    EXPAND JSON_WRITER_END_ARRAY voices_end, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !end_status
+    !voices_end
+    !shimmer_status
+    !nova_status
+    !onyx_status
+    !fable_status
+    !echo_status
+    !alloy_status
+    !voices_begin
+    !begin_status
+    !writer_status
+    !id_ptr
+    !id_len
+    !req
+    return 0
