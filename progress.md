@@ -239,3 +239,9 @@
 - Thin-entry refactor objective is complete: `sa/main.sa` is 6 lines and contains no startup internals, HTTP logic, or RPC business logic.
 - Keep `test_restart_sa_entry.sh` out of the default local gate and run it only in an isolated environment because it intentionally kills/replaces the listener on `28080` while validating the SA restart entrypoint.
 - Optional cleanup after a baseline commit: split still-large implementation modules such as `sa/src/rpc_system.sa`, `sa/src/rpc_session.sa`, and `sa/src/state.sa` by subdomain to reduce future review size without changing behavior.
+
+## MCP/Plugin Parity Follow-up - 100%
+- Rechecked Deno `src/handlers.ts` MCP/plugin/skills behavior against SA `sa/src/rpc_dispatch.sa`, `sa/src/rpc_system.sa`, and `sa/src/events.sa`.
+- Confirmed Deno's MCP/plugin routes are compatibility facade responses for the covered methods, not real external plugin invocation paths.
+- Fixed the remaining `skills/list` parity gap: SA now emits the Deno-compatible `skills/changed` SSE notification before returning `{data:[]}`.
+- Extended `sa/tests/test_events_contract.sh` to assert the `skills/changed` event.

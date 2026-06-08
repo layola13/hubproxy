@@ -70,6 +70,7 @@
 @const EVENTS_EV_MCP_ELICITATION = utf8:"mcpServer/elicitation/request"
 @const EVENTS_EV_WORLD_WARN = utf8:"windows/worldWritableWarning"
 @const EVENTS_EV_MCP_STARTUP = utf8:"mcpServer/startupStatus/updated"
+@const EVENTS_EV_SKILLS_CHANGED = utf8:"skills/changed"
 @const EVENTS_WORKER_VT = vtable { call = @event_stream_worker }
 
 #def EVENTS_SSE_KEEPALIVE_LEN = 13
@@ -129,6 +130,7 @@
 #def EVENTS_EV_MCP_ELICITATION_LEN = 29
 #def EVENTS_EV_WORLD_WARN_LEN = 28
 #def EVENTS_EV_MCP_STARTUP_LEN = 31
+#def EVENTS_EV_SKILLS_CHANGED_LEN = 14
 #def EVENTS_RPC_JSON_BUF_SIZE = 65536
 #def EVENTS_SSE_BUF_SIZE = 8192
 #def EVENTS_EVENT_CTX_REQ = +0
@@ -724,4 +726,16 @@ L_ENTRY:
     !state_ptr
     !body
     !body_len
+    return 0
+
+@ffi_wrapper notify_skills_changed(&state_ptr: ptr) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &EVENTS_EV_SKILLS_CHANGED, EVENTS_EV_SKILLS_CHANGED_LEN, writer)
+    !end_status
+    !begin_status
+    !writer_status
+    !state_ptr
     return 0

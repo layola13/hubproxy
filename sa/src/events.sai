@@ -22,3 +22,4 @@
 @extern notify_mcp_elicitation_request(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
 @extern notify_world_warning_params(&state_ptr: ptr) -> u32
 @extern notify_mcp_startup_params(&state_ptr: ptr, &body: ptr, body_len: u64) -> u32
+@extern notify_skills_changed(&state_ptr: ptr) -> u32

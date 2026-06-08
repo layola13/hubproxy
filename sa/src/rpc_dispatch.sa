@@ -1770,6 +1770,7 @@ L_RPC_TRY_SKILLS_LIST:
 
 L_RPC_SKILLS_LIST:
     !m_skills_ok
+    call @notify_skills_changed(&state_ptr)
     call @send_rpc_empty_array_field_with_id(&req, &rpc_id_ptr, rpc_id_len, &JSON_KEY_DATA, JSON_KEY_DATA_LEN)
     jmp L_RPC_DONE
 

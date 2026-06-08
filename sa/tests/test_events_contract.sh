@@ -98,6 +98,7 @@ rpc '{"jsonrpc":"2.0","id":113,"method":"windows/worldWritableWarning","params":
 rpc '{"jsonrpc":"2.0","id":114,"method":"fuzzyFileSearch","params":{"sessionId":"sess-events","query":"main.sa"}}' >/dev/null
 rpc "{\"jsonrpc\":\"2.0\",\"id\":115,\"method\":\"serverRequest/resolved\",\"params\":{\"threadId\":\"${thread_id}\",\"requestId\":\"req-events\"}}" >/dev/null
 rpc '{"jsonrpc":"2.0","id":116,"method":"process/spawn","params":{"command":["echo","proc-events"],"processHandle":"proc-events"}}' >/dev/null
+rpc '{"jsonrpc":"2.0","id":117,"method":"skills/list","params":{}}' >/dev/null
 
 deadline=$((SECONDS + 6))
 while (( SECONDS < deadline )); do
@@ -135,7 +136,8 @@ while (( SECONDS < deadline )); do
     && rg -q '"requestId":"req-events"' "${events_out}" \
     && rg -q 'event: process/outputDelta' "${events_out}" \
     && rg -q 'event: process/exited' "${events_out}" \
-    && rg -q '"processHandle":"proc-events"' "${events_out}"; then
+    && rg -q '"processHandle":"proc-events"' "${events_out}" \
+    && rg -q 'event: skills/changed' "${events_out}"; then
     stop_events
     echo "events_contract_ok thread=${thread_id}"
     exit 0
