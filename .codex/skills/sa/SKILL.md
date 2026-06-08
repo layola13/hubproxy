@@ -1,0 +1,1383 @@
+---
+name: "sa"
+description: "Use the installed SA compiler and current sa_std surface to build, test, debug, and inspect SA projects from Codex."
+when_to_use: "Use when working on SA assembly, running SA CLI builds/tests, diagnosing verifier errors, or checking the available sa_std macros and extern APIs."
+---
+
+# SA Toolchain
+
+## Core Workflow
+- Run `sa version` to confirm the installed compiler version.
+- Use `sa build <file>` to compile and verify SA source without running it.
+- Use `sa run <file> [args...]` for compile-and-run workflows.
+- Use `sa build-exe <file> -o <path>`, `sa build-obj <file> -o <path>`, or `sa build-wasm <file> -o <path>` for artifacts.
+- Use `sa test <file> --list`, `sa test <file> --filter <pattern>`, `sa test <file> --compile-only`, and `sa test <file> --trace-panic` for unit tests.
+- Use `sa explain <code>` and `sa fix --plan <code>` before guessing at diagnostics.
+- Keep plugin-specific APIs out of compiler std; optional official plugin notes are generated separately at `../sa_plugins/SKILL.md`.
+- Before using any plugin API, run `sa plugin list` or `sa skills --json` to confirm that the plugin is installed for this environment.
+
+## CLI Skill Sections
+### core diagnostics
+Agent-facing error handling and JSON reports
+- `stable trap names and trap codes`
+- `structured JSON diagnostics with repair hints`
+- `human and JSON output modes remain aligned`
+
+### cli toolchain
+Agent-first CLI entry points
+- `init [path]`
+- `pkg install [identity]`
+- `explain <code>`
+- `fix --plan --json`
+- `skills`
+
+### project lifecycle
+Rust-like project setup and local builds
+- `init [path]`
+- `pkg install`
+- `build src/main.sa`
+- `run src/main.sa`
+- `test <file>`
+
+### std runtime
+Current Zig-backed facade surface
+- `JSON DOM and streaming facade`
+- `Regex facade over Zig/POSIX backend`
+- `fs/net/process/term facades stay thin in SA`
+
+### ts
+TypeScript to SA-ASM ahead-of-time lowerer
+- `ts lower <file.ts>        — lower a TypeScript file to SA-ASM`
+- `ts lower --out <out> <file.ts> — lower and write output to file`
+- `zero-copy string slices and static struct layout`
+- `ownership injection (!, ^) based on lexical scope`
+- `Pratt expression parser with correct operator precedence`
+- `arrow function closures via static defunctionalization`
+- `WASM import symbol linking`
+
+## sa_std Surface
+Generated from `/home/vscode/.sa/std`.
+
+- files: `136`
+- macros: `780`
+- extern/export declarations: `398`
+
+### Files
+- `alloc/string.sa`
+- `alloc/vec.sa`
+- `alloc/vec.sal`
+- `ascii.sa`
+- `ascii.sal`
+- `binary_heap.sa`
+- `binary_heap.sal`
+- `btree_map.sa`
+- `btree_map.sal`
+- `btree_set.sa`
+- `btree_set.sal`
+- `collections/binary_heap.sa`
+- `collections/btree_map.sa`
+- `collections/btree_set.sa`
+- `collections/hashmap.sa`
+- `collections/hashset.sa`
+- `collections/vec_deque.sa`
+- `core/arc.sa`
+- `core/arc.sal`
+- `core/ascii.sa`
+- `core/ascii.sal`
+- `core/bit.sa`
+- `core/box.sa`
+- `core/box.sal`
+- `core/cell.sa`
+- `core/cell.sal`
+- `core/cleanup.sa`
+- `core/control.sa`
+- `core/derive.sa`
+- `core/derive.sal`
+- `core/dispatch.sa`
+- `core/dispatch.sal`
+- `core/future.sa`
+- `core/future.sal`
+- `core/hash.sa`
+- `core/iter.sa`
+- `core/iter.sal`
+- `core/loop.sa`
+- `core/mem.sa`
+- `core/option.sa`
+- `core/option.sal`
+- `core/panic.sa`
+- `core/rc.sa`
+- `core/rc.sal`
+- `core/refcell.sa`
+- `core/refcell.sal`
+- `core/result.sa`
+- `core/result.sal`
+- `core/rust_patterns.sal`
+- `core/sa_core.sa`
+- `core/slice.sa`
+- `core/slice.sal`
+- `core/task.sa`
+- `core/task.sal`
+- `core/trait_object.sa`
+- `core/trait_object.sal`
+- `core/waker.sa`
+- `core/waker.sal`
+- `core/weak.sa`
+- `core/weak.sal`
+- `encoding/json.sa`
+- `encoding/json.sai`
+- `encoding/json.sal`
+- `env.sa`
+- `env.sai`
+- `fmt.sa`
+- `fmt.sai`
+- `fmt.sal`
+- `fs.sa`
+- `fs.sai`
+- `fs.sal`
+- `future.sa`
+- `future.sal`
+- `hashmap.sa`
+- `hashmap.sal`
+- `hashset.sa`
+- `hashset.sal`
+- `io.sa`
+- `io.sai`
+- `io.sal`
+- `io/buf_reader.sa`
+- `io/buf_writer.sa`
+- `io/print.sa`
+- `io/print.sai`
+- `iter.sa`
+- `iter.sal`
+- `libsa_async.sa`
+- `math.sa`
+- `net.sa`
+- `net.sai`
+- `net.sal`
+- `netx.sa`
+- `netx.sai`
+- `netx.sal`
+- `option.sa`
+- `option.sal`
+- `panic.sa`
+- `path.sa`
+- `process.sa`
+- `process.sai`
+- `process.sal`
+- `result.sa`
+- `result.sal`
+- `rust_core.sa`
+- `rust_core.sal`
+- `sa.mod`
+- `sort.sa`
+- `string.sa`
+- `string.sai`
+- `string_format.sa`
+- `sync/mpsc.sa`
+- `sync/mpsc.sal`
+- `sync/mutex.sa`
+- `sync/mutex.sal`
+- `sync/once.sa`
+- `sync/once.sal`
+- `sync/rwlock.sa`
+- `sync/rwlock.sal`
+- `task.sa`
+- `task.sal`
+- `term.sa`
+- `term.sai`
+- `term.sal`
+- `testing/assert.sai`
+- `testing/mock_io.sa`
+- `testing/mock_io.sal`
+- `text/regex.sa`
+- `text/regex.sai`
+- `text/regex.sal`
+- `time.sa`
+- `time.sai`
+- `time.sal`
+- `vec.sa`
+- `vec.sal`
+- `vec_deque.sa`
+- `vec_deque.sal`
+
+### Macros
+- `alloc/string.sa: [MACRO] STR_FROM_CONST %out_slice, %const_label, %const_len`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_APPEND %heap_reg, %other_heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_AS_MUT_SLICE %out_slice, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_AS_SLICE %out_slice, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_CAPACITY %out_cap, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_CLEAR %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_FREE %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_INTO_SORTED_VEC %out_vec, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_INTO_VEC %out_vec, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_IS_EMPTY %out_flag, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_LEN %out_len, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_NEW %out_heap`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_PEEK %out_value, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_PUSH %heap_reg, %value`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_RESERVE %heap_reg, %additional`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_RESERVE_EXACT %heap_reg, %additional`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_SHRINK_TO %heap_reg, %min_capacity`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_SHRINK_TO_FIT %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_TRY_POP %out_ok, %out_value, %heap_reg`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_TRY_RESERVE %out_ok, %heap_reg, %additional`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_TRY_RESERVE_EXACT %out_ok, %heap_reg, %additional`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_TRY_WITH_CAPACITY %out_ok, %out_heap, %cap`
+- `binary_heap.sa: [MACRO] BINARY_HEAP_WITH_CAPACITY %out_heap, %cap`
+- `btree_map.sa: [MACRO] BTREE_MAP_APPEND %map_reg, %other_map`
+- `btree_map.sa: [MACRO] BTREE_MAP_CLEAR %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_CONTAINS_KEY %out_flag, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_FIRST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_FIRST_KEY_VALUE %out_ok, %out_key, %out_value, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_FREE %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_GET %out_value, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_GET_KEY_VALUE %out_ok, %out_key, %out_value, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_GET_MUT_PTR %out_ok, %out_ptr, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_INSERT %map_reg, %key_reg, %value`
+- `btree_map.sa: [MACRO] BTREE_MAP_INSERT_OLD %out_replaced, %out_old_value, %map_reg, %key_reg, %value`
+- `btree_map.sa: [MACRO] BTREE_MAP_IS_EMPTY %out_flag, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_KEYS %out_set, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_LAST_ENTRY_MUT_PTR %out_ok, %out_key, %out_ptr, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_LAST_KEY_VALUE %out_ok, %out_key, %out_value, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_LEN %out_len, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_NEW %out_map`
+- `btree_map.sa: [MACRO] BTREE_MAP_POP_FIRST %out_ok, %out_key, %out_value, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_POP_LAST %out_ok, %out_key, %out_value, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_RANGE %out_map, %map_reg, %start_key, %end_key`
+- `btree_map.sa: [MACRO] BTREE_MAP_REMOVE %out_value, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_REMOVE_ENTRY %out_ok, %out_key, %out_value, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_SPLIT_OFF %out_map, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_TRY_GET %out_ok, %out_value, %map_reg, %key_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b`
+- `btree_map.sa: [MACRO] BTREE_MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key_reg, %value`
+- `btree_map.sa: [MACRO] BTREE_MAP_VALUES %out_vec, %map_reg`
+- `btree_map.sa: [MACRO] BTREE_MAP_VALUES_MUT_PTRS %out_vec, %map_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_APPEND %set_reg, %other_set`
+- `btree_set.sa: [MACRO] BTREE_SET_CLEAR %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_CONTAINS %out_flag, %set_reg, %key_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_DIFFERENCE %out_set, %set_reg, %other_set`
+- `btree_set.sa: [MACRO] BTREE_SET_FIRST %out_ok, %out_key, %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_FREE %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_GET %out_ok, %out_key, %set_reg, %key_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_INSERT %out_ok, %set_reg, %key_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_INTERSECTION %out_set, %set_reg, %other_set`
+- `btree_set.sa: [MACRO] BTREE_SET_IS_DISJOINT %out_ok, %set_reg, %other_set`
+- `btree_set.sa: [MACRO] BTREE_SET_IS_EMPTY %out_flag, %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_IS_SUBSET %out_ok, %set_reg, %other_set`
+- `btree_set.sa: [MACRO] BTREE_SET_IS_SUPERSET %out_ok, %set_reg, %other_set`
+- `btree_set.sa: [MACRO] BTREE_SET_LAST %out_ok, %out_key, %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_LEN %out_len, %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_LIT2 %out_set, %key1, %key2`
+- `btree_set.sa: [MACRO] BTREE_SET_NEW %out_set`
+- `btree_set.sa: [MACRO] BTREE_SET_POP_FIRST %out_ok, %out_key, %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_POP_LAST %out_ok, %out_key, %set_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_RANGE %out_set, %set_reg, %start_key, %end_key`
+- `btree_set.sa: [MACRO] BTREE_SET_REMOVE %out_ok, %set_reg, %key_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_REPLACE %out_replaced, %out_old_key, %set_reg, %key_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_SPLIT_OFF %out_set, %set_reg, %key_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_SYMMETRIC_DIFFERENCE %out_set, %set_reg, %other_set`
+- `btree_set.sa: [MACRO] BTREE_SET_TAKE %out_ok, %out_key, %set_reg, %key_reg`
+- `btree_set.sa: [MACRO] BTREE_SET_UNION %out_set, %set_reg, %other_set`
+- `core/arc.sa: [MACRO] ARC_CLONE %arc_reg`
+- `core/arc.sa: [MACRO] ARC_DOWNGRADE %out_weak, %arc_reg`
+- `core/arc.sa: [MACRO] ARC_DROP %arc_reg, %cleanup_label`
+- `core/arc.sa: [MACRO] ARC_NEW %out_arc, %value`
+- `core/arc.sa: [MACRO] ARC_WEAK_CLONE %weak_reg`
+- `core/arc.sa: [MACRO] ARC_WEAK_DROP %weak_reg, %free_label`
+- `core/arc.sa: [MACRO] ARC_WEAK_UPGRADE %out_arc, %out_ok, %weak_reg`
+- `core/ascii.sa: [MACRO] ASCII_BYTE_MAKE_LOWERCASE %out_ok, %byte_ptr`
+- `core/ascii.sa: [MACRO] ASCII_BYTE_MAKE_UPPERCASE %out_ok, %byte_ptr`
+- `core/ascii.sa: [MACRO] ASCII_EQ_IGNORE_CASE %out_bool, %left_byte, %right_byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_ALPHABETIC %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_ALPHANUMERIC %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_ASCII %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_CONTROL %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_DIGIT %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_GRAPHIC %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_HEXDIGIT %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_LOWERCASE %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_OCTDIGIT %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_PUNCTUATION %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_UPPERCASE %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_IS_WHITESPACE %out_bool, %byte`
+- `core/ascii.sa: [MACRO] ASCII_SLICE_EQ_IGNORE_CASE %out_bool, %left_slice, %right_slice`
+- `core/ascii.sa: [MACRO] ASCII_SLICE_MAKE_LOWERCASE %out_ok, %slice_reg`
+- `core/ascii.sa: [MACRO] ASCII_SLICE_MAKE_UPPERCASE %out_ok, %slice_reg`
+- `core/ascii.sa: [MACRO] ASCII_TO_LOWERCASE %out_byte, %byte`
+- `core/ascii.sa: [MACRO] ASCII_TO_UPPERCASE %out_byte, %byte`
+- `core/bit.sa: [MACRO] BIT_CLEAR %out_value, %value, %bit_index`
+- `core/bit.sa: [MACRO] BIT_GET %out_value, %value, %bit_index`
+- `core/bit.sa: [MACRO] BIT_INDEX_BIT %out_index, %bit_index`
+- `core/bit.sa: [MACRO] BIT_INDEX_BYTE %out_index, %bit_index`
+- `core/bit.sa: [MACRO] BIT_MASK %out_mask, %bit_index`
+- `core/bit.sa: [MACRO] BIT_SET %out_value, %value, %bit_index`
+- `core/bit.sa: [MACRO] BIT_TEST %out_bool, %value, %bit_index`
+- `core/cell.sa: [MACRO] CELL_GET %out_value, %cell_reg`
+- `core/cell.sa: [MACRO] CELL_NEW %out_cell`
+- `core/cell.sa: [MACRO] CELL_REPLACE %out_old, %cell_reg, %value`
+- `core/cell.sa: [MACRO] CELL_SET %cell_reg, %value`
+- `core/cleanup.sa: [MACRO] CLEANUP_ON_ERROR %cond, %resource_reg, %error_label`
+- `core/cleanup.sa: [MACRO] DEFER %resource_reg`
+- `core/cleanup.sa: [MACRO] FREE_AND_RETURN %resource_reg, %value`
+- `core/cleanup.sa: [MACRO] RETURN_CLEAN %resource_reg, %value`
+- `core/cleanup.sa: [MACRO] WITH_TEMP %out_reg, %size`
+- `core/control.sa: [MACRO] BREAK_IF %cond, %break_label, %cont_label`
+- `core/control.sa: [MACRO] CONTINUE_IF %cond, %continue_label, %next_label`
+- `core/control.sa: [MACRO] ELIF %cond, %true_label, %false_label`
+- `core/control.sa: [MACRO] MATCH_BOOL %out_value, %cond, %true_label, %false_label`
+- `core/control.sa: [MACRO] WHILE_LET %cond, %body_label, %done_label`
+- `core/derive.sa: [MACRO] FIELD_GET %out_value, %base_reg, %offset`
+- `core/derive.sa: [MACRO] FIELD_SET %base_reg, %offset, %value`
+- `core/derive.sa: [MACRO] PTR_FIELD %out_ptr, %base_reg, %offset`
+- `core/derive.sa: [MACRO] STRUCT_COPY %dst_reg, %src_reg, %offset0, %offset1, %offset2, %offset3`
+- `core/derive.sa: [MACRO] STRUCT_COPY_FIELD %dst_reg, %src_reg, %dst_offset, %src_offset`
+- `core/derive.sa: [MACRO] STRUCT_EQ4 %out_bool, %lhs_reg, %rhs_reg, %offset0, %offset1, %offset2, %offset3`
+- `core/derive.sa: [MACRO] STRUCT_EQ_FIELD %out_bool, %lhs_reg, %rhs_reg, %offset`
+- `core/derive.sa: [MACRO] STRUCT_FREE %reg`
+- `core/derive.sa: [MACRO] STRUCT_NEW %out_reg, %size`
+- `core/dispatch.sa: [MACRO] DISPATCH %dispatch_reg, %tag_a_label, %tag_b_label`
+- `core/future.sa: [MACRO] CONTEXT_BUILDER_BUILD %out_ctx, %builder_reg`
+- `core/future.sa: [MACRO] CONTEXT_BUILDER_FROM_CONTEXT %out_builder, %ctx_reg`
+- `core/future.sa: [MACRO] CONTEXT_BUILDER_FROM_WAKER %out_builder, %waker_reg`
+- `core/future.sa: [MACRO] CONTEXT_BUILDER_SET_DATA %builder_reg, %data_ptr`
+- `core/future.sa: [MACRO] CONTEXT_BUILDER_SET_EXT %builder_reg, %ext_ptr`
+- `core/future.sa: [MACRO] CONTEXT_BUILDER_SET_LOCAL_WAKER %builder_reg, %local_waker_reg`
+- `core/future.sa: [MACRO] CONTEXT_BUILDER_SET_WAKER %builder_reg, %waker_reg`
+- `core/future.sa: [MACRO] CONTEXT_DATA %out_data, %ctx_reg`
+- `core/future.sa: [MACRO] CONTEXT_EXT %out_ext, %ctx_reg`
+- `core/future.sa: [MACRO] CONTEXT_FROM_WAKER %out_ctx, %waker_reg`
+- `core/future.sa: [MACRO] CONTEXT_LOCAL_WAKER %out_waker, %ctx_reg`
+- `core/future.sa: [MACRO] CONTEXT_NEW %out_ctx, %waker_reg, %data_ptr`
+- `core/future.sa: [MACRO] CONTEXT_SET_EXT %ctx_reg, %ext_ptr`
+- `core/future.sa: [MACRO] CONTEXT_WAKER %out_waker, %ctx_reg`
+- `core/future.sa: [MACRO] FUTURE_EITHER_LEFT %out_either, %value`
+- `core/future.sa: [MACRO] FUTURE_EITHER_LEFT_VALUE %out_value, %either_reg`
+- `core/future.sa: [MACRO] FUTURE_EITHER_RIGHT %out_either, %value`
+- `core/future.sa: [MACRO] FUTURE_EITHER_RIGHT_VALUE %out_value, %either_reg`
+- `core/future.sa: [MACRO] FUTURE_EITHER_SIDE %out_side, %either_reg`
+- `core/future.sa: [MACRO] FUTURE_GET_DATA %out_data, %future_reg`
+- `core/future.sa: [MACRO] FUTURE_GET_VTABLE %out_vtable, %future_reg`
+- `core/future.sa: [MACRO] FUTURE_JOIN2_POLL %out_poll, %left_future, %right_future, %ctx_reg`
+- `core/future.sa: [MACRO] FUTURE_JOIN2_STATE_NEW %out_state, %left_future, %right_future`
+- `core/future.sa: [MACRO] FUTURE_JOIN2_STATE_POLL %out_poll, %join_state, %ctx_reg`
+- `core/future.sa: [MACRO] FUTURE_NEW %out_future, %data_ptr, %vtable_ptr`
+- `core/future.sa: [MACRO] FUTURE_PAIR_LEFT %out_value, %pair_reg`
+- `core/future.sa: [MACRO] FUTURE_PAIR_NEW %out_pair, %left_value, %right_value`
+- `core/future.sa: [MACRO] FUTURE_PAIR_RIGHT %out_value, %pair_reg`
+- `core/future.sa: [MACRO] FUTURE_PENDING_POLL_STATE %out_poll, %state_reg`
+- `core/future.sa: [MACRO] FUTURE_PENDING_SET_POLL_STATE %out_poll_reg, %state_reg`
+- `core/future.sa: [MACRO] FUTURE_PENDING_STATE_NEW %out_state`
+- `core/future.sa: [MACRO] FUTURE_POLL %out_poll, %future_reg, %ctx_reg`
+- `core/future.sa: [MACRO] FUTURE_POLL_BRANCH %out_poll, %future_reg, %ctx_reg, %ready_label, %pending_label`
+- `core/future.sa: [MACRO] FUTURE_POLL_FN_STATE_NEW %out_state, %data_ptr, %vtable_ptr`
+- `core/future.sa: [MACRO] FUTURE_POLL_FN_STATE_POLL %out_poll, %state_reg, %ctx_reg`
+- `core/future.sa: [MACRO] FUTURE_READY_POLL_STATE %out_poll, %state_reg`
+- `core/future.sa: [MACRO] FUTURE_READY_SET_POLL_STATE %out_poll_reg, %state_reg`
+- `core/future.sa: [MACRO] FUTURE_READY_STATE_INTO_INNER %out_value, %state_reg`
+- `core/future.sa: [MACRO] FUTURE_READY_STATE_NEW %out_state, %value`
+- `core/future.sa: [MACRO] FUTURE_SELECT2_POLL %out_poll, %left_future, %right_future, %ctx_reg, %out_side`
+- `core/future.sa: [MACRO] FUTURE_SELECT2_STATE_NEW %out_state, %left_future, %right_future`
+- `core/future.sa: [MACRO] FUTURE_SELECT2_STATE_POLL %out_poll, %select_state, %ctx_reg`
+- `core/future.sa: [MACRO] POLL_BRANCH %poll_reg, %ready_label, %pending_label`
+- `core/future.sa: [MACRO] POLL_IS_PENDING %out_bool, %poll_reg`
+- `core/future.sa: [MACRO] POLL_IS_READY %out_bool, %poll_reg`
+- `core/future.sa: [MACRO] POLL_MAP %out_poll, %poll_reg, %map_fn`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_ERR_VALUE %out_value, %poll_res`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_IS_OK %out_bool, %poll_res`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_IS_READY %out_bool, %poll_res`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_IS_SOME %out_bool, %poll_res`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_MAP_ERR %out_poll_res, %poll_res, %map_fn`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_MAP_OK %out_poll_res, %poll_res, %map_fn`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_OK_VALUE %out_value, %poll_res`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_PENDING %out_poll_res`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_READY_NONE %out_poll_res`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_READY_SOME_ERR %out_poll_res, %err`
+- `core/future.sa: [MACRO] POLL_OPTION_RESULT_READY_SOME_OK %out_poll_res, %value`
+- `core/future.sa: [MACRO] POLL_PENDING %out_poll`
+- `core/future.sa: [MACRO] POLL_READY %out_poll, %value`
+- `core/future.sa: [MACRO] POLL_READY_PTR %out_poll, %value_ptr`
+- `core/future.sa: [MACRO] POLL_RESULT_ERR_VALUE %out_value, %poll_res`
+- `core/future.sa: [MACRO] POLL_RESULT_IS_ERR %out_bool, %poll_res`
+- `core/future.sa: [MACRO] POLL_RESULT_IS_OK %out_bool, %poll_res`
+- `core/future.sa: [MACRO] POLL_RESULT_IS_READY %out_bool, %poll_res`
+- `core/future.sa: [MACRO] POLL_RESULT_MAP_ERR %out_poll_res, %poll_res, %map_fn`
+- `core/future.sa: [MACRO] POLL_RESULT_MAP_OK %out_poll_res, %poll_res, %map_fn`
+- `core/future.sa: [MACRO] POLL_RESULT_OK_VALUE %out_value, %poll_res`
+- `core/future.sa: [MACRO] POLL_RESULT_PENDING %out_poll_res`
+- `core/future.sa: [MACRO] POLL_RESULT_READY_ERR %out_poll_res, %err`
+- `core/future.sa: [MACRO] POLL_RESULT_READY_OK %out_poll_res, %value`
+- `core/future.sa: [MACRO] POLL_SET_PENDING %poll_reg`
+- `core/future.sa: [MACRO] POLL_SET_READY %poll_reg, %value`
+- `core/future.sa: [MACRO] POLL_SET_READY_PTR %poll_reg, %value_ptr`
+- `core/future.sa: [MACRO] POLL_VALUE %out_value, %poll_reg`
+- `core/future.sa: [MACRO] POLL_VALUE_PTR %out_value, %poll_reg`
+- `core/hash.sa: [MACRO] HASH_MIX %out_hash, %lhs, %rhs`
+- `core/hash.sa: [MACRO] HASH_MOD %out_index, %hash_value, %capacity`
+- `core/hash.sa: [MACRO] HASH_PTR %out_hash, %key_reg`
+- `core/hash.sa: [MACRO] MAP_INSERT_OR_UPDATE %map_reg, %key_reg, %value_reg`
+- `core/hash.sa: [MACRO] MAP_LOOKUP %out_value, %map_reg, %key_reg`
+- `core/hash.sa: [MACRO] PROBE_NEXT %out_index, %current_index, %capacity`
+- `core/hash.sa: [MACRO] PROBE_START %out_index, %hash_value, %capacity`
+- `core/iter.sa: [MACRO] ITER_FROM_SLICE %out_iter, %slice_reg`
+- `core/iter.sa: [MACRO] ITER_HAS_NEXT %out_bool, %iter_reg`
+- `core/iter.sa: [MACRO] ITER_IS_EMPTY %out_bool, %iter_reg`
+- `core/iter.sa: [MACRO] ITER_LEN %out_len, %iter_reg`
+- `core/iter.sa: [MACRO] ITER_NEW %out_iter, %slice_reg`
+- `core/iter.sa: [MACRO] ITER_NEXT %out_has, %out_value, %iter_reg, %elem_size`
+- `core/iter.sa: [MACRO] ITER_NEXT_U64 %out_has, %out_value, %iter_reg`
+- `core/iter.sa: [MACRO] ITER_PEEK_U64 %out_value, %iter_reg`
+- `core/iter.sa: [MACRO] ITER_REMAINING %out_len, %iter_reg`
+- `core/loop.sa: [MACRO] ARRAY_FOR_EACH %out_index, %slice_reg, %body_label, %done_label`
+- `core/loop.sa: [MACRO] ARRAY_SCAN_MAX %out_value, %current_value, %next_value`
+- `core/loop.sa: [MACRO] ARRAY_SCAN_MIN %out_value, %current_value, %next_value`
+- `core/loop.sa: [MACRO] FOR_RANGE %out_index, %start_value, %end_value, %body_label, %done_label`
+- `core/loop.sa: [MACRO] INDEX_LOOP %out_index, %start_value, %end_value, %body_label, %done_label`
+- `core/loop.sa: [MACRO] SLICE_GET_U64_AT %out_value, %slice_reg, %index`
+- `core/loop.sa: [MACRO] WHILE %cond, %body_label, %done_label`
+- `core/loop.sa: [MACRO] WHILE_COND %cond, %body_label, %done_label`
+- `core/mem.sa: [MACRO] BOX_FREE %box_reg`
+- `core/mem.sa: [MACRO] BOX_NEW %out_box, %value`
+- `core/option.sa: [MACRO] MATCHES_OPTION %out_bool, %opt_reg, %expected_tag`
+- `core/option.sa: [MACRO] MATCH_OPTION %out_value, %opt_reg, %some_label, %none_label`
+- `core/option.sa: [MACRO] OPTION_BRANCH %opt_reg, %some_label, %none_label`
+- `core/option.sa: [MACRO] OPTION_GET %out_value, %opt_reg`
+- `core/option.sa: [MACRO] OPTION_IS_NONE %out_bool, %opt_reg`
+- `core/option.sa: [MACRO] OPTION_IS_SOME %out_bool, %opt_reg`
+- `core/option.sa: [MACRO] OPTION_MAP_OR %out_value, %opt_reg, %map_fn, %default_value`
+- `core/option.sa: [MACRO] OPTION_MAP_OR_ELSE %out_value, %opt_reg, %map_fn, %default_fn`
+- `core/option.sa: [MACRO] OPTION_MATCH_SOME_NONE %out_value, %opt_reg, %some_label, %none_label`
+- `core/option.sa: [MACRO] OPTION_NEW_NONE %out_opt`
+- `core/option.sa: [MACRO] OPTION_NEW_SOME %out_opt, %value`
+- `core/option.sa: [MACRO] OPTION_SET_NONE %opt_reg`
+- `core/option.sa: [MACRO] OPTION_SET_SOME %opt_reg, %value`
+- `core/option.sa: [MACRO] OPTION_UNWRAP %out_value, %opt_reg`
+- `core/option.sa: [MACRO] OPTION_UNWRAP_OR %out_value, %opt_reg, %default_value`
+- `core/option.sa: [MACRO] OPTION_UNWRAP_OR_RETURN %out_value, %opt_reg, %default_value`
+- `core/panic.sa: [MACRO] PANIC %code`
+- `core/panic.sa: [MACRO] PANIC_MSG %code, %msg_ptr, %msg_len`
+- `core/panic.sa: [MACRO] TODO`
+- `core/panic.sa: [MACRO] UNIMPLEMENTED`
+- `core/panic.sa: [MACRO] UNREACHABLE`
+- `core/rc.sa: [MACRO] RC_CLONE %rc_reg`
+- `core/rc.sa: [MACRO] RC_DOWNGRADE %out_weak, %rc_reg`
+- `core/rc.sa: [MACRO] RC_DROP %rc_reg, %cleanup_label`
+- `core/rc.sa: [MACRO] RC_NEW %out_rc, %value`
+- `core/rc.sa: [MACRO] WEAK_CLONE %weak_reg`
+- `core/rc.sa: [MACRO] WEAK_DROP %weak_reg, %free_label`
+- `core/rc.sa: [MACRO] WEAK_UPGRADE %out_rc, %out_ok, %weak_reg`
+- `core/refcell.sa: [MACRO] REFCELL_BORROW %out_ok, %out_borrow, %cell_reg, %err_label`
+- `core/refcell.sa: [MACRO] REFCELL_BORROW_MUT %out_ok, %out_borrow, %cell_reg, %err_label`
+- `core/refcell.sa: [MACRO] REFCELL_GET %out_value, %cell_reg`
+- `core/refcell.sa: [MACRO] REFCELL_NEW %out_cell, %value`
+- `core/refcell.sa: [MACRO] REFCELL_RELEASE %cell_reg`
+- `core/refcell.sa: [MACRO] REFCELL_SET %cell_reg, %value`
+- `core/result.sa: [MACRO] MATCHES_RESULT %out_bool, %res_reg, %expected_tag`
+- `core/result.sa: [MACRO] MATCH_RESULT %out_value, %res_reg, %ok_label, %err_label`
+- `core/result.sa: [MACRO] RESULT_BRANCH %res_reg, %ok_label, %err_label`
+- `core/result.sa: [MACRO] RESULT_GET_ERR %out_value, %res_reg`
+- `core/result.sa: [MACRO] RESULT_GET_OK %out_value, %res_reg`
+- `core/result.sa: [MACRO] RESULT_IS_ERR %out_bool, %res_reg`
+- `core/result.sa: [MACRO] RESULT_IS_OK %out_bool, %res_reg`
+- `core/result.sa: [MACRO] RESULT_MAP_OK %out_value, %res_reg, %map_fn`
+- `core/result.sa: [MACRO] RESULT_MAP_OR %out_value, %res_reg, %map_fn, %default_value`
+- `core/result.sa: [MACRO] RESULT_MAP_OR_ELSE %out_value, %res_reg, %map_fn, %default_fn`
+- `core/result.sa: [MACRO] RESULT_MATCH_OK_ERR %out_value, %res_reg, %ok_label, %err_label`
+- `core/result.sa: [MACRO] RESULT_NEW_ERR %out_res, %err`
+- `core/result.sa: [MACRO] RESULT_NEW_OK %out_res, %value`
+- `core/result.sa: [MACRO] RESULT_RETURN_ERR %res_reg, %err_value`
+- `core/result.sa: [MACRO] RESULT_SET_ERR %res_reg, %err`
+- `core/result.sa: [MACRO] RESULT_SET_OK %res_reg, %value`
+- `core/result.sa: [MACRO] RESULT_UNWRAP %out_value, %res_reg`
+- `core/result.sa: [MACRO] RESULT_UNWRAP_ERR %out_value, %res_reg`
+- `core/result.sa: [MACRO] RESULT_UNWRAP_OR %out_value, %res_reg, %default_value`
+- `core/rust_patterns.sal: [MACRO] ASSERT_GE_ZERO %val, %panic_code, %label_ok`
+- `core/rust_patterns.sal: [MACRO] ASSERT_NE_ZERO %val, %panic_code, %label_ok`
+- `core/rust_patterns.sal: [MACRO] ASSERT_TRUE_MSG %cond, %panic_code, %label_ok`
+- `core/rust_patterns.sal: [MACRO] BIND_RANGE %bound, %val, %lo, %hi, %label_yes, %label_no`
+- `core/rust_patterns.sal: [MACRO] CSTR_LEN %out_len, %base`
+- `core/rust_patterns.sal: [MACRO] DESTRUCT_FIRST %out, %base, %offset`
+- `core/rust_patterns.sal: [MACRO] DESTRUCT_PAIR %out_a, %out_b, %base`
+- `core/rust_patterns.sal: [MACRO] LAZY_GET_OR_INIT %out, %lock, %init_value`
+- `core/rust_patterns.sal: [MACRO] MATCHES_TAG %out, %tag, %target`
+- `core/rust_patterns.sal: [MACRO] MATCHES_TAG_AND %out, %tag, %target, %extra_cond`
+- `core/rust_patterns.sal: [MACRO] MATCH_GUARD_EQ %val, %bound, %label_yes, %label_no`
+- `core/rust_patterns.sal: [MACRO] MATCH_GUARD_LE %val, %bound, %label_yes, %label_no`
+- `core/rust_patterns.sal: [MACRO] MATCH_GUARD_LT %val, %bound, %label_yes, %label_no`
+- `core/rust_patterns.sal: [MACRO] MATCH_GUARD_NE %val, %bound, %label_yes, %label_no`
+- `core/rust_patterns.sal: [MACRO] OR_TAG_2 %out, %tag, %t1, %t2`
+- `core/rust_patterns.sal: [MACRO] OR_TAG_3 %out, %tag, %t1, %t2, %t3`
+- `core/rust_patterns.sal: [MACRO] OR_TAG_4 %out, %tag, %t1, %t2, %t3, %t4`
+- `core/rust_patterns.sal: [MACRO] RAII_ALLOC %resource, %size`
+- `core/rust_patterns.sal: [MACRO] RAII_FREE %resource`
+- `core/rust_patterns.sal: [MACRO] RANGE_IN %val, %lo, %hi, %label_yes, %label_no`
+- `core/rust_patterns.sal: [MACRO] TAIL_CALL_2 %p1, %p2, %new_p1, %new_p2, %label_loop`
+- `core/rust_patterns.sal: [MACRO] TAIL_CALL_3 %p1, %p2, %p3, %new_p1, %new_p2, %new_p3, %label_loop`
+- `core/rust_patterns.sal: [MACRO] TRY_CHECK %result, %out_val, %label_ok, %label_err`
+- `core/rust_patterns.sal: [MACRO] WHILE_SOME %opt_ptr, %out_val, %label_body, %label_exit`
+- `core/sa_core.sa: [MACRO] ASSERT_EQ %cond, %actual, %expected, %ok_label, %fail_label`
+- `core/sa_core.sa: [MACRO] ASSERT_EQ_MSG %cond, %actual, %expected, %msg_ptr, %msg_len`
+- `core/sa_core.sa: [MACRO] ASSERT_NE %cond, %actual, %unexpected, %ok_label, %fail_label`
+- `core/sa_core.sa: [MACRO] ASSERT_NE_MSG %cond, %actual, %unexpected, %msg_ptr, %msg_len`
+- `core/sa_core.sa: [MACRO] ASSERT_TRUE %cond, %ok_label, %fail_label`
+- `core/sa_core.sa: [MACRO] ASSERT_TRUE_MSG %cond, %msg_ptr, %msg_len`
+- `core/sa_core.sa: [MACRO] CFG %out_bool, %flag`
+- `core/sa_core.sa: [MACRO] DROP_AND_RETURN %resource_reg, %value`
+- `core/slice.sa: [MACRO] SLICE_AS_PTR %out_ptr, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_CLONE_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice`
+- `core/slice.sa: [MACRO] SLICE_CONTAINS_U64 %out_bool, %slice_reg, %needle`
+- `core/slice.sa: [MACRO] SLICE_COPY_FROM_SLICE_U64 %out_ok, %dst_slice, %src_slice`
+- `core/slice.sa: [MACRO] SLICE_COPY_WITHIN_U64 %out_ok, %slice_reg, %src_start, %src_len, %dest`
+- `core/slice.sa: [MACRO] SLICE_ENDS_WITH_U64 %out_bool, %slice_reg, %suffix_slice`
+- `core/slice.sa: [MACRO] SLICE_FILL_U64 %slice_reg, %value`
+- `core/slice.sa: [MACRO] SLICE_FIRST_MUT_PTR_U64 %out_ptr, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_FIRST_U64 %out_value, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_GET_LEN %out_len, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_GET_MUT_PTR_U64 %out_ptr, %slice_reg, %index`
+- `core/slice.sa: [MACRO] SLICE_GET_PTR %out_ptr, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_GET_U64 %out_value, %slice_reg, %index`
+- `core/slice.sa: [MACRO] SLICE_IS_EMPTY %out_bool, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_LAST_MUT_PTR_U64 %out_ptr, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_LAST_U64 %out_value, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_NEW %slice_reg, %data_ptr, %length`
+- `core/slice.sa: [MACRO] SLICE_REVERSE_U64 %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_STARTS_WITH_U64 %out_bool, %slice_reg, %prefix_slice`
+- `core/slice.sa: [MACRO] SLICE_SWAP_U64 %slice_reg, %left, %right`
+- `core/slice.sa: [MACRO] SLICE_TRIM_PREFIX_U64 %out_slice, %slice_reg, %prefix_slice`
+- `core/slice.sa: [MACRO] SLICE_TRIM_SUFFIX_U64 %out_slice, %slice_reg, %suffix_slice`
+- `core/slice.sa: [MACRO] SLICE_TRY_BINARY_SEARCH_U64 %out_ok, %out_index, %slice_reg, %needle`
+- `core/slice.sa: [MACRO] SLICE_TRY_FIRST_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_TRY_FIRST_U64 %out_ok, %out_value, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_TRY_GET_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg, %index`
+- `core/slice.sa: [MACRO] SLICE_TRY_GET_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length`
+- `core/slice.sa: [MACRO] SLICE_TRY_GET_U64 %out_ok, %out_value, %slice_reg, %index`
+- `core/slice.sa: [MACRO] SLICE_TRY_LAST_MUT_PTR_U64 %out_ok, %out_ptr, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_TRY_LAST_U64 %out_ok, %out_value, %slice_reg`
+- `core/slice.sa: [MACRO] SLICE_TRY_RANGE_U64 %out_ok, %out_slice, %slice_reg, %start, %length`
+- `core/slice.sa: [MACRO] SLICE_TRY_SPLIT_AT_MUT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid`
+- `core/slice.sa: [MACRO] SLICE_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %slice_reg, %mid`
+- `core/slice.sa: [MACRO] SLICE_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %slice_reg, %prefix_slice`
+- `core/slice.sa: [MACRO] SLICE_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %slice_reg, %suffix_slice`
+- `core/slice.sa: [MACRO] SLICE_TRY_SWAP_U64 %out_ok, %slice_reg, %left, %right`
+- `core/task.sa: [MACRO] EXECUTOR_NEW %out_executor, %tasks_ptr, %len`
+- `core/task.sa: [MACRO] EXECUTOR_POLL_ONE %out_poll, %executor_reg, %index`
+- `core/task.sa: [MACRO] EXECUTOR_POLL_READY_COUNT %out_count, %executor_reg`
+- `core/task.sa: [MACRO] TASK_IS_READY %out_bool, %task_reg`
+- `core/task.sa: [MACRO] TASK_NEW %out_task, %future_reg, %ctx_reg`
+- `core/task.sa: [MACRO] TASK_POLL %out_poll, %task_reg`
+- `core/task.sa: [MACRO] TASK_RESULT %out_value, %task_reg`
+- `core/task.sa: [MACRO] TASK_STATE %out_state, %task_reg`
+- `core/trait_object.sa: [MACRO] DYN_CALL %out_value, %dyn_reg, %slot_off`
+- `core/trait_object.sa: [MACRO] DYN_GET_DATA %out_data, %dyn_reg`
+- `core/trait_object.sa: [MACRO] DYN_GET_VTABLE %out_vtable, %dyn_reg`
+- `core/trait_object.sa: [MACRO] DYN_NEW %out_dyn, %data_ptr, %vtable_ptr`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_CLONE %out_waker, %waker_reg`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_DROP %waker_reg, %free_label`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_FROM_RAW %out_waker, %raw_reg`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_GET_DATA %out_data, %waker_reg`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_GET_VTABLE %out_vtable, %waker_reg`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_NEW %out_waker, %data_ptr, %vtable_ptr`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_WAKE %out_value, %waker_reg`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_WAKE_BY_REF %out_value, %waker_reg`
+- `core/waker.sa: [MACRO] LOCAL_WAKER_WILL_WAKE %out_bool, %left_waker, %right_waker`
+- `core/waker.sa: [MACRO] RAW_WAKER_CLONE %out_raw, %raw_reg`
+- `core/waker.sa: [MACRO] RAW_WAKER_DROP %raw_reg, %free_label`
+- `core/waker.sa: [MACRO] RAW_WAKER_GET_DATA %out_data, %raw_reg`
+- `core/waker.sa: [MACRO] RAW_WAKER_GET_VTABLE %out_vtable, %raw_reg`
+- `core/waker.sa: [MACRO] RAW_WAKER_NEW %out_raw, %data_ptr, %vtable_ptr`
+- `core/waker.sa: [MACRO] RAW_WAKER_WAKE %out_value, %raw_reg`
+- `core/waker.sa: [MACRO] RAW_WAKER_WAKE_BY_REF %out_value, %raw_reg`
+- `core/waker.sa: [MACRO] WAKER_CLONE %out_waker, %waker_reg`
+- `core/waker.sa: [MACRO] WAKER_DROP %waker_reg, %free_label`
+- `core/waker.sa: [MACRO] WAKER_FROM_RAW %out_waker, %raw_reg`
+- `core/waker.sa: [MACRO] WAKER_GET_DATA %out_data, %waker_reg`
+- `core/waker.sa: [MACRO] WAKER_GET_VTABLE %out_vtable, %waker_reg`
+- `core/waker.sa: [MACRO] WAKER_NEW %out_waker, %data_ptr, %vtable_ptr`
+- `core/waker.sa: [MACRO] WAKER_WAKE %out_value, %waker_reg`
+- `core/waker.sa: [MACRO] WAKER_WAKE_BY_REF %out_value, %waker_reg`
+- `core/waker.sa: [MACRO] WAKER_WILL_WAKE %out_bool, %left_waker, %right_waker`
+- `core/waker.sa: [MACRO] WAKE_NEW %out_wake, %data_ptr, %vtable_ptr`
+- `core/waker.sa: [MACRO] WAKE_WAKE %out_value, %wake_reg`
+- `core/waker.sa: [MACRO] WAKE_WAKE_BY_REF %out_value, %wake_reg`
+- `encoding/json.sa: [MACRO] JSON_ARRAY_GET %out_status, %out_node, %node, %index`
+- `encoding/json.sa: [MACRO] JSON_ARRAY_LOOP_HAS_NEXT %out_bool, %index, %count`
+- `encoding/json.sa: [MACRO] JSON_ARRAY_LOOP_INIT %out_status, %out_index, %out_count, %array`
+- `encoding/json.sa: [MACRO] JSON_ARRAY_LOOP_NEXT %out_index, %index`
+- `encoding/json.sa: [MACRO] JSON_AS_BOOL %out_status, %out_value, %node`
+- `encoding/json.sa: [MACRO] JSON_AS_F64 %out_status, %out_value, %node`
+- `encoding/json.sa: [MACRO] JSON_AS_I64 %out_status, %out_value, %node`
+- `encoding/json.sa: [MACRO] JSON_BUFFER_FREE %buffer`
+- `encoding/json.sa: [MACRO] JSON_BUFFER_SLICE %out_ptr, %out_len, %buffer`
+- `encoding/json.sa: [MACRO] JSON_FREE %node`
+- `encoding/json.sa: [MACRO] JSON_IS_ARRAY %out_bool, %node`
+- `encoding/json.sa: [MACRO] JSON_IS_BOOL %out_bool, %node`
+- `encoding/json.sa: [MACRO] JSON_IS_NULL %out_bool, %node`
+- `encoding/json.sa: [MACRO] JSON_IS_NUMBER %out_bool, %node`
+- `encoding/json.sa: [MACRO] JSON_IS_OBJECT %out_bool, %node`
+- `encoding/json.sa: [MACRO] JSON_IS_STRING %out_bool, %node`
+- `encoding/json.sa: [MACRO] JSON_KIND %out_kind, %node`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_GET %out_status, %out_node, %node, %key, %key_len`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_GET_BOOL %out_status, %out_value, %node, %key, %key_len`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_GET_F64 %out_status, %out_value, %node, %key, %key_len`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_GET_I64 %out_status, %out_value, %node, %key, %key_len`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_GET_STRING %out_status, %out_ptr, %out_len, %node, %key, %key_len`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_KEY_AT %out_status, %out_ptr, %out_len, %node, %index`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_LOOP_HAS_NEXT %out_bool, %index, %count`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_LOOP_INIT %out_status, %out_index, %out_count, %object`
+- `encoding/json.sa: [MACRO] JSON_OBJECT_LOOP_NEXT %out_index, %index`
+- `encoding/json.sa: [MACRO] JSON_PARSE %out_root, %bytes, %len`
+- `encoding/json.sa: [MACRO] JSON_STRING_SLICE %out_ptr, %out_len, %node`
+- `encoding/json.sa: [MACRO] JSON_VALUE_COUNT %out_status, %out_count, %node`
+- `encoding/json.sa: [MACRO] JSON_WRITER_BEGIN_ARRAY %out_status, %writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_BEGIN_OBJECT %out_status, %writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_END_ARRAY %out_status, %writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_END_OBJECT %out_status, %writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FIELD %out_status, %writer, %key, %key_len`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FIELD_BOOL %out_status, %writer, %key, %key_len, %value`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FIELD_F64 %out_status, %writer, %key, %key_len, %value`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FIELD_I64 %out_status, %writer, %key, %key_len, %value`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FIELD_NODE %out_status, %writer, %key, %key_len, %node`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FIELD_NULL %out_status, %writer, %key, %key_len`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FIELD_STRING %out_status, %writer, %key, %key_len, %data, %data_len`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FINISH %out_status, %out_buffer, %writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_FREE %writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_NEW_MINIFIED %out_status, %out_writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_WRITE_BOOL %out_status, %writer, %value`
+- `encoding/json.sa: [MACRO] JSON_WRITER_WRITE_F64 %out_status, %writer, %value`
+- `encoding/json.sa: [MACRO] JSON_WRITER_WRITE_I64 %out_status, %writer, %value`
+- `encoding/json.sa: [MACRO] JSON_WRITER_WRITE_NODE %out_status, %writer, %node`
+- `encoding/json.sa: [MACRO] JSON_WRITER_WRITE_NULL %out_status, %writer`
+- `encoding/json.sa: [MACRO] JSON_WRITER_WRITE_STRING %out_status, %writer, %data, %len`
+- `env.sa: [MACRO] ENV_BUFFER_DATA %out_ptr, %buffer`
+- `env.sa: [MACRO] ENV_BUFFER_FREE %out_ok, %buffer`
+- `env.sa: [MACRO] ENV_BUFFER_LEN %out_len, %buffer`
+- `env.sa: [MACRO] ENV_GET %out_buf, %key_slice`
+- `env.sa: [MACRO] ENV_HAS %out_flag, %key_slice`
+- `hashmap.sa: [MACRO] MAP_CAPACITY %out_cap, %map_reg`
+- `hashmap.sa: [MACRO] MAP_CLEAR %map_reg`
+- `hashmap.sa: [MACRO] MAP_CONTAINS_KEY %out_flag, %map_reg, %key_reg`
+- `hashmap.sa: [MACRO] MAP_DEL %out_value, %map_reg, %key`
+- `hashmap.sa: [MACRO] MAP_FREE %map_reg`
+- `hashmap.sa: [MACRO] MAP_GET %out_value, %map_reg, %key`
+- `hashmap.sa: [MACRO] MAP_GET_KEY_VALUE %out_ok, %out_key, %out_value, %map_reg, %key`
+- `hashmap.sa: [MACRO] MAP_GET_MUT_PTR %out_ok, %out_ptr, %map_reg, %key`
+- `hashmap.sa: [MACRO] MAP_INSERT %out_replaced, %out_old_value, %map_reg, %key, %value`
+- `hashmap.sa: [MACRO] MAP_IS_EMPTY %out_flag, %map_reg`
+- `hashmap.sa: [MACRO] MAP_KEYS %out_vec, %map_reg`
+- `hashmap.sa: [MACRO] MAP_LEN %out_len, %map_reg`
+- `hashmap.sa: [MACRO] MAP_LIT2 %out_map, %key1, %value1, %key2, %value2`
+- `hashmap.sa: [MACRO] MAP_NEW %out_map`
+- `hashmap.sa: [MACRO] MAP_PUT %map_reg, %key, %value`
+- `hashmap.sa: [MACRO] MAP_REMOVE_ENTRY %out_ok, %out_key, %out_value, %map_reg, %key`
+- `hashmap.sa: [MACRO] MAP_RESERVE %map_reg, %additional`
+- `hashmap.sa: [MACRO] MAP_SHRINK_TO %map_reg, %min_capacity`
+- `hashmap.sa: [MACRO] MAP_SHRINK_TO_FIT %map_reg`
+- `hashmap.sa: [MACRO] MAP_TRY_GET %out_ok, %out_value, %map_reg, %key`
+- `hashmap.sa: [MACRO] MAP_TRY_GET_DISJOINT_MUT_PTRS %out_ok, %out_ptr_a, %out_ptr_b, %map_reg, %key_a, %key_b`
+- `hashmap.sa: [MACRO] MAP_TRY_INSERT %out_inserted, %out_value_ptr, %map_reg, %key, %value`
+- `hashmap.sa: [MACRO] MAP_TRY_RESERVE %out_ok, %map_reg, %additional`
+- `hashmap.sa: [MACRO] MAP_TRY_WITH_CAPACITY %out_ok, %out_map, %cap`
+- `hashmap.sa: [MACRO] MAP_VALUES %out_vec, %map_reg`
+- `hashmap.sa: [MACRO] MAP_VALUES_MUT_PTRS %out_vec, %map_reg`
+- `hashmap.sa: [MACRO] MAP_WITH_CAPACITY %out_map, %cap`
+- `hashset.sa: [MACRO] SET_CAPACITY %out_cap, %set_reg`
+- `hashset.sa: [MACRO] SET_CLEAR %set_reg`
+- `hashset.sa: [MACRO] SET_CONTAINS %out_ok, %set_reg, %key`
+- `hashset.sa: [MACRO] SET_DIFFERENCE %out_set, %set_reg, %other_set`
+- `hashset.sa: [MACRO] SET_FREE %set_reg`
+- `hashset.sa: [MACRO] SET_GET %out_ok, %out_key, %set_reg, %key`
+- `hashset.sa: [MACRO] SET_INSERT %out_ok, %set_reg, %key`
+- `hashset.sa: [MACRO] SET_INTERSECTION %out_set, %set_reg, %other_set`
+- `hashset.sa: [MACRO] SET_IS_DISJOINT %out_ok, %set_reg, %other_set`
+- `hashset.sa: [MACRO] SET_IS_EMPTY %out_flag, %set_reg`
+- `hashset.sa: [MACRO] SET_IS_SUBSET %out_ok, %set_reg, %other_set`
+- `hashset.sa: [MACRO] SET_IS_SUPERSET %out_ok, %set_reg, %other_set`
+- `hashset.sa: [MACRO] SET_LEN %out_len, %set_reg`
+- `hashset.sa: [MACRO] SET_LIT2 %out_set, %key1, %key2`
+- `hashset.sa: [MACRO] SET_NEW %out_set`
+- `hashset.sa: [MACRO] SET_REMOVE %out_ok, %set_reg, %key`
+- `hashset.sa: [MACRO] SET_REPLACE %out_replaced, %out_old_key, %set_reg, %key`
+- `hashset.sa: [MACRO] SET_RESERVE %set_reg, %additional`
+- `hashset.sa: [MACRO] SET_SHRINK_TO %set_reg, %min_capacity`
+- `hashset.sa: [MACRO] SET_SHRINK_TO_FIT %set_reg`
+- `hashset.sa: [MACRO] SET_SYMMETRIC_DIFFERENCE %out_set, %set_reg, %other_set`
+- `hashset.sa: [MACRO] SET_TAKE %out_ok, %out_key, %set_reg, %key`
+- `hashset.sa: [MACRO] SET_TRY_RESERVE %out_ok, %set_reg, %additional`
+- `hashset.sa: [MACRO] SET_TRY_WITH_CAPACITY %out_ok, %out_set, %cap`
+- `hashset.sa: [MACRO] SET_UNION %out_set, %set_reg, %other_set`
+- `hashset.sa: [MACRO] SET_WITH_CAPACITY %out_set, %cap`
+- `io.sa: [MACRO] EPRINT %msg, %len`
+- `io.sa: [MACRO] EPRINTLN %msg, %len`
+- `io.sa: [MACRO] FORMAT_INT %out_buf, %value, %base`
+- `io.sa: [MACRO] PRINT %msg, %len`
+- `io.sa: [MACRO] PRINTLN %msg, %len`
+- `io.sa: [MACRO] READ %out_len, %handle, %buf, %cap`
+- `io.sa: [MACRO] READ_LINE %out_buf, %handle, %max_bytes`
+- `io.sa: [MACRO] WRITE %handle, %msg, %len`
+- `io.sa: [MACRO] WRITELN %handle, %msg, %len`
+- `io.sa: [MACRO] WRITE_SOME %out_len, %handle, %buf, %len`
+- `io/buf_reader.sa: [MACRO] BUF_READER_CLOSE %out_ok, %handle`
+- `io/buf_reader.sa: [MACRO] BUF_READER_FREE %out_ok, %buf`
+- `io/buf_reader.sa: [MACRO] BUF_READER_READ %out_count, %handle, %buf, %cap`
+- `io/buf_reader.sa: [MACRO] BUF_READER_READ_EXACT %out_count, %handle, %buf, %len`
+- `io/buf_reader.sa: [MACRO] BUF_READER_READ_LINE %out_buf, %handle, %max_bytes`
+- `io/buf_writer.sa: [MACRO] BUF_WRITER_CLOSE %out_ok, %handle`
+- `io/buf_writer.sa: [MACRO] BUF_WRITER_FLUSH %out_ok, %handle`
+- `io/buf_writer.sa: [MACRO] BUF_WRITER_WRITE %out_count, %handle, %buf, %len`
+- `io/buf_writer.sa: [MACRO] BUF_WRITER_WRITE_ALL %out_ok, %handle, %buf, %len`
+- `libsa_async.sa: [MACRO] ASYNC_AWAIT_POINT %ctx, %state_field, %state_id, %poll_fn, %take_fn, %result_field`
+- `libsa_async.sa: [MACRO] ASYNC_AWAIT_POINT_FINAL %ctx, %state_field, %state_id, %poll_fn, %take_fn`
+- `libsa_async.sa: [MACRO] ASYNC_CTX_DEF %name`
+- `libsa_async.sa: [MACRO] ASYNC_INVALID_STATE`
+- `libsa_async.sa: [MACRO] ASYNC_POLL_PROLOGUE %ctx, %state_field`
+- `libsa_async.sa: [MACRO] ASYNC_READY`
+- `libsa_async.sa: [MACRO] ASYNC_RETURN_PENDING`
+- `libsa_async.sa: [MACRO] ASYNC_STATE_BEGIN %state_id`
+- `libsa_async.sa: [MACRO] ASYNC_STATE_END %ctx, %state_field, %next_state`
+- `math.sa: [MACRO] MATH_ABS_I64 %out_value, %value`
+- `math.sa: [MACRO] MATH_CLAMP_U64 %out_value, %value, %min_value, %max_value`
+- `math.sa: [MACRO] MATH_MAX_U64 %out_value, %lhs, %rhs`
+- `math.sa: [MACRO] MATH_MIN_U64 %out_value, %lhs, %rhs`
+- `path.sa: [MACRO] PATH_BASENAME %out_slice, %path_slice`
+- `path.sa: [MACRO] PATH_DIRNAME %out_slice, %path_slice`
+- `path.sa: [MACRO] PATH_ENDS_WITH_SEPARATOR %out_bool, %path_slice`
+- `path.sa: [MACRO] PATH_EXT %out_slice, %path_slice`
+- `path.sa: [MACRO] PATH_EXTENSION %out_slice, %path_slice`
+- `path.sa: [MACRO] PATH_FILE_STEM %out_slice, %path_slice`
+- `path.sa: [MACRO] PATH_HAS_ROOT %out_bool, %path_slice`
+- `path.sa: [MACRO] PATH_IS_ABSOLUTE %out_bool, %path_slice`
+- `path.sa: [MACRO] PATH_JOIN %out_slice, %base_slice, %child_slice`
+- `path.sa: [MACRO] PATH_MAKE_EMPTY %out_slice`
+- `path.sa: [MACRO] PATH_PARENT %out_slice, %path_slice`
+- `path.sa: [MACRO] PATH_STARTS_WITH %out_bool, %path_slice, %prefix_slice`
+- `path.sa: [MACRO] PATH_STEM %out_slice, %path_slice`
+- `path.sa: [MACRO] PATH_TRY_STRIP_PREFIX %out_ok, %out_slice, %path_slice, %prefix_slice`
+- `path.sa: [MACRO] PATH_WITH_FILE_NAME %out_slice, %path_slice, %file_name_slice`
+- `sort.sa: [MACRO] QSORT %arr, %len, %elem_size, %cmp_fn`
+- `string.sa: [MACRO] STRING_AS_BYTES %out_slice, %slice_reg`
+- `string.sa: [MACRO] STRING_AS_PTR %out_ptr, %slice_reg`
+- `string.sa: [MACRO] STRING_AS_STR %out_slice, %slice_reg`
+- `string.sa: [MACRO] STRING_CONTAINS %out_bool, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STRING_ENDS_WITH %out_bool, %slice_reg, %suffix_slice`
+- `string.sa: [MACRO] STRING_EQ_IGNORE_ASCII_CASE %out_bool, %left_slice, %right_slice`
+- `string.sa: [MACRO] STRING_FROM_PARTS %out_slice, %data_ptr, %length`
+- `string.sa: [MACRO] STRING_IS_ASCII %out_bool, %slice_reg`
+- `string.sa: [MACRO] STRING_IS_EMPTY %out_bool, %slice_reg`
+- `string.sa: [MACRO] STRING_LEN %out_len, %slice_reg`
+- `string.sa: [MACRO] STRING_NEW %out_slice`
+- `string.sa: [MACRO] STRING_PTR %out_ptr, %slice_reg`
+- `string.sa: [MACRO] STRING_STARTS_WITH %out_bool, %slice_reg, %prefix_slice`
+- `string.sa: [MACRO] STRING_TRIM_ASCII %out_slice, %slice_reg`
+- `string.sa: [MACRO] STRING_TRIM_ASCII_END %out_slice, %slice_reg`
+- `string.sa: [MACRO] STRING_TRIM_ASCII_START %out_slice, %slice_reg`
+- `string.sa: [MACRO] STRING_TRIM_PREFIX %out_slice, %slice_reg, %prefix_slice`
+- `string.sa: [MACRO] STRING_TRIM_SUFFIX %out_slice, %slice_reg, %suffix_slice`
+- `string.sa: [MACRO] STRING_TRY_FIND %out_ok, %out_index, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STRING_TRY_RFIND %out_ok, %out_index, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STRING_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STRING_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid`
+- `string.sa: [MACRO] STRING_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STRING_TRY_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice`
+- `string.sa: [MACRO] STRING_TRY_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice`
+- `string.sa: [MACRO] STR_AS_BYTES %out_slice, %slice_reg`
+- `string.sa: [MACRO] STR_AS_PTR %out_ptr, %slice_reg`
+- `string.sa: [MACRO] STR_CONCAT %out_slice, %left_slice, %right_slice`
+- `string.sa: [MACRO] STR_CONTAINS %out_bool, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STR_EMPTY %out_slice`
+- `string.sa: [MACRO] STR_ENDS_WITH %out_bool, %slice_reg, %suffix_slice`
+- `string.sa: [MACRO] STR_EQ %out_bool, %left_slice, %right_slice`
+- `string.sa: [MACRO] STR_EQ_IGNORE_ASCII_CASE %out_bool, %left_slice, %right_slice`
+- `string.sa: [MACRO] STR_FROM_PARTS %out_slice, %data_ptr, %length`
+- `string.sa: [MACRO] STR_IS_ASCII %out_bool, %slice_reg`
+- `string.sa: [MACRO] STR_IS_EMPTY %out_bool, %slice_reg`
+- `string.sa: [MACRO] STR_LEN %out_len, %slice_reg`
+- `string.sa: [MACRO] STR_PTR %out_ptr, %slice_reg`
+- `string.sa: [MACRO] STR_SLICE %out_slice, %src_slice, %start, %length`
+- `string.sa: [MACRO] STR_STARTS_WITH %out_bool, %slice_reg, %prefix_slice`
+- `string.sa: [MACRO] STR_TRIM_ASCII %out_slice, %slice_reg`
+- `string.sa: [MACRO] STR_TRIM_ASCII_END %out_slice, %slice_reg`
+- `string.sa: [MACRO] STR_TRIM_ASCII_START %out_slice, %slice_reg`
+- `string.sa: [MACRO] STR_TRIM_PREFIX %out_slice, %slice_reg, %prefix_slice`
+- `string.sa: [MACRO] STR_TRIM_SUFFIX %out_slice, %slice_reg, %suffix_slice`
+- `string.sa: [MACRO] STR_TRY_FIND %out_ok, %out_index, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STR_TRY_RFIND %out_ok, %out_index, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STR_TRY_RSPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STR_TRY_SPLIT_AT %out_ok, %out_left, %out_right, %slice_reg, %mid`
+- `string.sa: [MACRO] STR_TRY_SPLIT_ONCE %out_ok, %out_left, %out_right, %slice_reg, %needle_slice`
+- `string.sa: [MACRO] STR_TRY_STRIP_PREFIX %out_ok, %out_slice, %slice_reg, %prefix_slice`
+- `string.sa: [MACRO] STR_TRY_STRIP_SUFFIX %out_ok, %out_slice, %slice_reg, %suffix_slice`
+- `string_format.sa: [MACRO] STRFMT_BOOL %out_buf, %value`
+- `string_format.sa: [MACRO] STRFMT_BOOL_INTO %out_ok, %out_len_ptr, %value, %buf, %cap`
+- `string_format.sa: [MACRO] STRFMT_BYTES %out_buf, %buf, %len`
+- `string_format.sa: [MACRO] STRFMT_BYTES_INTO %out_ok, %out_len_ptr, %src, %src_len, %buf, %cap`
+- `string_format.sa: [MACRO] STRFMT_DATA %out_ptr, %buffer`
+- `string_format.sa: [MACRO] STRFMT_F64 %out_buf, %value, %precision`
+- `string_format.sa: [MACRO] STRFMT_F64_INTO %out_ok, %out_len_ptr, %value, %precision, %buf, %cap`
+- `string_format.sa: [MACRO] STRFMT_FREE %out_ok, %buffer`
+- `string_format.sa: [MACRO] STRFMT_I64 %out_buf, %value, %base`
+- `string_format.sa: [MACRO] STRFMT_I64_INTO %out_ok, %out_len_ptr, %value, %base, %buf, %cap`
+- `string_format.sa: [MACRO] STRFMT_LEN %out_len, %buffer`
+- `string_format.sa: [MACRO] STRFMT_U64 %out_buf, %value, %base`
+- `string_format.sa: [MACRO] STRFMT_U64_INTO %out_ok, %out_len_ptr, %value, %base, %buf, %cap`
+- `string_format.sa: [MACRO] STRFMT_WRITE_TO %out_ok, %buffer, %writer`
+- `sync/mpsc.sa: [MACRO] MPSC_FREE %chan`
+- `sync/mpsc.sa: [MACRO] MPSC_NEW %out_chan, %cap`
+- `sync/mpsc.sa: [MACRO] MPSC_RECV %out_value, %chan`
+- `sync/mpsc.sa: [MACRO] MPSC_SEND %chan, %value`
+- `sync/mpsc.sa: [MACRO] MPSC_TRY_RECV %out_ok, %out_value, %chan`
+- `sync/mpsc.sa: [MACRO] MPSC_TRY_SEND %out_ok, %chan, %value`
+- `sync/mutex.sa: [MACRO] MUTEX_LOCK %lock_ptr`
+- `sync/mutex.sa: [MACRO] MUTEX_NEW %out_mutex`
+- `sync/mutex.sa: [MACRO] MUTEX_UNLOCK %lock_ptr`
+- `sync/once.sa: [MACRO] ONCE_GET %out_value, %once_reg`
+- `sync/once.sa: [MACRO] ONCE_GET_OR_INIT %out_value, %once_reg, %init_fn`
+- `sync/once.sa: [MACRO] ONCE_IS_READY %out_ready, %once_reg`
+- `sync/once.sa: [MACRO] ONCE_NEW %out_once`
+- `sync/once.sa: [MACRO] ONCE_PUBLISH %once_reg, %value`
+- `sync/once.sa: [MACRO] ONCE_TRY_CLAIM %out_owned, %once_reg`
+- `sync/once.sa: [MACRO] ONCE_WAIT_READY %once_reg`
+- `sync/rwlock.sa: [MACRO] RWLOCK_NEW %out_lock`
+- `sync/rwlock.sa: [MACRO] RWLOCK_RELEASE_READ %lock_reg`
+- `sync/rwlock.sa: [MACRO] RWLOCK_RELEASE_WRITE %lock_reg`
+- `sync/rwlock.sa: [MACRO] RWLOCK_TRY_READ %out_ok, %out_guard, %lock_reg, %err_label`
+- `sync/rwlock.sa: [MACRO] RWLOCK_TRY_WRITE %out_ok, %out_guard, %lock_reg, %err_label`
+- `testing/mock_io.sa: [MACRO] MOCK_IO_INIT %mock, %buf, %cap`
+- `testing/mock_io.sa: [MACRO] MOCK_IO_LEN %out_len, %mock`
+- `testing/mock_io.sa: [MACRO] MOCK_IO_POS %out_pos, %mock`
+- `testing/mock_io.sa: [MACRO] MOCK_IO_READ %out_count, %mock, %dst, %len`
+- `testing/mock_io.sa: [MACRO] MOCK_IO_REWIND %mock`
+- `testing/mock_io.sa: [MACRO] MOCK_IO_WRITE %out_count, %mock, %src, %len`
+- `time.sa: [MACRO] TIME_DURATION_AS_MS %out_ms, %ns`
+- `time.sa: [MACRO] TIME_DURATION_AS_S %out_secs, %ns`
+- `time.sa: [MACRO] TIME_DURATION_FROM_MS %out_ns, %ms`
+- `time.sa: [MACRO] TIME_DURATION_FROM_S %out_ns, %secs`
+- `time.sa: [MACRO] TIME_NOW_NS %out_ns`
+- `time.sa: [MACRO] TIME_NOW_UNIX_MS %out_ms`
+- `time.sa: [MACRO] TIME_NOW_UNIX_NS %out_ns`
+- `time.sa: [MACRO] TIME_NOW_UNIX_S %out_secs`
+- `time.sa: [MACRO] TIME_SLEEP_MS %ms`
+- `time.sa: [MACRO] TIME_SLEEP_NS %ns`
+- `time.sa: [MACRO] TIME_UTC_NOW %out_date`
+- `vec.sa: [MACRO] VEC_APPEND %dst_vec_reg, %src_vec_reg, %elem_size`
+- `vec.sa: [MACRO] VEC_APPEND_U64 %dst_vec_reg, %src_vec_reg`
+- `vec.sa: [MACRO] VEC_AS_MUT_PTR %out_ptr, %vec_reg`
+- `vec.sa: [MACRO] VEC_AS_MUT_SLICE %out_slice, %vec_reg`
+- `vec.sa: [MACRO] VEC_AS_PTR %out_ptr, %vec_reg`
+- `vec.sa: [MACRO] VEC_AS_SLICE %out_slice, %vec_reg`
+- `vec.sa: [MACRO] VEC_BACK %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_CAPACITY %out_cap, %vec_reg`
+- `vec.sa: [MACRO] VEC_CLEAR %vec_reg`
+- `vec.sa: [MACRO] VEC_CONTAINS_U64 %out_bool, %vec_reg, %needle`
+- `vec.sa: [MACRO] VEC_DEDUP_U64 %out_len, %vec_reg`
+- `vec.sa: [MACRO] VEC_ENDS_WITH_U64 %out_bool, %vec_reg, %suffix_slice`
+- `vec.sa: [MACRO] VEC_EXTEND_FROM_SLICE %vec_reg, %slice_reg, %elem_size`
+- `vec.sa: [MACRO] VEC_EXTEND_FROM_SLICE_U64 %vec_reg, %slice_reg`
+- `vec.sa: [MACRO] VEC_FREE %vec_reg`
+- `vec.sa: [MACRO] VEC_FRONT %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_GET %out_ptr, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_GET_U64 %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_INSERT %out_ok, %vec_reg, %index, %value, %elem_size`
+- `vec.sa: [MACRO] VEC_INSERT_U64 %out_ok, %vec_reg, %index, %value`
+- `vec.sa: [MACRO] VEC_IS_EMPTY %out_flag, %vec_reg`
+- `vec.sa: [MACRO] VEC_LEN %out_len, %vec_reg`
+- `vec.sa: [MACRO] VEC_NEW %out_vec`
+- `vec.sa: [MACRO] VEC_POP %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_POP_U64 %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_PUSH %vec_reg, %value, %elem_size`
+- `vec.sa: [MACRO] VEC_PUSH_U64 %vec_reg, %value`
+- `vec.sa: [MACRO] VEC_PUSH_WITHIN_CAPACITY %out_ok, %vec_reg, %value, %elem_size`
+- `vec.sa: [MACRO] VEC_PUSH_WITHIN_CAPACITY_U64 %out_ok, %vec_reg, %value`
+- `vec.sa: [MACRO] VEC_REMOVE %out_ok, %out_value, %vec_reg, %index, %elem_size`
+- `vec.sa: [MACRO] VEC_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_RESERVE %vec_reg, %additional, %elem_size`
+- `vec.sa: [MACRO] VEC_RESERVE_EXACT %vec_reg, %additional, %elem_size`
+- `vec.sa: [MACRO] VEC_RESERVE_EXACT_U64 %vec_reg, %additional`
+- `vec.sa: [MACRO] VEC_RESERVE_U64 %vec_reg, %additional`
+- `vec.sa: [MACRO] VEC_RESIZE %vec_reg, %new_len, %fill_value, %elem_size`
+- `vec.sa: [MACRO] VEC_RESIZE_U64 %vec_reg, %new_len, %fill_value`
+- `vec.sa: [MACRO] VEC_SET_LEN %vec_reg, %new_len`
+- `vec.sa: [MACRO] VEC_SHRINK_TO %vec_reg, %min_cap, %elem_size`
+- `vec.sa: [MACRO] VEC_SHRINK_TO_FIT %vec_reg, %elem_size`
+- `vec.sa: [MACRO] VEC_SHRINK_TO_FIT_U64 %vec_reg`
+- `vec.sa: [MACRO] VEC_SHRINK_TO_U64 %vec_reg, %min_cap`
+- `vec.sa: [MACRO] VEC_STARTS_WITH_U64 %out_bool, %vec_reg, %prefix_slice`
+- `vec.sa: [MACRO] VEC_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_SWAP_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_TRIM_PREFIX_U64 %out_slice, %vec_reg, %prefix_slice`
+- `vec.sa: [MACRO] VEC_TRIM_SUFFIX_U64 %out_slice, %vec_reg, %suffix_slice`
+- `vec.sa: [MACRO] VEC_TRUNCATE %vec_reg, %new_len`
+- `vec.sa: [MACRO] VEC_TRY_BACK %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_TRY_BACK_U64 %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_TRY_FRONT %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_TRY_FRONT_U64 %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_TRY_GET %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_TRY_GET_U64 %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_TRY_INSERT %out_ok, %vec_reg, %index, %value, %elem_size`
+- `vec.sa: [MACRO] VEC_TRY_INSERT_U64 %out_ok, %vec_reg, %index, %value`
+- `vec.sa: [MACRO] VEC_TRY_POP %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_TRY_POP_U64 %out_ok, %out_value, %vec_reg`
+- `vec.sa: [MACRO] VEC_TRY_REMOVE %out_ok, %out_value, %vec_reg, %index, %elem_size`
+- `vec.sa: [MACRO] VEC_TRY_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_TRY_RESERVE %out_ok, %vec_reg, %additional, %elem_size`
+- `vec.sa: [MACRO] VEC_TRY_RESERVE_EXACT %out_ok, %vec_reg, %additional, %elem_size`
+- `vec.sa: [MACRO] VEC_TRY_RESERVE_EXACT_U64 %out_ok, %vec_reg, %additional`
+- `vec.sa: [MACRO] VEC_TRY_RESERVE_U64 %out_ok, %vec_reg, %additional`
+- `vec.sa: [MACRO] VEC_TRY_SPLIT_AT_U64 %out_ok, %out_left, %out_right, %vec_reg, %mid`
+- `vec.sa: [MACRO] VEC_TRY_SPLIT_OFF %out_ok, %out_vec, %vec_reg, %index, %elem_size`
+- `vec.sa: [MACRO] VEC_TRY_SPLIT_OFF_U64 %out_ok, %out_vec, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_TRY_STRIP_PREFIX_U64 %out_ok, %out_slice, %vec_reg, %prefix_slice`
+- `vec.sa: [MACRO] VEC_TRY_STRIP_SUFFIX_U64 %out_ok, %out_slice, %vec_reg, %suffix_slice`
+- `vec.sa: [MACRO] VEC_TRY_SWAP_REMOVE %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_TRY_SWAP_REMOVE_U64 %out_ok, %out_value, %vec_reg, %index`
+- `vec.sa: [MACRO] VEC_TRY_WITH_CAPACITY %out_ok, %out_vec, %cap, %elem_size`
+- `vec.sa: [MACRO] VEC_TRY_WITH_CAPACITY_U64 %out_ok, %out_vec, %cap`
+- `vec.sa: [MACRO] VEC_WITH_CAPACITY %out_vec, %cap, %elem_size`
+- `vec.sa: [MACRO] VEC_WITH_CAPACITY_U64 %out_vec, %cap`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_APPEND %deque_reg, %other_deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_AS_MUT_SLICES %out_front_slice, %out_back_slice, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_AS_SLICES %out_front_slice, %out_back_slice, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_BACK %out_value, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_CAPACITY %out_cap, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_CLEAR %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_CONTAINS_U64 %out_bool, %deque_reg, %needle`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_FREE %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_FRONT %out_value, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_GET %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_INSERT %out_ok, %deque_reg, %index, %value`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_IS_EMPTY %out_flag, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_LEN %out_len, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_MAKE_CONTIGUOUS %out_slice, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_NEW %out_deque`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_PUSH_BACK %deque_reg, %value`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_PUSH_FRONT %deque_reg, %value`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_REMOVE %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_RESERVE %deque_reg, %additional`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_RESERVE_EXACT %deque_reg, %additional`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_ROTATE_LEFT %deque_reg, %count`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_ROTATE_RIGHT %deque_reg, %count`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_SET %out_ok, %deque_reg, %index, %value`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_SHRINK_TO %deque_reg, %min_capacity`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_SHRINK_TO_FIT %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_SWAP %out_ok, %deque_reg, %left, %right`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_SWAP_REMOVE_BACK %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_SWAP_REMOVE_FRONT %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRUNCATE %deque_reg, %new_len`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_BACK %out_ok, %out_value, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_BACK_MUT_PTR %out_ok, %out_ptr, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_FRONT %out_ok, %out_value, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_FRONT_MUT_PTR %out_ok, %out_ptr, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_GET %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_GET_MUT_PTR %out_ok, %out_ptr, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_GET_U64 %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_INSERT %out_ok, %deque_reg, %index, %value`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_POP_BACK %out_ok, %out_value, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_POP_FRONT %out_ok, %out_value, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_REMOVE %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_RESERVE %out_ok, %deque_reg, %additional`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_RESERVE_EXACT %out_ok, %deque_reg, %additional`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_SHRINK_TO %out_ok, %deque_reg, %min_capacity`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_SHRINK_TO_FIT %out_ok, %deque_reg`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_SPLIT_OFF %out_ok, %out_deque, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_SWAP_REMOVE_BACK %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_SWAP_REMOVE_FRONT %out_ok, %out_value, %deque_reg, %index`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_TRY_WITH_CAPACITY %out_ok, %out_deque, %capacity`
+- `vec_deque.sa: [MACRO] VEC_DEQUE_WITH_CAPACITY %out_deque, %capacity`
+
+### Externs And Exports
+- `alloc/vec.sa: @export sa_vec_append(^dst_vec: ptr, &src_vec: ptr, elem_size: u64) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_capacity(&vec: ptr) -> u64:`
+- `alloc/vec.sa: @export sa_vec_clear(&vec: ptr) -> void:`
+- `alloc/vec.sa: @export sa_vec_extend_from_slice(^vec: ptr, &slice: ptr, elem_size: u64) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_free(^vec: ptr) -> void:`
+- `alloc/vec.sa: @export sa_vec_is_empty(&vec: ptr) -> i32:`
+- `alloc/vec.sa: @export sa_vec_len(&vec: ptr) -> u64:`
+- `alloc/vec.sa: @export sa_vec_new() -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_push(^vec: ptr, value: u64, elem_size: u64) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_reserve(^vec: ptr, additional: u64, elem_size: u64) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_resize(^vec: ptr, new_len: u64, fill_value: u64, elem_size: u64) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_shrink_to(^vec: ptr, min_cap: u64, elem_size: u64) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_shrink_to_fit(^vec: ptr, elem_size: u64) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_truncate(&vec: ptr, new_len: u64) -> void:`
+- `alloc/vec.sa: @export sa_vec_try_pop(&vec: ptr, &out_value_slot: ptr) -> i32:`
+- `alloc/vec.sa: @export sa_vec_try_remove(&vec: ptr, index: u64, &out_value_slot: ptr, elem_size: u64) -> i32:`
+- `alloc/vec.sa: @export sa_vec_try_split_off(^vec: ptr, index: u64, elem_size: u64, &out_vec_slot: ptr) -> ^ptr:`
+- `alloc/vec.sa: @export sa_vec_try_swap_remove(&vec: ptr, index: u64, &out_value_slot: ptr) -> i32:`
+- `alloc/vec.sa: @export sa_vec_with_capacity(cap: u64, elem_size: u64) -> ^ptr:`
+- `binary_heap.sa: @export sa_binary_heap_append(&heap: ptr, &other: ptr) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_as_mut_slice(&heap: ptr, &out_slice: ptr) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_as_slice(&heap: ptr, &out_slice: ptr) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_capacity(&heap: ptr) -> u64:`
+- `binary_heap.sa: @export sa_binary_heap_clear(&heap: ptr) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_free(^heap: ptr) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_into_sorted_vec(^heap: ptr) -> ^ptr:`
+- `binary_heap.sa: @export sa_binary_heap_into_vec(^heap: ptr) -> ^ptr:`
+- `binary_heap.sa: @export sa_binary_heap_is_empty(&heap: ptr) -> i32:`
+- `binary_heap.sa: @export sa_binary_heap_len(&heap: ptr) -> u64:`
+- `binary_heap.sa: @export sa_binary_heap_new() -> ^ptr:`
+- `binary_heap.sa: @export sa_binary_heap_peek(&heap: ptr) -> u64:`
+- `binary_heap.sa: @export sa_binary_heap_push(&heap: ptr, value: u64) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_reserve(&heap: ptr, additional: u64) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_reserve_exact(&heap: ptr, additional: u64) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_shrink_to(&heap: ptr, min_capacity: u64) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_shrink_to_fit(&heap: ptr) -> void:`
+- `binary_heap.sa: @export sa_binary_heap_try_pop(&heap: ptr, &out_value_slot: ptr) -> i32:`
+- `binary_heap.sa: @export sa_binary_heap_try_reserve(&heap: ptr, additional: u64) -> i32:`
+- `binary_heap.sa: @export sa_binary_heap_try_reserve_exact(&heap: ptr, additional: u64) -> i32:`
+- `binary_heap.sa: @export sa_binary_heap_try_with_capacity(cap: u64, &out_heap_slot: ptr) -> i32:`
+- `binary_heap.sa: @export sa_binary_heap_with_capacity(cap: u64) -> ^ptr:`
+- `btree_map.sa: @export sa_btree_map_append(&map: ptr, &other: ptr) -> void:`
+- `btree_map.sa: @export sa_btree_map_clear(&map: ptr) -> void:`
+- `btree_map.sa: @export sa_btree_map_contains_key(&map: ptr, &key: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_first_entry_mut_ptr(&map: ptr, &out_key: ptr, &out_ptr_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_first_key_value(&map: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_free(^map: ptr) -> void:`
+- `btree_map.sa: @export sa_btree_map_get(&map: ptr, &key: ptr) -> u64:`
+- `btree_map.sa: @export sa_btree_map_get_mut_ptr(&map: ptr, &key: ptr, &out_ptr_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_insert(&map: ptr, &key: ptr, value: u64) -> void:`
+- `btree_map.sa: @export sa_btree_map_insert_old(&map: ptr, &key: ptr, value: u64, &out_old_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_is_empty(&map: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_keys_set(&map: ptr) -> ^ptr:`
+- `btree_map.sa: @export sa_btree_map_last_entry_mut_ptr(&map: ptr, &out_key: ptr, &out_ptr_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_last_key_value(&map: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_len(&map: ptr) -> u64:`
+- `btree_map.sa: @export sa_btree_map_new() -> ^ptr:`
+- `btree_map.sa: @export sa_btree_map_pop_first(&map: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_pop_last(&map: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_range(&map: ptr, &start_key: ptr, &end_key: ptr) -> ^ptr:`
+- `btree_map.sa: @export sa_btree_map_remove(&map: ptr, &key: ptr) -> u64:`
+- `btree_map.sa: @export sa_btree_map_remove_entry(&map: ptr, &key: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_split_off(&map: ptr, &key: ptr) -> ^ptr:`
+- `btree_map.sa: @export sa_btree_map_try_get(&map: ptr, &key: ptr, &out_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_try_get_disjoint_mut_ptrs(&map: ptr, &key_a: ptr, &key_b: ptr, &out_ptr_a_slot: ptr, &out_ptr_b_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_try_get_key_value(&map: ptr, &key: ptr, &out_key: ptr, &out_value_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_try_insert(&map: ptr, &key: ptr, value: u64, &out_value_ptr_slot: ptr) -> i32:`
+- `btree_map.sa: @export sa_btree_map_value_mut_ptrs_vec(&map: ptr) -> ^ptr:`
+- `btree_map.sa: @export sa_btree_map_values_vec(&map: ptr) -> ^ptr:`
+- `btree_set.sa: @export sa_btree_set_append(&set: ptr, &other: ptr) -> void:`
+- `btree_set.sa: @export sa_btree_set_clear(&set: ptr) -> void:`
+- `btree_set.sa: @export sa_btree_set_contains(&set: ptr, &key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_difference(&set: ptr, &other: ptr) -> ^ptr:`
+- `btree_set.sa: @export sa_btree_set_first(&set: ptr, &out_key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_free(^set: ptr) -> void:`
+- `btree_set.sa: @export sa_btree_set_get(&set: ptr, &key: ptr, &out_key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_insert(&set: ptr, &key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_intersection(&set: ptr, &other: ptr) -> ^ptr:`
+- `btree_set.sa: @export sa_btree_set_is_disjoint(&set: ptr, &other: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_is_empty(&set: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_is_subset(&set: ptr, &other: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_is_superset(&set: ptr, &other: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_last(&set: ptr, &out_key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_len(&set: ptr) -> u64:`
+- `btree_set.sa: @export sa_btree_set_new() -> ^ptr:`
+- `btree_set.sa: @export sa_btree_set_pop_first(&set: ptr, &out_key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_pop_last(&set: ptr, &out_key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_range(&set: ptr, &start_key: ptr, &end_key: ptr) -> ^ptr:`
+- `btree_set.sa: @export sa_btree_set_remove(&set: ptr, &key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_replace(&set: ptr, &key: ptr, &out_old_key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_split_off(&set: ptr, &key: ptr) -> ^ptr:`
+- `btree_set.sa: @export sa_btree_set_symmetric_difference(&set: ptr, &other: ptr) -> ^ptr:`
+- `btree_set.sa: @export sa_btree_set_take(&set: ptr, &key: ptr, &out_key: ptr) -> i32:`
+- `btree_set.sa: @export sa_btree_set_union(&set: ptr, &other: ptr) -> ^ptr:`
+- `core/mem.sa: @export sa_mem_copy(&dst: ptr, &src: ptr, count: u64) -> void:`
+- `core/mem.sa: @export sa_mem_set(&dst: ptr, val: u8, count: u64) -> void:`
+- `encoding/json.sai: @extern sa_json_array_get(node: ptr, index: u64, &out_handle: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_as_bool(node: ptr, &out_value: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_as_f64(node: ptr, &out_value: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_as_i64(node: ptr, &out_value: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_buffer_data(&buffer: ptr) -> &ptr`
+- `encoding/json.sai: @extern sa_json_buffer_free(^buffer: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_buffer_len(&buffer: ptr) -> u64`
+- `encoding/json.sai: @extern sa_json_free(^node: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_kind(node: ptr) -> u32`
+- `encoding/json.sai: @extern sa_json_object_get(node: ptr, &key: ptr, key_len: u64, &out_handle: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_object_get_bool(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_object_get_f64(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_object_get_i64(node: ptr, &key: ptr, key_len: u64, &out_value: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_object_get_string(node: ptr, &key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_object_key_at(node: ptr, index: u64, &out_ptr: ptr, &out_len: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_parse(&json_bytes: ptr, len: u64) -> ^ptr`
+- `encoding/json.sai: @extern sa_json_scanner_end_input(scanner: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_scanner_feed(scanner: ptr, &input: ptr, len: u64) -> i32!`
+- `encoding/json.sai: @extern sa_json_scanner_free(^scanner: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_scanner_new(&out_handle: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_scanner_next(scanner: ptr, &out_token: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_stream_free(^stream: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_stream_get_slice_len(stream: ptr) -> u64`
+- `encoding/json.sai: @extern sa_json_stream_get_slice_ptr(stream: ptr) -> &ptr`
+- `encoding/json.sai: @extern sa_json_stream_new(&json_bytes: ptr, len: u64) -> ^ptr`
+- `encoding/json.sai: @extern sa_json_stream_next(stream: ptr) -> u32`
+- `encoding/json.sai: @extern sa_json_string_len(node: ptr) -> u64`
+- `encoding/json.sai: @extern sa_json_string_ptr(node: ptr) -> &ptr`
+- `encoding/json.sai: @extern sa_json_stringify(node: ptr, &out_handle: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_value_count(node: ptr, &out_count: ptr) -> i32`
+- `encoding/json.sai: @extern sa_json_writer_begin_array(writer: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_begin_object(writer: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_end_array(writer: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_end_object(writer: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_field_bool(writer: ptr, &key: ptr, key_len: u64, value: u8) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_field_f64(writer: ptr, &key: ptr, key_len: u64, value: f64) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_field_i64(writer: ptr, &key: ptr, key_len: u64, value: i64) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_field_node(writer: ptr, &key: ptr, key_len: u64, node: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_field_null(writer: ptr, &key: ptr, key_len: u64) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_field_string(writer: ptr, &key: ptr, key_len: u64, &data: ptr, len: u64) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_finish(writer: ptr, &out_handle: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_free(^writer: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_new(whitespace: u32, emit_null_optional_fields: u8, emit_strings_as_arrays: u8, escape_unicode: u8, emit_nonportable_numbers_as_strings: u8, &out_handle: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_object_field(writer: ptr, &key: ptr, key_len: u64) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_write_bool(writer: ptr, value: u8) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_write_f64(writer: ptr, value: f64) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_write_i64(writer: ptr, value: i64) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_write_node(writer: ptr, node: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_write_null(writer: ptr) -> i32!`
+- `encoding/json.sai: @extern sa_json_writer_write_string(writer: ptr, &data: ptr, len: u64) -> i32!`
+- `env.sai: @extern sa_env_buffer_data(buffer: u64) -> &ptr`
+- `env.sai: @extern sa_env_buffer_free(^buffer: u64) -> i32`
+- `env.sai: @extern sa_env_buffer_len(buffer: u64) -> u64`
+- `env.sai: @extern sa_env_get(&key: ptr, key_len: u64) -> u64`
+- `env.sai: @extern sa_env_has(&key: ptr, key_len: u64) -> i32`
+- `fmt.sai: @extern sa_fmt_bool(value: i1) -> u64`
+- `fmt.sai: @extern sa_fmt_bool_into(value: i1, out: ptr, out_cap: u64, &out_len: ptr) -> i32`
+- `fmt.sai: @extern sa_fmt_buffer_data(buffer: u64) -> &ptr`
+- `fmt.sai: @extern sa_fmt_buffer_free(^buffer: u64) -> i32`
+- `fmt.sai: @extern sa_fmt_buffer_len(buffer: u64) -> u64`
+- `fmt.sai: @extern sa_fmt_buffer_write_to(buffer: u64, writer: u64) -> i32`
+- `fmt.sai: @extern sa_fmt_bytes(&buf: ptr, len: u64) -> u64`
+- `fmt.sai: @extern sa_fmt_bytes_into(&buf: ptr, len: u64, out: ptr, out_cap: u64, &out_len: ptr) -> i32`
+- `fmt.sai: @extern sa_fmt_f64(value: f64, precision: u32) -> u64`
+- `fmt.sai: @extern sa_fmt_f64_into(value: f64, precision: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32`
+- `fmt.sai: @extern sa_fmt_i64(value: i64, base: u32) -> u64`
+- `fmt.sai: @extern sa_fmt_i64_into(value: i64, base: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32`
+- `fmt.sai: @extern sa_fmt_u64(value: u64, base: u32) -> u64`
+- `fmt.sai: @extern sa_fmt_u64_into(value: u64, base: u32, out: ptr, out_cap: u64, &out_len: ptr) -> i32`
+- `fs.sai: @extern sa_fs_copy_file(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32`
+- `fs.sai: @extern sa_fs_dir_buffer_data(buffer: u64) -> &ptr`
+- `fs.sai: @extern sa_fs_dir_buffer_free(^buffer: u64) -> i32`
+- `fs.sai: @extern sa_fs_dir_buffer_len(buffer: u64) -> u64`
+- `fs.sai: @extern sa_fs_file_close(^file: ptr) -> i32!`
+- `fs.sai: @extern sa_fs_file_create(&path: ptr, path_len: u64) -> ^ptr!`
+- `fs.sai: @extern sa_fs_file_flush(file: ptr) -> i32!`
+- `fs.sai: @extern sa_fs_file_open(&path: ptr, path_len: u64, flags: u32) -> ^ptr!`
+- `fs.sai: @extern sa_fs_file_read(file: ptr, &buf: ptr, cap: u64) -> u64!`
+- `fs.sai: @extern sa_fs_file_read_exact(file: ptr, &buf: ptr, len: u64) -> u64!`
+- `fs.sai: @extern sa_fs_file_seek(file: ptr, whence: u32, offset: i64) -> u64!`
+- `fs.sai: @extern sa_fs_file_write(file: ptr, &buf: ptr, len: u64) -> u64!`
+- `fs.sai: @extern sa_fs_file_write_all(file: ptr, &buf: ptr, len: u64) -> i32!`
+- `fs.sai: @extern sa_fs_make_dir(&path: ptr, path_len: u64) -> i32!`
+- `fs.sai: @extern sa_fs_metadata(&path: ptr, path_len: u64) -> u64!`
+- `fs.sai: @extern sa_fs_metadata_created_ms(metadata: u64) -> i64`
+- `fs.sai: @extern sa_fs_metadata_free(metadata: u64) -> i32!`
+- `fs.sai: @extern sa_fs_metadata_is_directory(metadata: u64) -> u8`
+- `fs.sai: @extern sa_fs_metadata_is_file(metadata: u64) -> u8`
+- `fs.sai: @extern sa_fs_metadata_is_symlink(metadata: u64) -> u8`
+- `fs.sai: @extern sa_fs_metadata_json(&path: ptr, path_len: u64) -> u64!`
+- `fs.sai: @extern sa_fs_metadata_modified_ms(metadata: u64) -> i64`
+- `fs.sai: @extern sa_fs_read_buffer_data(buffer: u64) -> &ptr`
+- `fs.sai: @extern sa_fs_read_buffer_free(^buffer: u64) -> i32`
+- `fs.sai: @extern sa_fs_read_buffer_len(buffer: u64) -> u64`
+- `fs.sai: @extern sa_fs_read_dir_json(&path: ptr, path_len: u64, max_entries: u64) -> u64!`
+- `fs.sai: @extern sa_fs_read_file(&path: ptr, path_len: u64, max_bytes: u64) -> u64!`
+- `fs.sai: @extern sa_fs_read_file_base64(&path: ptr, path_len: u64, max_bytes: u64) -> u64!`
+- `fs.sai: @extern sa_fs_remove_dir(&path: ptr, path_len: u64) -> i32!`
+- `fs.sai: @extern sa_fs_remove_file(&path: ptr, path_len: u64) -> i32!`
+- `fs.sai: @extern sa_fs_remove_path(&path: ptr, path_len: u64) -> i32`
+- `fs.sai: @extern sa_fs_rename(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64) -> i32!`
+- `fs.sai: @extern sa_fs_write_file(&path: ptr, path_len: u64, &buf: ptr, len: u64) -> i32!`
+- `fs.sai: @extern sa_fs_write_file_base64(&path: ptr, path_len: u64, &data_base64: ptr, data_base64_len: u64) -> i32!`
+- `hashmap.sa: @export sa_map_capacity(&map: ptr) -> u64:`
+- `hashmap.sa: @export sa_map_clear(&map: ptr) -> void:`
+- `hashmap.sa: @export sa_map_contains_key(&map: ptr, &key: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_del(&map: ptr, &key: ptr) -> &ptr:`
+- `hashmap.sa: @export sa_map_free(^map: ptr) -> void:`
+- `hashmap.sa: @export sa_map_get(&map: ptr, &key: ptr) -> &ptr:`
+- `hashmap.sa: @export sa_map_get_mut_ptr(&map: ptr, &key: ptr, &out_ptr_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_insert(&map: ptr, &key: ptr, &value: ptr, &out_old_value_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_is_empty(&map: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_keys_vec(&map: ptr) -> ^ptr:`
+- `hashmap.sa: @export sa_map_len(&map: ptr) -> u64:`
+- `hashmap.sa: @export sa_map_new() -> ^ptr:`
+- `hashmap.sa: @export sa_map_put(&map: ptr, &key: ptr, &value: ptr) -> void:`
+- `hashmap.sa: @export sa_map_remove_entry(&map: ptr, &key: ptr, &out_key_slot: ptr, &out_value_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_reserve(&map: ptr, additional: u64) -> void:`
+- `hashmap.sa: @export sa_map_shrink_to(&map: ptr, min_capacity: u64) -> void:`
+- `hashmap.sa: @export sa_map_shrink_to_fit(&map: ptr) -> void:`
+- `hashmap.sa: @export sa_map_try_get(&map: ptr, &key: ptr, &out_value_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_try_get_disjoint_mut_ptrs(&map: ptr, &key_a: ptr, &key_b: ptr, &out_ptr_a_slot: ptr, &out_ptr_b_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_try_get_key_value(&map: ptr, &key: ptr, &out_key_slot: ptr, &out_value_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_try_insert(&map: ptr, &key: ptr, &value: ptr, &out_value_ptr_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_try_reserve(&map: ptr, additional: u64) -> i32:`
+- `hashmap.sa: @export sa_map_try_with_capacity(cap: u64, &out_map_slot: ptr) -> i32:`
+- `hashmap.sa: @export sa_map_value_mut_ptrs_vec(&map: ptr) -> ^ptr:`
+- `hashmap.sa: @export sa_map_values_vec(&map: ptr) -> ^ptr:`
+- `hashmap.sa: @export sa_map_with_capacity(cap: u64) -> ^ptr:`
+- `hashset.sa: @export sa_set_capacity(&set: ptr) -> u64:`
+- `hashset.sa: @export sa_set_clear(&set: ptr) -> void:`
+- `hashset.sa: @export sa_set_contains(&set: ptr, &key: ptr) -> i32:`
+- `hashset.sa: @export sa_set_difference(&set: ptr, &other: ptr) -> ^ptr:`
+- `hashset.sa: @export sa_set_free(^set: ptr) -> void:`
+- `hashset.sa: @export sa_set_get(&set: ptr, &key: ptr, &out_key_slot: ptr) -> i32:`
+- `hashset.sa: @export sa_set_insert(&set: ptr, &key: ptr) -> i32:`
+- `hashset.sa: @export sa_set_intersection(&set: ptr, &other: ptr) -> ^ptr:`
+- `hashset.sa: @export sa_set_is_disjoint(&set: ptr, &other: ptr) -> i32:`
+- `hashset.sa: @export sa_set_is_empty(&set: ptr) -> i32:`
+- `hashset.sa: @export sa_set_is_subset(&set: ptr, &other: ptr) -> i32:`
+- `hashset.sa: @export sa_set_is_superset(&set: ptr, &other: ptr) -> i32:`
+- `hashset.sa: @export sa_set_len(&set: ptr) -> u64:`
+- `hashset.sa: @export sa_set_new() -> ^ptr:`
+- `hashset.sa: @export sa_set_remove(&set: ptr, &key: ptr) -> i32:`
+- `hashset.sa: @export sa_set_replace(&set: ptr, &key: ptr, &out_old_key_slot: ptr) -> i32:`
+- `hashset.sa: @export sa_set_reserve(&set: ptr, additional: u64) -> void:`
+- `hashset.sa: @export sa_set_shrink_to(&set: ptr, min_capacity: u64) -> void:`
+- `hashset.sa: @export sa_set_shrink_to_fit(&set: ptr) -> void:`
+- `hashset.sa: @export sa_set_symmetric_difference(&set: ptr, &other: ptr) -> ^ptr:`
+- `hashset.sa: @export sa_set_take(&set: ptr, &key: ptr, &out_key_slot: ptr) -> i32:`
+- `hashset.sa: @export sa_set_try_reserve(&set: ptr, additional: u64) -> i32:`
+- `hashset.sa: @export sa_set_try_with_capacity(cap: u64, &out_set_slot: ptr) -> i32:`
+- `hashset.sa: @export sa_set_union(&set: ptr, &other: ptr) -> ^ptr:`
+- `hashset.sa: @export sa_set_with_capacity(cap: u64) -> ^ptr:`
+- `io.sai: @extern sa_io_buffer_data(&buffer: ptr) -> &ptr`
+- `io.sai: @extern sa_io_buffer_free(^buffer: ptr) -> i32!`
+- `io.sai: @extern sa_io_buffer_len(&buffer: ptr) -> u64`
+- `io.sai: @extern sa_io_close(handle: u64) -> i32`
+- `io.sai: @extern sa_io_flush(handle: u64) -> i32`
+- `io.sai: @extern sa_io_read(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32`
+- `io.sai: @extern sa_io_read_exact(handle: u64, &buf: ptr, len: u64) -> i32`
+- `io.sai: @extern sa_io_read_line(handle: ptr, max_bytes: u64) -> ^ptr!`
+- `io.sai: @extern sa_io_stderr() -> u64`
+- `io.sai: @extern sa_io_stdin() -> u64`
+- `io.sai: @extern sa_io_stdout() -> u64`
+- `io.sai: @extern sa_io_write(handle: u64, &buf: ptr, len: u64, &out_written: ptr) -> i32`
+- `io.sai: @extern sa_io_write_all(handle: u64, &buf: ptr, len: u64) -> i32`
+- `io.sai: @extern sa_print_bytes(&msg: ptr, len: u64) -> void`
+- `io.sai: @extern sa_std_println(&msg: ptr, len: u64) -> i32!`
+- `io/print.sai: @extern sa_print_bytes(&msg: ptr, len: u64) -> void`
+- `net.sai: @extern sa_net_addr_family(addr: u64) -> u32`
+- `net.sai: @extern sa_net_addr_free(addr: u64) -> i32!`
+- `net.sai: @extern sa_net_addr_host(addr: u64) -> &ptr`
+- `net.sai: @extern sa_net_addr_host_len(addr: u64) -> u64`
+- `net.sai: @extern sa_net_addr_port(addr: u64) -> u32`
+- `net.sai: @extern sa_net_tcp_connect(&host: ptr, host_len: u64, port: u32) -> u64!`
+- `net.sai: @extern sa_net_tcp_listener_accept(listener: u64) -> u64!`
+- `net.sai: @extern sa_net_tcp_listener_bind(&host: ptr, host_len: u64, port: u32) -> u64!`
+- `net.sai: @extern sa_net_tcp_listener_close(listener: u64) -> i32!`
+- `net.sai: @extern sa_net_tcp_listener_local_addr(listener: u64) -> u64!`
+- `net.sai: @extern sa_net_tcp_stream_close(stream: u64) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_flush(stream: u64) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_peek(stream: u64, &buf: ptr, cap: u64) -> u64!`
+- `net.sai: @extern sa_net_tcp_stream_peer_addr(stream: u64) -> u64!`
+- `net.sai: @extern sa_net_tcp_stream_read(stream: u64, &buf: ptr, cap: u64) -> u64!`
+- `net.sai: @extern sa_net_tcp_stream_set_nodelay(stream: u64, enabled: i32) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_set_nonblocking(stream: u64, enabled: i32) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_set_read_timeout(stream: u64, timeout_ns: u64) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_set_ttl(stream: u64, ttl: u32) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_set_write_timeout(stream: u64, timeout_ns: u64) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_shutdown(stream: u64, how: u32) -> i32!`
+- `net.sai: @extern sa_net_tcp_stream_write(stream: u64, &buf: ptr, len: u64) -> u64!`
+- `net.sai: @extern sa_net_tcp_stream_write_all(stream: u64, &buf: ptr, len: u64) -> i32!`
+- `net.sai: @extern sa_net_udp_bind(&host: ptr, host_len: u64, port: u32) -> u64!`
+- `net.sai: @extern sa_net_udp_close(socket: u64) -> i32!`
+- `net.sai: @extern sa_net_udp_connect(socket: u64, &host: ptr, host_len: u64, port: u16) -> i32!`
+- `net.sai: @extern sa_net_udp_recv(socket: u64, &buf: ptr, cap: u64) -> u64!`
+- `net.sai: @extern sa_net_udp_recv_from(socket: u64, &buf: ptr, cap: u64, &out_addr: ptr) -> u64!`
+- `net.sai: @extern sa_net_udp_send(socket: u64, &buf: ptr, len: u64) -> u64!`
+- `net.sai: @extern sa_net_udp_send_to(socket: u64, &buf: ptr, len: u64, &host: ptr, host_len: u64, port: u16) -> u64!`
+- `net.sai: @extern sa_net_udp_set_broadcast(socket: u64, enabled: i32) -> i32!`
+- `net.sai: @extern sa_net_udp_set_nonblocking(socket: u64, enabled: i32) -> i32!`
+- `net.sai: @extern sa_net_udp_set_read_timeout(socket: u64, timeout_ns: u64) -> i32!`
+- `net.sai: @extern sa_net_udp_set_ttl(socket: u64, ttl: u32) -> i32!`
+- `net.sai: @extern sa_net_udp_set_write_timeout(socket: u64, timeout_ns: u64) -> i32!`
+- `netx.sai: @extern sa_netx_broadcast(reactor_id: u32, &slot_ids: ptr, n: u32, &msg: ptr, len: u32) -> i32!`
+- `netx.sai: @extern sa_netx_close_slot(slot_id: u32) -> i32!`
+- `netx.sai: @extern sa_netx_init(slot_capacity: u64, reactor_count: u32) -> i32!`
+- `netx.sai: @extern sa_netx_listen(&host: ptr, host_len: u64, port: u16) -> i32!`
+- `netx.sai: @extern sa_netx_push_outbound(reactor_id: u32, slot_id: u32, &msg: ptr, len: u32) -> i32!`
+- `netx.sai: @extern sa_netx_recv_ticket(reactor_id: u32, &out_ticket: ptr) -> i32!`
+- `netx.sai: @extern sa_netx_shutdown() -> i32!`
+- `process.sai: @extern sa_std_process_close(handle: u64) -> i32`
+- `process.sai: @extern sa_std_process_exec_capture(&argv: ptr, argv_len: u64, &out_code: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32`
+- `process.sai: @extern sa_std_process_exec_capture_cwd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, &out_code: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32`
+- `process.sai: @extern sa_std_process_read_stderr(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32`
+- `process.sai: @extern sa_std_process_read_stdout(handle: u64, &buf: ptr, cap: u64, &out_read: ptr) -> i32`
+- `process.sai: @extern sa_std_process_run(&argv: ptr, argv_len: u64, &out_handle: ptr) -> i32`
+- `process.sai: @extern sa_std_process_run_cwd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, &out_handle: ptr) -> i32`
+- `process.sai: @extern sa_std_process_spawn(&argv: ptr, argv_len: u64, &out_handle: ptr) -> i32`
+- `process.sai: @extern sa_std_process_spawn_cwd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, &out_handle: ptr) -> i32`
+- `process.sai: @extern sa_std_process_spawn_stream(&argv: ptr, argv_len: u64, &out_process: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32`
+- `process.sai: @extern sa_std_process_spawn_stream_cwd(&argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, &out_process: ptr, &out_stdout: ptr, &out_stderr: ptr) -> i32`
+- `process.sai: @extern sa_std_process_wait(handle: u64, &out_code: ptr) -> i32`
+- `string.sai: @extern sa_str_eq_ignore_ascii_case(left: ptr, left_len: u64, right: ptr, right_len: u64) -> i32`
+- `string.sai: @extern sa_str_is_ascii(ptr: ptr, len: u64) -> i32`
+- `string.sai: @extern sa_str_trim_ascii_end_len(ptr: ptr, len: u64) -> u64`
+- `string.sai: @extern sa_str_trim_ascii_start_index(ptr: ptr, len: u64) -> u64`
+- `string.sai: @extern sa_string_concat(left: ptr, left_len: u64, right: ptr, right_len: u64) -> u64`
+- `term.sai: @extern sa_term_epoll_close(^epoll: ptr) -> i32!`
+- `term.sai: @extern sa_term_epoll_create(flags: u32) -> ^ptr!`
+- `term.sai: @extern sa_term_epoll_ctl(epoll: ptr, op: u32, target: ptr, events: u32, data: u64) -> i32!`
+- `term.sai: @extern sa_term_epoll_wait(epoll: ptr, &events: ptr, max_events: u64, timeout_ms: i32, &out_count: ptr) -> i32!`
+- `term.sai: @extern sa_term_raw_enter(handle: ptr) -> ^ptr!`
+- `term.sai: @extern sa_term_raw_leave(^session: ptr) -> i32!`
+- `term.sai: @extern sa_term_winsize(handle: ptr, &out_size: ptr) -> i32!`
+- `testing/assert.sai: @extern sa_assert_eq_i64(actual: i64, expected: i64, code: i32) -> void`
+- `testing/assert.sai: @extern sa_assert_eq_i64_at(actual: i64, expected: i64, code: i32, &file: ptr, file_len: u64, line: u32, col: u32) -> void`
+- `testing/assert.sai: @extern sa_test_debug_i64(&name: ptr, name_len: u64, value: i64) -> void`
+- `testing/mock_io.sa: @export sa_mock_io_init(&mock: ptr, &buf: ptr, cap: u64) -> void:`
+- `testing/mock_io.sa: @export sa_mock_io_len(&mock: ptr) -> u64:`
+- `testing/mock_io.sa: @export sa_mock_io_pos(&mock: ptr) -> u64:`
+- `testing/mock_io.sa: @export sa_mock_io_read(&mock: ptr, &dst: ptr, requested: u64) -> u64:`
+- `testing/mock_io.sa: @export sa_mock_io_rewind(&mock: ptr) -> void:`
+- `testing/mock_io.sa: @export sa_mock_io_write(&mock: ptr, &src: ptr, requested: u64) -> u64:`
+- `text/regex.sai: @extern sa_regex_compile(&pattern: ptr, pattern_len: u64, cflags: i32) -> ^ptr`
+- `text/regex.sai: @extern sa_regex_free(^regex: ptr) -> i32!`
+- `text/regex.sai: @extern sa_regex_group_count(regex: ptr) -> u64`
+- `text/regex.sai: @extern sa_regex_group_len(match: ptr, group_idx: u32) -> u64`
+- `text/regex.sai: @extern sa_regex_group_ptr(match: ptr, group_idx: u32) -> &ptr`
+- `text/regex.sai: @extern sa_regex_match(regex: ptr, &text: ptr, text_len: u64) -> ^ptr`
+- `text/regex.sai: @extern sa_regex_match_free(^match: ptr) -> i32!`
+- `time.sai: @extern sa_time_instant_ns() -> u64`
+- `time.sai: @extern sa_time_sleep_ms(ms: u64) -> i32!`
+- `time.sai: @extern sa_time_sleep_ns(ns: u64) -> i32!`
+- `time.sai: @extern sa_time_unix_ms() -> i64`
+- `time.sai: @extern sa_time_unix_ns() -> i64`
+- `time.sai: @extern sa_time_unix_s() -> i64`
+- `time.sai: @extern sa_time_utc_now(&out: ptr) -> i32!`
+- `vec_deque.sa: @export sa_vec_deque_append(&deque: ptr, &other: ptr) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_as_mut_slices(&deque: ptr, &out_front_slice: ptr, &out_back_slice: ptr) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_as_slices(&deque: ptr, &out_front_slice: ptr, &out_back_slice: ptr) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_back(&deque: ptr) -> u64:`
+- `vec_deque.sa: @export sa_vec_deque_capacity(&deque: ptr) -> u64:`
+- `vec_deque.sa: @export sa_vec_deque_clear(&deque: ptr) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_contains(&deque: ptr, needle: u64) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_free(^deque: ptr) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_front(&deque: ptr) -> u64:`
+- `vec_deque.sa: @export sa_vec_deque_get(&deque: ptr, index: u64) -> u64:`
+- `vec_deque.sa: @export sa_vec_deque_is_empty(&deque: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_len(&deque: ptr) -> u64:`
+- `vec_deque.sa: @export sa_vec_deque_make_contiguous(&deque: ptr, &out_slice: ptr) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_new() -> ^ptr:`
+- `vec_deque.sa: @export sa_vec_deque_push_back(&deque: ptr, value: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_push_front(&deque: ptr, value: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_reserve(&deque: ptr, additional: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_reserve_exact(&deque: ptr, additional: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_rotate_left(&deque: ptr, count: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_rotate_right(&deque: ptr, count: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_set(&deque: ptr, index: u64, value: u64) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_shrink_to(&deque: ptr, min_capacity: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_shrink_to_fit(&deque: ptr) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_swap(&deque: ptr, left: u64, right: u64) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_truncate(&deque: ptr, new_len: u64) -> void:`
+- `vec_deque.sa: @export sa_vec_deque_try_back(&deque: ptr, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_back_mut_ptr(&deque: ptr, &out_ptr_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_front(&deque: ptr, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_front_mut_ptr(&deque: ptr, &out_ptr_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_get(&deque: ptr, index: u64, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_get_mut_ptr(&deque: ptr, index: u64, &out_ptr_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_insert(&deque: ptr, index: u64, value: u64) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_pop_back(&deque: ptr, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_pop_front(&deque: ptr, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_remove(&deque: ptr, index: u64, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_reserve(&deque: ptr, additional: u64) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_reserve_exact(&deque: ptr, additional: u64) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_shrink_to(&deque: ptr, min_capacity: u64) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_shrink_to_fit(&deque: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_split_off(&deque: ptr, index: u64, &out_deque_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_swap_remove_back(&deque: ptr, index: u64, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_try_swap_remove_front(&deque: ptr, index: u64, &out_value_slot: ptr) -> i32:`
+- `vec_deque.sa: @export sa_vec_deque_with_capacity(capacity: u64) -> ^ptr:`

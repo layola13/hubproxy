@@ -10,4 +10,5 @@
 .mimir/
 logs/
 codex-relay/
-
+.sa_cache
+.sa.bc

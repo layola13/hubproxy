@@ -1,0 +1,1111 @@
+---
+name: "sa_plugins"
+description: "Use the optional official SA plugin catalog from Codex without assuming plugins are installed."
+when_to_use: "Use when a task mentions optional SA plugins such as deno, http-client, http-server, node, pkg, db, sax, bc2sa, or vm. Always verify installation before using plugin APIs."
+---
+
+# SA Optional Plugins
+
+## Rules
+- This file is a catalog of common official plugins, not proof that any plugin is installed.
+- Run `sa plugin list` to inspect installed plugins before using plugin commands or imports.
+- Run `sa skills --json` to inspect capability sections exported by currently loaded plugins.
+- Install a needed local official plugin with `SA_PLUGIN_DEV=1 sa plugin install --dev <plugin-dir>`; plugin dependencies may need to be installed first or declared in `sap.json`.
+- Keep these APIs out of compiler `sa_std`; plugin availability is per environment and can change.
+
+## Source
+Generated from optional plugin workspace `/home/vscode/projects/sa_plugins`.
+- common plugins listed: `9`
+- interface declarations listed: `1079`
+
+## Common Official Plugins
+- bc2sa (0.1.0) from `sa_plugin_bc2sa`: No README summary found; inspect the plugin manifest and interface files before using it. Skills: bc2sa. Interfaces: CLI-only or native descriptor only. Dependencies: none. Permissions: fs:1, net:0, env:0, process_spawn:no. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_bc2sa`, then verify availability with `sa plugin list` or `sa skills --json`.
+- db (0.1.0) from `sa_plugin_db`: No README summary found; inspect the plugin manifest and interface files before using it. Skills: database. Interfaces: CLI-only or native descriptor only. Dependencies: none. Permissions: fs:4, net:0, env:0, process_spawn:no. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_db`, then verify availability with `sa plugin list` or `sa skills --json`.
+- deno (0.1.0) from `sa_plugin_deno`: No README summary found; inspect the plugin manifest and interface files before using it. Skills: deno.sys, deno.env, deno.fs, deno.process. Interfaces: sai:deno.sai, sal:deno.sal. Dependencies: http-client, http-server. Permissions: fs:4, net:3, env:3, process_spawn:yes. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_deno`, then verify availability with `sa plugin list` or `sa skills --json`.
+- http-client (0.1.0) from `sa_plugin_http_client`: No README summary found; inspect the plugin manifest and interface files before using it. Skills: http.client. Interfaces: sai:sa_http_client.sai. Dependencies: node. Permissions: fs:5, net:3, env:13, process_spawn:no. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_http_client`, then verify availability with `sa plugin list` or `sa skills --json`.
+- http-server (0.1.0) from `sa_plugin_http_server`: No README summary found; inspect the plugin manifest and interface files before using it. Skills: http.server. Interfaces: sai:sa_http_server.sai. Dependencies: none. Permissions: fs:1, net:2, env:5, process_spawn:no. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_http_server`, then verify availability with `sa plugin list` or `sa skills --json`.
+- node (0.1.0) from `sa_plugin_node`: nodejs api list Skills: node.os, node.process, node.crypto. Interfaces: sai:node.sai, sal:node.sal. Dependencies: none. Permissions: fs:10, net:2, env:5, process_spawn:yes. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_node`, then verify availability with `sa plugin list` or `sa skills --json`.
+- pkg (0.1.0) from `sa_plugin_pkg`: No README summary found; inspect the plugin manifest and interface files before using it. Skills: package.management. Interfaces: CLI-only or native descriptor only. Dependencies: none. Permissions: fs:3, net:2, env:2, process_spawn:yes. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_pkg`, then verify availability with `sa plugin list` or `sa skills --json`.
+- sax (0.1.0) from `sa_plugin_sax`: SAX is the SA UI dialect plugin. It turns a `.sax` source file into a browser-ready bundle with real artifacts, not a stub. Skills: sax. Interfaces: CLI-only or native descriptor only. Dependencies: none. Permissions: fs:3, net:0, env:2, process_spawn:no. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_sax`, then verify availability with `sa plugin list` or `sa skills --json`.
+- vm (0.1.0) from `sa_plugin_vm`: This directory contains the standalone, dynamic interpreter virtual machine plugin (`sa_plugin_vm`) for SA. Skills: vm. Interfaces: CLI-only or native descriptor only. Dependencies: deno, http-client, http-server, node. Permissions: fs:12, net:7, env:5, process_spawn:yes. Optional plugin: install before use with `SA_PLUGIN_DEV=1 sa plugin install --dev /home/vscode/projects/sa_plugins/sa_plugin_vm`, then verify availability with `sa plugin list` or `sa skills --json`.
+
+## Interface Declarations
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_args_json(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_atob(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_btoa(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_build_json(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_build_os(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_build_platform_family(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_chat_json_to_responses(&chat_body: ptr, chat_body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_chat_sse_to_responses(&chat_body: ptr, chat_body_len: u64, &req_body: ptr, req_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_chdir(&path: ptr, path_len: u64) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_command_exec(argv: ptr, argv_len: u64, &cwd: ptr, cwd_len: u64, &out_code: ptr, &out_stdout_ptr: ptr, &out_stdout_len: ptr, &out_stderr_ptr: ptr, &out_stderr_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_copy_file(&src: ptr, src_len: u64, &dst: ptr, dst_len: u64) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_cwd(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_date_now_iso(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_env_delete(&key: ptr, key_len: u64) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_env_get(&key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_env_set(&key: ptr, key_len: u64, &value: ptr, value_len: u64) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_exec_path(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_free_buffer(ptr: ptr, len: u64) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_gid(&out_gid: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_hostname(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_infer_collaboration_mode(&body: ptr, body_len: u64, &out_mode: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_jsonrpc_params_string_literal(&body: ptr, body_len: u64, &key: ptr, key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_loadavg(out_load: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_lstat_json(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_make_temp_dir(&prefix: ptr, prefix_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_make_temp_file(&prefix: ptr, prefix_len: u64, &suffix: ptr, suffix_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_memory_usage(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_mkdir(&path: ptr, path_len: u64, recursive: u8) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_network_interfaces(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_now_ms(&out_ms: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_now_ns(&out_ns: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_os_release(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_os_uptime(&out_uptime: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_pid(&out_pid: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_ppid(&out_ppid: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_random_uuid(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_read_dir_json(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_read_file_base64(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_read_text_file(&path: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_remove(&path: ptr, path_len: u64, recursive: u8) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_responses_chat_fallback_request(&body: ptr, body_len: u64, &default_model: ptr, default_model_len: u64, plan_mode_like: u8, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_responses_json_normalize(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_responses_request_normalize(&body: ptr, body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_responses_sse_normalize(&sse_body: ptr, sse_body_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_system_memory_info(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_text_decode(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_text_encode(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_uid(&out_uid: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_version_deno(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_version_json(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_write_file_base64(&path: ptr, path_len: u64, &base64: ptr, base64_len: u64) -> u32`
+- `deno/sa_plugin_deno/deno.sai: @extern sa_deno_plugin_write_text_file(&path: ptr, path_len: u64, &data: ptr, data_len: u64) -> u32`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_ACCEPT_TCP %out_status, %out_stream, %listener`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_ARGS_JSON %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_ATOB %out_ptr, %out_len, %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_BTOA %out_ptr, %out_len, %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_BUILD_JSON %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_BUILD_OS %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_BUILD_PLATFORM_FAMILY %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CHAT_JSON_TO_RESPONSES %out_ptr, %out_len, %out_status, %chat_body, %chat_body_len, %req_body, %req_body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CHAT_SSE_TO_RESPONSES %out_ptr, %out_len, %out_status, %chat_body, %chat_body_len, %req_body, %req_body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CHDIR %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CLOSE_TCP_LISTENER %out_status, %listener`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CLOSE_TCP_STREAM %out_status, %stream`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_CLOSE %out_status, %process`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_EXEC %out_code, %out_stdout_ptr, %out_stdout_len, %out_stderr_ptr, %out_stderr_len, %out_status, %argv_array, %argv_len, %cwd, %cwd_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_READ_STDERR %out_status, %out_len, %process, %buf, %cap`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_READ_STDOUT %out_status, %out_len, %process, %buf, %cap`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_RUN %out_status, %out_process, %argv, %argv_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_RUN_CWD %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_SPAWN %out_status, %out_process, %argv, %argv_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_SPAWN_CWD %out_status, %out_process, %argv, %argv_len, %cwd, %cwd_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_SPAWN_STREAM %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_SPAWN_STREAM_CWD %out_status, %out_process, %out_stdout, %out_stderr, %argv, %argv_len, %cwd, %cwd_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COMMAND_WAIT %out_status, %out_code, %process`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CONNECT_TCP %out_status, %out_stream, %host, %host_len, %port`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COPY_FILE %out_status, %src, %src_len, %dst, %dst_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_COPY_FILE_SYNC %out_status, %src, %src_len, %dst, %dst_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CRYPTO_RANDOM_UUID %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_CWD %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_DATE_NOW_ISO %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_DATE_TO_ISO_STRING %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_ENV_DELETE %out_status, %key, %key_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_ENV_GET %out_ptr, %out_len, %out_status, %key, %key_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_ENV_SET %out_status, %key, %key_len, %value, %value_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_EXEC_PATH %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_EXIT %code`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_FETCH_CLIENT_FREE %out_status, %client`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_FETCH_CLIENT_NEW %out_status, %out_client, %use_tls`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_FETCH_REQUEST_FREE %out_status, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_FETCH_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_FETCH_REQUEST_SET_BODY %out_status, %request, %body, %body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_FETCH_SEND %out_status, %out_response, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_FREE_BUFFER %ptr, %len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_GID %out_gid, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HEADERS_APPEND %out_status, %request, %key, %key_len, %value, %value_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HEADERS_GET %out_status, %out_ptr, %out_len, %response, %key, %key_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HEADERS_HAS %out_has, %response, %key, %key_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HOSTNAME %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_BODY_READER_FREE %out_status, %reader`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_CLIENT_FREE %out_status, %client`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_CLIENT_NEW %out_status, %out_client, %use_tls`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_ADD_HEADER %out_status, %request, %key, %key_len, %value, %value_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_ASYNC_FREE %out_status, %operation`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_ASYNC_POLL %out_status, %out_ready, %operation`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_ASYNC_TAKE_RESPONSE %out_status, %out_response, %operation`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_FREE %out_status, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_SEND %out_status, %out_response, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_SEND_ASYNC %out_status, %out_operation, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_REQUEST_SET_BODY %out_status, %request, %body, %body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_RESPONSE_BODY_READER %out_status, %out_reader, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_RESPONSE_BODY_SLICE %out_status, %out_ptr, %out_len, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_RESPONSE_FREE %out_status, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_RESPONSE_GET_HEADER %out_status, %out_ptr, %out_len, %response, %key, %key_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_RESPONSE_READ_CHUNK %out_status, %out_len, %reader, %buf, %cap`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_HTTP_RESPONSE_STATUS %out_status_code, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSONRPC_PARAMS_STRING_LITERAL %out_ptr, %out_len, %out_status, %body, %body_len, %key, %key_len, %fallback, %fallback_len, %emit_null_if_missing`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSON_BUFFER_FREE %buffer`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSON_BUFFER_SLICE %out_ptr, %out_len, %buffer`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSON_FREE %node`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSON_PARSE %out_root, %bytes, %len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSON_PARSE_TEXT %out_root, %bytes, %len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSON_STRINGIFY %out_status, %out_buffer, %node`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_JSON_STRINGIFY_NODE %out_status, %out_buffer, %node`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_LISTEN_TCP %out_status, %out_listener, %host, %host_len, %port`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_LOADAVG %out_status, %load_buf`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_LSTAT %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_LSTAT_JSON %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_LSTAT_SYNC %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_LSTAT_SYNC_JSON %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_MAKE_TEMP_DIR %out_ptr, %out_len, %out_status, %prefix, %prefix_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_MAKE_TEMP_DIR_SYNC %out_ptr, %out_len, %out_status, %prefix, %prefix_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_MAKE_TEMP_FILE %out_ptr, %out_len, %out_status, %prefix, %prefix_len, %suffix, %suffix_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_MAKE_TEMP_FILE_SYNC %out_ptr, %out_len, %out_status, %prefix, %prefix_len, %suffix, %suffix_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_MEMORY_USAGE %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_MKDIR %out_status, %path, %path_len, %recursive`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_MKDIR_SYNC %out_status, %path, %path_len, %recursive`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_NETWORK_INTERFACES %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_NEW_DATE_TO_ISO_STRING %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_NEW_TEXT_DECODER_DECODE %out_ptr, %out_len, %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_NEW_TEXT_ENCODER_ENCODE %out_ptr, %out_len, %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_NOW_MS %out_ms, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_NOW_NS %out_ns, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_OS_RELEASE %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_OS_UPTIME %out_uptime, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_PID %out_pid, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_PPID %out_ppid, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RANDOM_UUID %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_DIR %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_DIR_JSON %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_DIR_SYNC %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_DIR_SYNC_JSON %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_FILE %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_FILE_BASE64 %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_FILE_SYNC %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_TEXT_FILE %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_READ_TEXT_FILE_SYNC %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_REMOVE %out_status, %path, %path_len, %recursive`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_REMOVE_SYNC %out_status, %path, %path_len, %recursive`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_REQUEST_FREE %out_status, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_REQUEST_HEADERS_APPEND %out_status, %request, %key, %key_len, %value, %value_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_REQUEST_NEW %out_status, %out_request, %client, %method, %url, %url_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_REQUEST_SEND %out_status, %out_response, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_REQUEST_SET_BODY %out_status, %request, %body, %body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSES_CHAT_FALLBACK_REQUEST %out_ptr, %out_len, %out_status, %body, %body_len, %default_model, %default_model_len, %plan_mode_like`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSES_JSON_NORMALIZE %out_ptr, %out_len, %out_status, %body, %body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSES_REQUEST_NORMALIZE %out_ptr, %out_len, %out_status, %body, %body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSES_SSE_NORMALIZE %out_ptr, %out_len, %out_status, %sse_body, %sse_body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_BODY_READER %out_status, %out_reader, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_BODY_READER_FREE %out_status, %reader`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_FREE %out_status, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_HEADERS_GET %out_status, %out_ptr, %out_len, %response, %key, %key_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_JSON_PARSE %out_status, %out_root, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_READ_CHUNK %out_status, %out_len, %reader, %buf, %cap`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_STATUS %out_status_code, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_RESPONSE_TEXT %out_status, %out_ptr, %out_len, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_ACCEPT %out_status, %out_request, %server`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_FREE %out_status, %server`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_NEW %out_status, %out_server`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_REQUEST_BODY %out_status, %out_ptr, %out_len, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_REQUEST_FREE %out_status, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_REQUEST_HEADER %out_status, %out_ptr, %out_len, %request, %key, %key_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_REQUEST_METHOD %out_status, %out_ptr, %out_len, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_REQUEST_PATH %out_status, %out_ptr, %out_len, %request`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_RESPONSE_FREE %out_status, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_RESPONSE_NEW %out_status, %out_response, %request, %status_code`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_RESPONSE_SEND %out_status, %response, %body, %body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_RESPONSE_SET_CONTENT_TYPE %out_status, %response, %content_type, %content_type_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_START %out_status, %server, %host, %host_len, %port`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_STREAM_END %out_status, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_STREAM_FLUSH %out_status, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_STREAM_FREE %out_status, %response`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_STREAM_NEW %out_status, %out_response, %request, %status_code`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SERVE_STREAM_WRITE %out_status, %response, %body, %body_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SLEEP_MS %out_status, %ms`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STAT %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STAT_JSON %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STAT_SYNC %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STAT_SYNC_JSON %out_ptr, %out_len, %out_status, %path, %path_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STDERR %out_handle`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STDERR_WRITE %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STDIN %out_handle`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STDOUT %out_handle`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_STDOUT_WRITE %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_SYSTEM_MEMORY_INFO %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_TEXT_DECODE %out_ptr, %out_len, %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_TEXT_ENCODE %out_ptr, %out_len, %out_status, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_UID %out_uid, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_VERSION_DENO %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_VERSION_JSON %out_ptr, %out_len, %out_status`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_WRITE_FILE %out_status, %path, %path_len, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_WRITE_FILE_BASE64 %out_status, %path, %path_len, %base64, %base64_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_WRITE_FILE_SYNC %out_status, %path, %path_len, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_WRITE_TEXT_FILE %out_status, %path, %path_len, %data, %data_len`
+- `deno/sa_plugin_deno/deno.sal: [MACRO] DENO_WRITE_TEXT_FILE_SYNC %out_status, %path, %path_len, %data, %data_len`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_async_free(^op: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_async_poll(op: ptr, &out_ready: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_async_take_response(op: ptr, &out_resp: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_body_reader_free(^reader: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_free(^client: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_new(use_tls: u8, &out_client: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_req_add_header(req: ptr, &key: ptr, key_len: u64, &val: ptr, val_len: u64) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_req_free(^req: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_req_new(client: ptr, method: u8, &url: ptr, url_len: u64, &out_req: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_req_send(req: ptr, &out_resp: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_req_send_async(req: ptr, &out_op: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_req_set_body(req: ptr, &body: ptr, body_len: u64) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_resp_body_reader(resp: ptr, &out_reader: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_resp_body_slice(resp: ptr, &out_body: ptr, &out_len: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_resp_free(^resp: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_resp_get_header(resp: ptr, &key: ptr, key_len: u64, &out_val: ptr, &out_len: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_resp_read_chunk(reader: ptr, &buf: ptr, cap: u64, &out_len: ptr) -> u32`
+- `http-client/sa_plugin_http_client/sa_http_client.sai: @extern sa_http_client_resp_status(resp: ptr) -> u16`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_accept(server: ptr, &out_req: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_free(^server: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_new(&out_server: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_req_free(^req: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_req_get_body(req: ptr, &out_body: ptr, &out_len: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_req_get_header(req: ptr, &key: ptr, key_len: u64, &out_val: ptr, &out_len: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_req_get_method(req: ptr, &out_method: ptr, &out_len: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_req_get_path(req: ptr, &out_path: ptr, &out_len: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_free(^resp: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_new(req: ptr, status: u16, &out_resp: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_send(resp: ptr, &body: ptr, body_len: u64) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_set_content_type(resp: ptr, &content_type: ptr, content_type_len: u64) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_stream_end(resp: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_stream_flush(resp: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_stream_free(^resp: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_stream_new(req: ptr, status: u16, &out_resp: ptr) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_resp_stream_write(resp: ptr, &body: ptr, body_len: u64) -> u32`
+- `http-server/sa_plugin_http_server/sa_http_server.sai: @extern sa_http_server_start(server: ptr, &host: ptr, host_len: u64, port: u16) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_buffer_byte_length(&data: ptr, len: u64, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_buffer_concat(buffers_argv: ptr, buffers_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_console_clear() -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_console_error(data_ptr: ptr, data_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_console_log(data_ptr: ptr, data_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_console_time(label_ptr: ptr, label_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_console_time_end(label_ptr: ptr, label_len: u64, &out_ms: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_crypto_hash(&algo: ptr, algo_len: u64, &data: ptr, data_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_crypto_hmac(&algo: ptr, algo_len: u64, &key: ptr, key_len: u64, &data: ptr, data_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_crypto_pbkdf2(&pass: ptr, pass_len: u64, &salt: ptr, salt_len: u64, iter: u64, keylen: u64, &digest: ptr, digest_len: u64, &out_ptr: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_crypto_random_bytes(size: u64, &out_ptr: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_crypto_random_uuid(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_crypto_timing_safe_equal(&a: ptr, a_len: u64, &b: ptr, b_len: u64, &out_bool: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_dgram_bind(socket: ptr, &host: ptr, host_len: u64, port: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_dgram_close(socket: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_dgram_create() -> ptr`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_dgram_recv(socket: ptr, max_len: u64, &out_ptr: ptr, &out_len: ptr, &out_host_ptr: ptr, &out_host_len: ptr, &out_port: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_dgram_send(socket: ptr, &data: ptr, data_len: u64, &host: ptr, host_len: u64, port: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_dns_lookup(&hostname: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_dns_resolve(&hostname: ptr, len: u64, &rrtype: ptr, rrtype_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_events_create() -> ptr`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_events_emit(ee: ptr, &event_name: ptr, event_len: u64, &data: ptr, data_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_events_free(ee: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_events_listener_count(ee: ptr, &event_name: ptr, event_len: u64, &out_count: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_events_on(ee: ptr, &event_name: ptr, event_len: u64, callback: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_free_buffer(ptr: ptr, len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_access(path: ptr, len: u64, mode: u32, &out_bool: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_copy_file(src_ptr: ptr, src_len: u64, dst_ptr: ptr, dst_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_exists(&path: ptr, len: u64, &out_bool: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_lstat(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_mkdir(path_ptr: ptr, path_len: u64, recursive: u8) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_read_file(path_ptr: ptr, path_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_readdir(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_readdir_with_types(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_readlink(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_realpath(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_rename(old_ptr: ptr, old_len: u64, new_ptr: ptr, new_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_rmdir(path_ptr: ptr, path_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_stat(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_unlink(path_ptr: ptr, path_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_fs_write_file(path_ptr: ptr, path_len: u64, data_ptr: ptr, data_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_net_accept(server: ptr, &out_socket: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_net_connect(&host: ptr, host_len: u64, port: u64, &out_socket: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_net_end(socket: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_net_listen(&host: ptr, host_len: u64, port: u64, &out_server: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_net_read(socket: ptr, max_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_net_write(socket: ptr, &data: ptr, data_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_arch(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_available_parallelism(&out_val: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_cpus(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_endianness(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_freemem(&out_mem: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_homedir(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_hostname(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_loadavg(out_load: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_machine(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_network_interfaces(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_platform(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_release(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_system_uptime(&out_uptime: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_tmpdir(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_totalmem(&out_mem: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_type(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_user_info(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_os_version(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_basename(&path: ptr, len: u64, &ext: ptr, ext_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_dirname(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_extname(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_format(&json: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_is_absolute(&path: ptr, len: u64, &out_bool: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_join(paths_argv: ptr, paths_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_normalize(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_parse(&path: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_relative(&from_path: ptr, from_len: u64, &to_path: ptr, to_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_path_resolve(paths_argv: ptr, paths_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_argv_json(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_cpu_usage(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_cwd(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_env_delete(&key: ptr, key_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_env_get(&key: ptr, key_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_env_set(&key: ptr, key_len: u64, &value: ptr, value_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_exec(argv_ptr: ptr, argv_len: u64, cwd_ptr: ptr, cwd_len: u64, &out_code: ptr, &out_stdout_ptr: ptr, &out_stdout_len: ptr, &out_stderr_ptr: ptr, &out_stderr_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_getegid(&out_gid: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_geteuid(&out_uid: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_getgid(&out_gid: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_getuid(&out_uid: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_groups(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_hrtime_bigint(&out_ns: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_memory_usage(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_pid(&out_pid: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_ppid(&out_ppid: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_uptime(&out_uptime: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_version(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_process_versions_json(&out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_punycode_decode(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_punycode_encode(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_querystring_escape(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_querystring_parse(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_querystring_stringify(&json: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_querystring_unescape(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_readline_create() -> ptr`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_readline_free(rl: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_readline_question(rl: ptr, &query: ptr, query_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_stream_push(readable: ptr, &data: ptr, data_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_stream_readable_new() -> ptr`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_stream_writable_new() -> ptr`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_stream_write(writable: ptr, &data: ptr, data_len: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_string_decoder_create() -> ptr`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_string_decoder_free(sd: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_string_decoder_write(sd: ptr, chunk_ptr: ptr, chunk_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_timers_sleep(ms: u64) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_url_format(&json: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_url_parse(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_url_resolve(&from_url: ptr, from_len: u64, &to_url: ptr, to_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_util_format(&format: ptr, format_len: u64, &args_json: ptr, args_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_util_inspect(&json: ptr, json_len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_util_is_deep_strict_equal(&a_json: ptr, a_len: u64, &b_json: ptr, b_len: u64, &out_bool: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_util_strip_vt_control_characters(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_zlib_deflate(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_zlib_gunzip(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_zlib_gzip(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sai: @extern sa_node_plugin_zlib_inflate(&data: ptr, len: u64, &out_ptr: ptr, &out_len: ptr) -> u32`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_BUFFER_BYTE_LENGTH %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_BUFFER_CONCAT %buffers_argv, %buffers_len, %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CONSOLE_CLEAR %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CONSOLE_ERROR %out_status, %data, %data_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CONSOLE_LOG %out_status, %data, %data_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CONSOLE_TIME %out_status, %label, %label_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CONSOLE_TIME_END %out_status, %out_ms, %label, %label_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CRYPTO_HASH %out_ptr, %out_len, %out_status, %algo, %algo_len, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CRYPTO_HMAC %out_ptr, %out_len, %out_status, %algo, %algo_len, %key, %key_len, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CRYPTO_PBKDF2 %out_ptr, %out_status, %pass, %pass_len, %salt, %salt_len, %iter, %keylen, %digest, %digest_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CRYPTO_RANDOM_BYTES %size, %out_ptr, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CRYPTO_RANDOM_UUID %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_CRYPTO_TIMING_SAFE_EQUAL %out_bool, %out_status, %a_ptr, %a_len, %b_ptr, %b_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_DGRAM_BIND %out_status, %socket, %host, %host_len, %port`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_DGRAM_CLOSE %out_status, %socket`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_DGRAM_CREATE %out_socket`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_DGRAM_RECV %out_status, %out_ptr, %out_len, %out_host_ptr, %out_host_len, %out_port, %socket, %max_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_DGRAM_SEND %out_status, %socket, %data, %data_len, %host, %host_len, %port`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_DNS_LOOKUP %out_ptr, %out_len, %out_status, %hostname, %hostname_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_DNS_RESOLVE %out_ptr, %out_len, %out_status, %hostname, %hostname_len, %rrtype, %rrtype_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_EVENTS_CREATE %out_ee`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_EVENTS_EMIT %ee, %event_name, %event_len, %data, %data_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_EVENTS_FREE %ee, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_EVENTS_LISTENER_COUNT %ee, %event_name, %event_len, %out_count, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_EVENTS_ON %ee, %event_name, %event_len, %callback, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FREE_BUFFER %ptr, %len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_ACCESS %path, %path_len, %mode, %out_bool, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_COPY_FILE %out_status, %src, %src_len, %dst, %dst_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_EXISTS %path, %path_len, %out_bool, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_LSTAT %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_MKDIR %out_status, %path, %path_len, %recursive`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_READDIR %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_READDIR_WITH_TYPES %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_READLINK %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_READ_FILE %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_REALPATH %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_RENAME %out_status, %old, %old_len, %new, %new_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_RMDIR %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_STAT %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_UNLINK %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_FS_WRITE_FILE %out_status, %path, %path_len, %data, %data_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_NET_ACCEPT %server, %out_socket, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_NET_CONNECT %host, %host_len, %port, %out_socket, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_NET_END %socket, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_NET_LISTEN %host, %host_len, %port, %out_server, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_NET_READ %socket, %max_len, %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_NET_WRITE %socket, %data, %data_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_ARCH %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_AVAILABLE_PARALLELISM %out_val, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_CPUS %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_ENDIANNESS %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_FREEMEM %out_mem, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_HOMEDIR %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_HOSTNAME %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_LOADAVG %out_status, %load_buf`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_MACHINE %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_NETWORK_INTERFACES %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_PLATFORM %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_RELEASE %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_SYSTEM_UPTIME %out_uptime, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_TMPDIR %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_TOTALMEM %out_mem, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_TYPE %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_USER_INFO %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_OS_VERSION %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_BASENAME %out_ptr, %out_len, %out_status, %path, %path_len, %ext, %ext_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_DIRNAME %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_EXTNAME %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_FORMAT %out_ptr, %out_len, %out_status, %in_json, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_IS_ABSOLUTE %out_bool, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_JOIN %paths_argv, %paths_len, %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_NORMALIZE %out_ptr, %out_len, %out_status, %path, %path_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_PARSE %out_ptr, %out_len, %out_status, %in_path, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_RELATIVE %out_ptr, %out_len, %out_status, %from_p, %from_l, %to_p, %to_l`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PATH_RESOLVE %paths_argv, %paths_len, %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_ARGV %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_CPU_USAGE %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_CWD %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_ENV_DELETE %key, %key_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_ENV_GET %key, %key_len, %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_ENV_SET %key, %key_len, %val, %val_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_EXEC %out_code, %out_stdout_ptr, %out_stdout_len, %out_stderr_ptr, %out_stderr_len, %out_status, %p_argv, %l_argv, %p_cwd, %l_cwd`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_GETEGID %out_gid, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_GETEUID %out_uid, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_GETGID %out_gid, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_GETUID %out_uid, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_GROUPS %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_HRTIME_BIGINT %out_ns, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_MEMORY_USAGE %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_PID %out_pid, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_PPID %out_ppid, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_UPTIME %out_uptime, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_VERSION %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PROCESS_VERSIONS_JSON %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PUNYCODE_DECODE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_PUNYCODE_ENCODE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_QUERYSTRING_ESCAPE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_QUERYSTRING_PARSE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_QUERYSTRING_STRINGIFY %out_ptr, %out_len, %out_status, %in_json, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_QUERYSTRING_UNESCAPE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_READLINE_CREATE %out_rl`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_READLINE_FREE %rl, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_READLINE_QUESTION %rl, %query, %query_len, %out_ptr, %out_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_STREAM_PUSH %readable, %data, %data_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_STREAM_READABLE_NEW %out_readable`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_STREAM_WRITABLE_NEW %out_writable`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_STREAM_WRITE %writable, %data, %data_len, %out_status`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_STRING_DECODER_CREATE %out_sd`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_STRING_DECODER_FREE %out_status, %sd`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_STRING_DECODER_WRITE %out_status, %out_ptr, %out_len, %sd, %chunk, %chunk_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_TIMERS_SLEEP %out_status, %ms`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_URL_FORMAT %out_ptr, %out_len, %out_status, %in_json, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_URL_PARSE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_URL_RESOLVE %out_ptr, %out_len, %out_status, %from, %from_len, %to, %to_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_UTIL_FORMAT %out_ptr, %out_len, %out_status, %format, %format_len, %args_json, %args_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_UTIL_INSPECT %out_ptr, %out_len, %out_status, %in_json, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_UTIL_IS_DEEP_STRICT_EQUAL %out_bool, %out_status, %a_js, %a_len, %b_js, %b_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_UTIL_STRIP_VT_CONTROL_CHARACTERS %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_ZLIB_DEFLATE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_ZLIB_GUNZIP %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_ZLIB_GZIP %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node.sal: [MACRO] NODE_ZLIB_INFLATE %out_ptr, %out_len, %out_status, %in_data, %in_len`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_context_tracking_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_hooks_async_resource_create(type_ptr: ptr, type_len: u64, trigger_async_id: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_hooks_async_resource_free(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_hooks_async_resource_snapshot_json(handle_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_hooks_execution_async_id(&out_id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_hooks_snapshot_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_hooks_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_async_hooks_trigger_async_id(&out_id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_buffer_atob(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_buffer_btoa(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_buffer_is_ascii(data_ptr: ptr, data_len: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_buffer_is_utf8(data_ptr: ptr, data_len: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_buffer_resolve_object_url(url_ptr: ptr, url_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_buffer_transcode(src_ptr: ptr, src_len: u64, from_enc_ptr: ptr, from_enc_len: u64, to_enc_ptr: ptr, to_enc_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_exec(command_ptr: ptr, command_len: u64, options_json_ptr: ptr, options_json_len: u64, &out_pid: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_exec_file(file_ptr: ptr, file_len: u64, args_ptr: ptr, args_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_exec_sync_json(argv_ptr: ptr, argv_len: u64, cwd_ptr: ptr, cwd_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_execfile_sync(file_ptr: ptr, file_len: u64, args_ptr: ptr, args_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_fork(module_ptr: ptr, module_len: u64, args_ptr: ptr, args_len: u64, &out_pid: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_spawn(command_ptr: ptr, command_len: u64, args_ptr: ptr, args_len: u64, &out_pid: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_spawn_sync(command_ptr: ptr, command_len: u64, args_ptr: ptr, args_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_child_process_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_cluster_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_command_line_options_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_assert(condition: u64, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_count(label_ptr: ptr, label_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_count_reset(label_ptr: ptr, label_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_debug(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_dir(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_dirxml(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_group() -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_group_collapsed() -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_group_end() -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_info(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_table(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_time_log(label_ptr: ptr, label_len: u64, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_time_stamp(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_trace(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_console_warn(data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_cipher_final(state_ptr: ptr, &out_ptr: ptr, &out_len: u64, &tag_ptr: ptr, tag_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_cipher_free(state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_cipher_update(state_ptr: ptr, data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_create_cipher(algo_ptr: ptr, algo_len: u64, key_ptr: ptr, key_len: u64, iv_ptr: ptr, iv_len: u64, &out_state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_create_decipher(algo_ptr: ptr, algo_len: u64, key_ptr: ptr, key_len: u64, iv_ptr: ptr, iv_len: u64, &out_state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_create_hash(algo_ptr: ptr, algo_len: u64, &out_state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_create_hmac(algo_ptr: ptr, algo_len: u64, key_ptr: ptr, key_len: u64, &out_state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_decipher_final(state_ptr: ptr, tag_ptr: ptr, tag_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_decipher_free(state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_decipher_update(state_ptr: ptr, data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_generate_key(algo_ptr: ptr, algo_len: u64, bits: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_get_hashes(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_hash_final(state_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_hash_free(state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_hash_update(state_ptr: ptr, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_hkdf(digest_ptr: ptr, digest_len: u64, ikm_ptr: ptr, ikm_len: u64, salt_ptr: ptr, salt_len: u64, info_ptr: ptr, info_len: u64, keylen: u64, &out_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_hmac_final(state_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_hmac_free(state_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_hmac_update(state_ptr: ptr, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_random_fill(buf_ptr: ptr, buf_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_random_int(min_val: u64, max_val: u64, &out_val: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_scrypt(pass_ptr: ptr, pass_len: u64, salt_ptr: ptr, salt_len: u64, n: u64, r: u64, p: u64, keylen: u64, &out_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_sign(algo_ptr: ptr, algo_len: u64, key_ptr: ptr, key_len: u64, data_ptr: ptr, data_len: u64, &out_sig_ptr: ptr, &out_sig_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_crypto_verify(algo_ptr: ptr, algo_len: u64, key_ptr: ptr, key_len: u64, data_ptr: ptr, data_len: u64, sig_ptr: ptr, sig_len: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_debugger_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_deprecated_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dgram_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_create(name_ptr: ptr, name_len: u64, &out_channel: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_free(channel_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_has_subscribers(channel_ptr: ptr, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_publish(channel_ptr: ptr, data_ptr: ptr, data_len: u64, &out_count: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_snapshot_json(channel_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_subscribe(channel_ptr: ptr, callback: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_tracing_channel(name_ptr: ptr, name_len: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_diagnostics_channel_unsubscribe(channel_ptr: ptr, callback: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_get_default_result_order(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_get_servers(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve4(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve6(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve_cname(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve_mx(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve_ns(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve_ptr(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve_srv(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_resolve_txt(hostname_ptr: ptr, hostname_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_reverse(ip_ptr: ptr, ip_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_set_default_result_order(order_ptr: ptr, order_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_dns_set_servers(servers_ptr: ptr, servers_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_domain_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_environment_variables_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_errors_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_emit_with_error(ee_ptr: ptr, event_ptr: ptr, event_len: u64, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_get_event_listeners(ee_ptr: ptr, event_ptr: ptr, event_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_get_max_listeners(ee_ptr: ptr, &out_max: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_listener_count_by_event(ee_ptr: ptr, event_ptr: ptr, event_len: u64, &out_count: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_off(ee_ptr: ptr, event_ptr: ptr, event_len: u64, callback: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_once(ee_ptr: ptr, event_ptr: ptr, event_len: u64, callback: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_prepend_listener(ee_ptr: ptr, event_ptr: ptr, event_len: u64, callback: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_remove_all_listeners(ee_ptr: ptr, event_ptr: ptr, event_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_events_set_max_listeners(ee_ptr: ptr, max: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_chmod(path_ptr: ptr, path_len: u64, mode: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_chown(path_ptr: ptr, path_len: u64, uid: u64, gid: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_close_fd(fd: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_fchmod(fd: u64, mode: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_fchown(fd: u64, uid: u64, gid: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_fdatasync(fd: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_fstat(fd: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_fsync(fd: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_ftruncate(fd: u64, len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_futimes(fd: u64, atime_ms: u64, mtime_ms: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_glob(pattern_ptr: ptr, pattern_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_link(src_ptr: ptr, src_len: u64, dst_ptr: ptr, dst_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_mkdtemp(template_ptr: ptr, template_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_open(path_ptr: ptr, path_len: u64, flags: u64, mode: u64, &out_fd: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_opendir(path_ptr: ptr, path_len: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_opendir_free(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_opendir_next(handle_ptr: ptr, &out_name_ptr: ptr, &out_name_len: u64, &out_entry_type: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_read_fd(fd: u64, buf_ptr: ptr, len: u64, offset: u64, &out_n: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_readv(fd: u64, iov_json_ptr: ptr, iov_json_len: u64, &out_n: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_rm(path_ptr: ptr, path_len: u64, recursive: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_statfs(path_ptr: ptr, &out_json_ptr: ptr, &out_json_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_symlink(src_ptr: ptr, src_len: u64, dst_ptr: ptr, dst_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_truncate(path_ptr: ptr, path_len: u64, len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_utimes(path_ptr: ptr, path_len: u64, atime_ms: u64, mtime_ms: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_write_fd(fd: u64, data_ptr: ptr, data_len: u64, offset: u64, &out_n: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_fs_writev(fd: u64, iov_json_ptr: ptr, iov_json_len: u64, &out_n: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http2_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_body_reader_free(reader: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_free(client: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_new(use_tls: u64, &out_client: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_req_add_header(req: ptr, key_ptr: ptr, key_len: u64, val_ptr: ptr, val_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_req_free(req: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_req_new(client: ptr, method: u64, url_ptr: ptr, url_len: u64, &out_req: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_req_send(req: ptr, &out_resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_req_set_body(req: ptr, body_ptr: ptr, body_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_resp_body_reader(resp: ptr, &out_reader: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_resp_body_slice(resp: ptr, &out_body_ptr: ptr, &out_body_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_resp_free(resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_resp_get_header(resp: ptr, key_ptr: ptr, key_len: u64, &out_val_ptr: ptr, &out_val_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_resp_read_chunk(reader: ptr, buf_ptr: ptr, cap: u64, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_client_resp_status(resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_accept(server: ptr, &out_req: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_free(server: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_new(&out_server: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_req_free(req: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_req_get_body(req: ptr, &out_body_ptr: ptr, &out_body_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_req_get_header(req: ptr, key_ptr: ptr, key_len: u64, &out_val_ptr: ptr, &out_val_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_req_get_method(req: ptr, &out_method_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_req_get_path(req: ptr, &out_path_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_free(resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_new(req: ptr, status: u64, &out_resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_send(resp: ptr, body_ptr: ptr, body_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_set_content_type(resp: ptr, content_type_ptr: ptr, content_type_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_stream_end(resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_stream_flush(resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_stream_free(resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_stream_new(req: ptr, status: u64, &out_resp: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_resp_stream_write(resp: ptr, body_ptr: ptr, body_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_start(server: ptr, host_ptr: ptr, host_len: u64, port: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_websocket_free(ws: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_websocket_read(ws: ptr, max_len: u64, &out_opcode: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_websocket_upgrade(req: ptr, &out_ws: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_server_websocket_write(ws: ptr, opcode: u64, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_websocket_connect(client: ptr, url_ptr: ptr, url_len: u64, &out_ws: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_websocket_free(ws: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_websocket_read(ws: ptr, max_len: u64, &out_opcode: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_http_websocket_write(ws: ptr, opcode: u64, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_https_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_inspector_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_internationalization_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_iterable_streams_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_net_create_connection(host_ptr: ptr, host_len: u64, port: u64, &out_socket: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_net_create_server(&out_server: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_net_is_ip(str_ptr: ptr, str_len: u64, &out_version: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_net_is_ipv4(str_ptr: ptr, str_len: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_net_is_ipv6(str_ptr: ptr, str_len: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_os_constants(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_os_eol(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_os_get_priority(pid: u64, &out_priority: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_os_set_priority(pid: u64, priority: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_path_delimiter(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_path_matches_glob(pattern_ptr: ptr, pattern_len: u64, str_ptr: ptr, str_len: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_path_sep(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_clear_marks() -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_clear_measures() -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_create_histogram(&out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_entries_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_event_loop_utilization(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_histogram_free(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_histogram_get_statistics(handle_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_histogram_record(handle_ptr: ptr, value: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_mark(name_ptr: ptr, name_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_measure(name_ptr: ptr, name_len: u64, start_ptr: ptr, start_len: u64, end_ptr: ptr, end_len: u64, &out_ms: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_now_ms(&out_ms: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_time_origin_ms(&out_ms: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_perf_hooks_timerify(name_ptr: ptr, name_len: u64, &out_id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_permissions_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_process_exit(code: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_process_kill(pid: u64, signal: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_punycode_to_ascii(domain_ptr: ptr, domain_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_punycode_to_unicode(domain_ptr: ptr, domain_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_querystring_unescape_buffer(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_readline_clear_line(fd: u64, dir: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_readline_clear_screen_down(fd: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_readline_cursor_to(fd: u64, x: u64, y: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_readline_emit_keypress_events(stream_ptr: ptr, stream_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_readline_move_cursor(fd: u64, dx: u64, dy: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_repl_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_report_get_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_report_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_report_write_file(filename_ptr: ptr, filename_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_sea_asset_keys_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_sea_get_asset(key_ptr: ptr, key_len: u64, encoding_ptr: ptr, encoding_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_sea_get_asset_as_blob(key_ptr: ptr, key_len: u64, &out_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_sea_get_raw_asset(key_ptr: ptr, key_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_sea_is_sea(&out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_sea_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_sqlite_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_compose(streams_ptr: ptr, streams_len: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_destroy(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_duplex_new(&out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_duplex_pair(&out_h1: ptr, &out_h2: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_finished(handle_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_passthrough_new(&out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_pipeline(steps_ptr: ptr, steps_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_readable_destroy(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_transform_new(&out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_stream_writable_destroy(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_test_runner_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_timers_clear_immediate(id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_timers_clear_interval(id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_timers_clear_timeout(id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_timers_set_immediate(callback: ptr, &out_id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_timers_set_interval(ms: u64, callback: ptr, &out_id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_timers_set_timeout(ms: u64, callback: ptr, &out_id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tls_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_trace_events_create_tracing(categories_ptr: ptr, categories_len: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_trace_events_get_enabled_categories(handle_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_trace_events_tracing_disable(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_trace_events_tracing_enable(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_trace_events_tracing_free(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_isatty(fd: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_read_stream_new(fd: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_stream_free(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_stream_get_color_depth(handle_ptr: ptr, &out_depth: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_stream_get_window_size(handle_ptr: ptr, &out_cols: u64, &out_rows: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_stream_has_colors(handle_ptr: ptr, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_stream_set_raw_mode(handle_ptr: ptr, flag: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_tty_write_stream_new(fd: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_url_free(handle_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_url_get_host(h: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_url_get_href(h: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_url_get_pathname(h: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_url_get_protocol(h: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_url_new(href_ptr: ptr, href_len: u64, &out_handle: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_callbackify(fn_ptr: ptr, fn_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_debuglog(section_ptr: ptr, section_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_deprecate(fn_ptr: ptr, fn_len: u64, msg_ptr: ptr, msg_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_diff(actual_ptr: ptr, actual_len: u64, expected_ptr: ptr, expected_len: u64, operator_ptr: ptr, operator_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_inherits(c: ptr, c_len: u64, s: ptr, s_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_mime_type(str_ptr: ptr, str_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_parse_args(config_ptr: ptr, config_len: u64, args_ptr: ptr, args_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_promisify(fn_ptr: ptr, fn_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_util_style_text(style_ptr: ptr, style_len: u64, text_ptr: ptr, text_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_wasi_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_web_crypto_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_web_streams_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_get_environment_data(key_ptr: ptr, key_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_is_internal_thread(&out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_is_main_thread(&out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_message_channel_new(&out_port1: ptr, &out_port2: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_message_port_close(port_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_message_port_free(port_ptr: ptr) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_message_port_post_message(port_ptr: ptr, data_ptr: ptr, data_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_message_port_receive_message(port_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_post_message_to_thread(thread_id: u64, data_ptr: ptr, data_len: u64, &out_bool: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_receive_message_on_port(port_ptr: ptr, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_resource_limits_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_set_environment_data(key_ptr: ptr, key_len: u64, value_ptr: ptr, value_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_status_json(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_thread_id(&out_id: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_thread_name(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_worker_threads_worker_data(&out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_zlib_brotli_compress(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_zlib_brotli_decompress(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_zlib_crc32(data_ptr: ptr, data_len: u64, &out_val: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_zlib_deflate_raw(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_zlib_inflate_raw(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sai: @extern sa_node_plugin_zlib_unzip(data_ptr: ptr, data_len: u64, &out_ptr: ptr, &out_len: u64) -> u64`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_CONTEXT_TRACKING_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_HOOKS_ASYNC_RESOURCE_CREATE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_HOOKS_ASYNC_RESOURCE_FREE %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_HOOKS_ASYNC_RESOURCE_SNAPSHOT_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_HOOKS_EXECUTION_ASYNC_ID %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_HOOKS_SNAPSHOT_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_HOOKS_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ASYNC_HOOKS_TRIGGER_ASYNC_ID %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_BUFFER_ATOB %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_BUFFER_BTOA %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_BUFFER_IS_ASCII %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_BUFFER_IS_UTF8 %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_BUFFER_RESOLVE_OBJECT_URL %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_BUFFER_TRANSCODE %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7, %p_8`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_EXEC %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_EXECFILE_SYNC %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_EXEC_FILE %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_EXEC_SYNC_JSON %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_FORK %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_SPAWN %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_SPAWN_SYNC %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CHILD_PROCESS_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CLUSTER_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_COMMAND_LINE_OPTIONS_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_ASSERT %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_COUNT %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_COUNT_RESET %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_DEBUG %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_DIR %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_DIRXML %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_GROUP %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_GROUP_COLLAPSED %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_GROUP_END %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_INFO %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_TABLE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_TIME_LOG %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_TIME_STAMP %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_TRACE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CONSOLE_WARN %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_CIPHER_FINAL %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_CIPHER_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_CIPHER_UPDATE %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_CREATE_CIPHER %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_CREATE_DECIPHER %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_CREATE_HASH %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_CREATE_HMAC %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_DECIPHER_FINAL %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_DECIPHER_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_DECIPHER_UPDATE %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_GENERATE_KEY %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_GET_HASHES %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_HASH_FINAL %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_HASH_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_HASH_UPDATE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_HKDF %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7, %p_8, %p_9, %p_10`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_HMAC_FINAL %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_HMAC_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_HMAC_UPDATE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_RANDOM_FILL %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_RANDOM_INT %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_SCRYPT %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7, %p_8, %p_9`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_SIGN %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7, %p_8`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_CRYPTO_VERIFY %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7, %p_8, %p_9`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DEBUGGER_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DEPRECATED_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DGRAM_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_CREATE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_FREE %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_HAS_SUBSCRIBERS %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_PUBLISH %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_SNAPSHOT_JSON %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_SUBSCRIBE %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_TRACING_CHANNEL %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DIAGNOSTICS_CHANNEL_UNSUBSCRIBE %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_GET_DEFAULT_RESULT_ORDER %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_GET_SERVERS %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE4 %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE6 %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE_CNAME %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE_MX %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE_NS %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE_PTR %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE_SRV %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_RESOLVE_TXT %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_REVERSE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_SET_DEFAULT_RESULT_ORDER %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DNS_SET_SERVERS %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_DOMAIN_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ENVIRONMENT_VARIABLES_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ERRORS_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_EMIT_WITH_ERROR %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_GET_EVENT_LISTENERS %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_GET_MAX_LISTENERS %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_LISTENER_COUNT_BY_EVENT %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_OFF %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_ONCE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_PREPEND_LISTENER %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_REMOVE_ALL_LISTENERS %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_EVENTS_SET_MAX_LISTENERS %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_CHMOD %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_CHOWN %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_CLOSE_FD %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_FCHMOD %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_FCHOWN %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_FDATASYNC %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_FSTAT %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_FSYNC %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_FTRUNCATE %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_FUTIMES %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_GLOB %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_LINK %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_MKDTEMP %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_OPEN %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_OPENDIR %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_OPENDIR_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_OPENDIR_NEXT %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_READV %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_READ_FD %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_RM %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_STATFS %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_SYMLINK %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_TRUNCATE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_UTIMES %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_WRITEV %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_FS_WRITE_FD %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP2_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTPS_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_BODY_READER_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_NEW %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_REQ_ADD_HEADER %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_REQ_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_REQ_NEW %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_REQ_SEND %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_REQ_SET_BODY %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_RESP_BODY_READER %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_RESP_BODY_SLICE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_RESP_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_RESP_GET_HEADER %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_RESP_READ_CHUNK %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_CLIENT_RESP_STATUS %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_ACCEPT %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_NEW %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_REQ_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_REQ_GET_BODY %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_REQ_GET_HEADER %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_REQ_GET_METHOD %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_REQ_GET_PATH %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_NEW %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_SEND %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_SET_CONTENT_TYPE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_STREAM_END %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_STREAM_FLUSH %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_STREAM_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_STREAM_NEW %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_RESP_STREAM_WRITE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_START %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_WEBSOCKET_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_WEBSOCKET_READ %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_WEBSOCKET_UPGRADE %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_SERVER_WEBSOCKET_WRITE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_WEBSOCKET_CONNECT %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_WEBSOCKET_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_WEBSOCKET_READ %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_HTTP_WEBSOCKET_WRITE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_INSPECTOR_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_INTERNATIONALIZATION_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ITERABLE_STREAMS_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_NET_CREATE_CONNECTION %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_NET_CREATE_SERVER %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_NET_IS_IP %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_NET_IS_IPV4 %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_NET_IS_IPV6 %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_OS_CONSTANTS %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_OS_EOL %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_OS_GET_PRIORITY %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_OS_SET_PRIORITY %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PATH_DELIMITER %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PATH_MATCHES_GLOB %p_0, %p_1, %p_2, %p_3, %p_4, %p_5`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PATH_SEP %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_CLEAR_MARKS %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_CLEAR_MEASURES %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_CREATE_HISTOGRAM %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_ENTRIES_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_EVENT_LOOP_UTILIZATION %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_HISTOGRAM_FREE %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_HISTOGRAM_GET_STATISTICS %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_HISTOGRAM_RECORD %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_MARK %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_MEASURE %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_NOW_MS %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_TIMERIFY %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERF_HOOKS_TIME_ORIGIN_MS %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PERMISSIONS_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PROCESS_ARGV_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PROCESS_EXIT %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PROCESS_KILL %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PUNYCODE_TO_ASCII %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_PUNYCODE_TO_UNICODE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_QUERYSTRING_UNESCAPE_BUFFER %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_READLINE_CLEAR_LINE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_READLINE_CLEAR_SCREEN_DOWN %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_READLINE_CURSOR_TO %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_READLINE_EMIT_KEYPRESS_EVENTS %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_READLINE_MOVE_CURSOR %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_REPL_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_REPORT_GET_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_REPORT_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_REPORT_WRITE_FILE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_SEA_ASSET_KEYS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_SEA_GET_ASSET %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_SEA_GET_ASSET_AS_BLOB %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_SEA_GET_RAW_ASSET %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_SEA_IS_SEA %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_SEA_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_SQLITE_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_COMPOSE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_DESTROY %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_DUPLEX_NEW %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_DUPLEX_PAIR %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_FINISHED %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_PASSTHROUGH_NEW %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_PIPELINE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_READABLE_DESTROY %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_TRANSFORM_NEW %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_STREAM_WRITABLE_DESTROY %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TEST_RUNNER_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TIMERS_CLEAR_IMMEDIATE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TIMERS_CLEAR_INTERVAL %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TIMERS_CLEAR_TIMEOUT %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TIMERS_SET_IMMEDIATE %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TIMERS_SET_INTERVAL %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TIMERS_SET_TIMEOUT %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TLS_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TRACE_EVENTS_CREATE_TRACING %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TRACE_EVENTS_GET_ENABLED_CATEGORIES %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TRACE_EVENTS_TRACING_DISABLE %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TRACE_EVENTS_TRACING_ENABLE %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TRACE_EVENTS_TRACING_FREE %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_ISATTY %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_READ_STREAM_NEW %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_STREAM_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_STREAM_GET_COLOR_DEPTH %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_STREAM_GET_WINDOW_SIZE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_STREAM_HAS_COLORS %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_STREAM_SET_RAW_MODE %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_TTY_WRITE_STREAM_NEW %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_URL_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_URL_GET_HOST %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_URL_GET_HREF %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_URL_GET_PATHNAME %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_URL_GET_PROTOCOL %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_URL_NEW %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_CALLBACKIFY %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_DEBUGLOG %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_DEPRECATE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_DIFF %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6, %p_7, %p_8`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_INHERITS %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_MIME_TYPE %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_PARSE_ARGS %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_PROMISIFY %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_UTIL_STYLE_TEXT %p_0, %p_1, %p_2, %p_3, %p_4, %p_5, %p_6`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WASI_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WEB_CRYPTO_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WEB_STREAMS_STATUS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_GET_ENVIRONMENT_DATA %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_IS_INTERNAL_THREAD %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_IS_MAIN_THREAD %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_MESSAGE_CHANNEL_NEW %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_MESSAGE_PORT_CLOSE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_MESSAGE_PORT_FREE %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_MESSAGE_PORT_POST_MESSAGE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_MESSAGE_PORT_RECEIVE_MESSAGE %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_POST_MESSAGE_TO_THREAD %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_RECEIVE_MESSAGE_ON_PORT %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_RESOURCE_LIMITS_JSON %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_SET_ENVIRONMENT_DATA %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_STATUS_JSON %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_THREAD_ID %p_0`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_THREAD_NAME %p_0, %p_1, %p_2`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_WORKER_THREADS_WORKER_DATA %p_0, %p_1`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ZLIB_BROTLI_COMPRESS %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ZLIB_BROTLI_DECOMPRESS %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ZLIB_CRC32 %p_0, %p_1, %p_2, %p_3`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ZLIB_DEFLATE_RAW %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ZLIB_INFLATE_RAW %p_0, %p_1, %p_2, %p_3, %p_4`
+- `node/sa_plugin_node/node_extra.sal: [MACRO] NODE_ZLIB_UNZIP %p_0, %p_1, %p_2, %p_3, %p_4`

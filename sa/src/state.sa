@@ -1,6 +1,7 @@
 // state.sa - In-memory state management for HubProxy
 @import "state.sai"
 @import "sa_std/io/print.sai"
+@import "sa_std/encoding/json.sa"
 @import "sa_std/encoding/json.sai"
 @import "sa_std/encoding/json.sal"
 @import "sa_std/time.sai"
@@ -41,6 +42,66 @@ L_CLAMP_LEN:
     !too_long
     !cap
     return len
+
+@ffi_wrapper json_writer_begin_field_object(writer: ptr, &key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    field_status = call @sa_json_writer_object_field(writer, &key, key_len)
+    begin_status = call @sa_json_writer_begin_object(writer)
+    !begin_status
+    !field_status
+    !writer
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper json_writer_finish_view(writer: ptr, &out_buffer: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    finish_status = call @sa_json_writer_finish(writer, &out_buffer)
+    buffer = load out_buffer+0 as ptr
+    data_ptr = call @sa_json_buffer_data(&buffer)
+    data_len = call @sa_json_buffer_len(&buffer)
+    store out_ptr+0, data_ptr as ptr
+    store out_len+0, data_len as u64
+    !finish_status
+    !buffer
+    !data_ptr
+    !data_len
+    !writer
+    !out_buffer
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper json_writer_dispose_finished(buffer: ptr, writer: ptr) -> u32:
+L_ENTRY:
+    buffer_free = call @sa_json_buffer_free(^buffer)
+    writer_free = call @sa_json_writer_free(^writer)
+    !writer_free
+    !buffer_free
+    return 0
+
+@ffi_wrapper copy_bytes_into(&dst_ptr: ptr, &src_ptr: ptr, src_len: u64) -> u64:
+L_ENTRY:
+    copied = call @sa_bytes_copy(&dst_ptr, &src_ptr, src_len)
+    !dst_ptr
+    !src_ptr
+    !src_len
+    return copied
+
+@ffi_wrapper copy_bytes_owned(&src_ptr: ptr, src_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out = call @bytes_to_owned(&src_ptr, src_len, &out_len)
+    !src_ptr
+    !src_len
+    !out_len
+    return out
+
+@ffi_wrapper sse_warning_frame_build(&json_ptr: ptr, json_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    frame = call @build_concat3_owned(&SSE_WARNING_PREFIX, SSE_WARNING_PREFIX_LEN, &json_ptr, json_len, &SSE_WARNING_SUFFIX, SSE_WARNING_SUFFIX_LEN, &out_len)
+    !json_ptr
+    !json_len
+    return frame
 
 @ffi_wrapper state_init(&state: ptr) -> u32:
 L_ENTRY:
@@ -155,12 +216,12 @@ L_TCR_SLOT:
     store slot+THR_STATUS, 0 as u8
     store slot+THR_NAME_SET, 0 as u8
     model_len_slot = stack_alloc 8
-    model_owned = call @bytes_to_owned(&model_ptr, model_len, &model_len_slot)
+    model_owned = call @copy_bytes_owned(&model_ptr, model_len, &model_len_slot)
     model_copied = load model_len_slot+0 as u64
     store slot+THR_MODEL_PTR, model_owned as ptr
     store slot+THR_MODEL_LEN, model_copied as u64
     dir_len_slot = stack_alloc 8
-    dir_owned = call @bytes_to_owned(&dir_ptr, dir_len, &dir_len_slot)
+    dir_owned = call @copy_bytes_owned(&dir_ptr, dir_len, &dir_len_slot)
     dir_copied = load dir_len_slot+0 as u64
     store slot+THR_DIR_PTR, dir_owned as ptr
     store slot+THR_DIR_LEN, dir_copied as u64
@@ -170,14 +231,14 @@ L_TCR_SLOT:
     store slot+THR_NAME_LEN, 0 as u64
     store slot+THR_FORKED_FROM_ID, 0 as u64
     provider_len_slot = stack_alloc 8
-    provider_owned = call @bytes_to_owned(&DEFAULT_PROVIDER_OPENAI, DEFAULT_PROVIDER_OPENAI_LEN, &provider_len_slot)
+    provider_owned = call @copy_bytes_owned(&DEFAULT_PROVIDER_OPENAI, DEFAULT_PROVIDER_OPENAI_LEN, &provider_len_slot)
     provider_copied = load provider_len_slot+0 as u64
     store slot+THR_PROVIDER_PTR, provider_owned as ptr
     store slot+THR_PROVIDER_LEN, provider_copied as u64
     store slot+THR_EPHEMERAL, 1 as u8
     key_copy_len = call @state_clamp_len(key_len, THR_KEY_CAP)
     key_dst = ptr_add slot, THR_KEY
-    key_copied = call @sa_bytes_copy(&key_dst, &key_ptr, key_copy_len)
+    key_copied = call @copy_bytes_into(&key_dst, &key_ptr, key_copy_len)
     store slot+THR_KEY_LEN, key_copied as u64
     store slot+THR_GIT_PTR, 0 as ptr
     store slot+THR_GIT_LEN, 0 as u64
@@ -460,7 +521,7 @@ L_STN_SLOT:
     !missing
     copy_len = call @state_clamp_len(name_len, THR_NAME_CAP)
     name_dst = ptr_add slot, THR_NAME
-    copied = call @sa_bytes_copy(&name_dst, &name_ptr, copy_len)
+    copied = call @copy_bytes_into(&name_dst, &name_ptr, copy_len)
     store slot+THR_NAME_SET, 1 as u8
     store slot+THR_NAME_LEN, copied as u64
     !copied
@@ -514,7 +575,7 @@ L_STP_SLOT:
     !missing
     copy_len = call @state_clamp_len(preview_len, THR_PREVIEW_CAP)
     preview_dst = ptr_add slot, THR_PREVIEW
-    copied = call @sa_bytes_copy(&preview_dst, &preview_ptr, copy_len)
+    copied = call @copy_bytes_into(&preview_dst, &preview_ptr, copy_len)
     store slot+THR_PREVIEW_LEN, copied as u64
     !copied
     !copy_len
@@ -575,7 +636,7 @@ L_STG_COPY:
     !has_old
     !old_ptr
     git_len_slot = stack_alloc 8
-    git_owned = call @bytes_to_owned(&git_ptr, git_len, &git_len_slot)
+    git_owned = call @copy_bytes_owned(&git_ptr, git_len, &git_len_slot)
     git_copied = load git_len_slot+0 as u64
     store slot+THR_GIT_PTR, git_owned as ptr
     store slot+THR_GIT_LEN, git_copied as u64
@@ -703,7 +764,7 @@ L_ENTRY:
 L_STPROV_SLOT:
     !missing
     provider_len_slot2 = stack_alloc 8
-    provider_owned = call @bytes_to_owned(&provider_ptr, provider_len, &provider_len_slot2)
+    provider_owned = call @copy_bytes_owned(&provider_ptr, provider_len, &provider_len_slot2)
     provider_copied = load provider_len_slot2+0 as u64
     store slot+THR_PROVIDER_PTR, provider_owned as ptr
     store slot+THR_PROVIDER_LEN, provider_copied as u64
@@ -977,7 +1038,7 @@ L_TMODE_TEXT_SET:
 L_TMODE_TEXT_COPY:
     !has_text
     mode_dst = ptr_add slot, TURN_MODE_TEXT
-    copied = call @sa_bytes_copy(&mode_dst, &mode_ptr, copy_len)
+    copied = call @copy_bytes_into(&mode_dst, &mode_ptr, copy_len)
     store slot+TURN_MODE_LEN, copied as u64
     !copied
     !mode_dst
@@ -1025,7 +1086,7 @@ L_TSI_SLOT:
     !missing
     copy_len = call @state_clamp_len(items_len, TURN_ITEMS_CAP)
     items_dst = ptr_add slot, TURN_ITEMS
-    copied = call @sa_bytes_copy(&items_dst, &items_ptr, copy_len)
+    copied = call @copy_bytes_into(&items_dst, &items_ptr, copy_len)
     store slot+TURN_ITEMS_LEN, copied as u64
     !copied
     !copy_len
@@ -1130,10 +1191,8 @@ L_TAI_COUNT_NEW:
 
 L_TAI_WRITER_NEW:
     !new_count_ok
-    writer_slot = stack_alloc 8
-    writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
-    writer = load writer_slot+0 as ptr
-    begin_status = call @sa_json_writer_begin_array(writer)
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_ARRAY begin_status, writer
     existing_count = load existing_count_slot+0 as u64
     new_count = load new_count_slot+0 as u64
     index_slot = stack_alloc 8
@@ -1216,12 +1275,14 @@ L_TAI_ADVANCE_NEW:
 L_TAI_FINISH_ARRAY:
     !new_done
     !new_index
-    end_status = call @sa_json_writer_end_array(writer)
+    EXPAND JSON_WRITER_END_ARRAY end_status, writer
     buffer_slot = stack_alloc 8
-    finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
+    final_ptr_slot = stack_alloc 8
+    final_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &final_ptr_slot, &final_len_slot)
     buffer = load buffer_slot+0 as ptr
-    final_ptr = call @sa_json_buffer_data(&buffer)
-    final_len = call @sa_json_buffer_len(&buffer)
+    final_ptr = load final_ptr_slot+0 as ptr
+    final_len = load final_len_slot+0 as u64
     overflow = ugt final_len, TURN_ITEMS_CAP
     br overflow -> L_TAI_TOO_LARGE, L_TAI_STORE_BUFFER
 
@@ -1230,17 +1291,15 @@ L_TAI_STORE_BUFFER:
     now_append_i = call @sa_time_unix_s()
     now_append_u = bitcast now_append_i as u64
     items_dst = ptr_add slot, TURN_ITEMS
-    copied = call @sa_bytes_copy(&items_dst, &final_ptr, final_len)
+    copied = call @copy_bytes_into(&items_dst, &final_ptr, final_len)
     store slot+TURN_ITEMS_LEN, copied as u64
     store slot+TURN_UPDATED, now_append_u as u64
-    buffer_free = call @sa_json_buffer_free(^buffer)
-    writer_free = call @sa_json_writer_free(^writer)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
     new_free = call @sa_json_free(^new_root)
     existing_free = call @sa_json_free(^existing_root)
     !existing_free
     !new_free
-    !writer_free
-    !buffer_free
+    !dispose_status
     !copied
     !items_dst
     !now_append_u
@@ -1265,14 +1324,12 @@ L_TAI_STORE_BUFFER:
 
 L_TAI_TOO_LARGE:
     !overflow
-    buffer_free_large = call @sa_json_buffer_free(^buffer)
-    writer_free_large = call @sa_json_writer_free(^writer)
+    dispose_status_large = call @json_writer_dispose_finished(buffer, writer)
     new_free_large = call @sa_json_free(^new_root)
     existing_free_large = call @sa_json_free(^existing_root)
     !existing_free_large
     !new_free_large
-    !writer_free_large
-    !buffer_free_large
+    !dispose_status_large
     !final_len
     !final_ptr
     !finish_status
@@ -1702,16 +1759,16 @@ L_GS_UPDATE:
     now_u3 = bitcast now_i3 as u64
     copy_len = call @state_clamp_len(obj_len, GOAL_OBJ_CAP)
     obj_dst = ptr_add slot, GOAL_OBJ
-    copied = call @sa_bytes_copy(&obj_dst, &obj_ptr, copy_len)
+    copied = call @copy_bytes_into(&obj_dst, &obj_ptr, copy_len)
     key_copy_len = call @state_clamp_len(key_len, GOAL_KEY_CAP)
     key_dst = ptr_add slot, GOAL_KEY
-    key_copied = call @sa_bytes_copy(&key_dst, &key_ptr, key_copy_len)
+    key_copied = call @copy_bytes_into(&key_dst, &key_ptr, key_copy_len)
     store slot+GOAL_KEY_LEN, key_copied as u64
     store slot+GOAL_ACTIVE, 1 as u8
     store slot+GOAL_STATUS, status as u8
     status_copy_len = call @state_clamp_len(status_len, GOAL_STATUS_CAP)
     status_dst = ptr_add slot, GOAL_STATUS_TEXT
-    status_copied = call @sa_bytes_copy(&status_dst, &status_ptr, status_copy_len)
+    status_copied = call @copy_bytes_into(&status_dst, &status_ptr, status_copy_len)
     store slot+GOAL_STATUS_LEN, status_copied as u64
     store slot+GOAL_BUDGET_NULL, budget_null as u8
     store slot+GOAL_BUDGET, budget as i64
@@ -1784,13 +1841,13 @@ L_GS_SLOT:
     store slot+GOAL_THR_ID, thread_id as u64
     key_copy_len2 = call @state_clamp_len(key_len, GOAL_KEY_CAP)
     key_dst2 = ptr_add slot, GOAL_KEY
-    key_copied2 = call @sa_bytes_copy(&key_dst2, &key_ptr, key_copy_len2)
+    key_copied2 = call @copy_bytes_into(&key_dst2, &key_ptr, key_copy_len2)
     store slot+GOAL_KEY_LEN, key_copied2 as u64
     store slot+GOAL_ACTIVE, 1 as u8
     store slot+GOAL_STATUS, status as u8
     status_copy_len2 = call @state_clamp_len(status_len, GOAL_STATUS_CAP)
     status_dst2 = ptr_add slot, GOAL_STATUS_TEXT
-    status_copied2 = call @sa_bytes_copy(&status_dst2, &status_ptr, status_copy_len2)
+    status_copied2 = call @copy_bytes_into(&status_dst2, &status_ptr, status_copy_len2)
     store slot+GOAL_STATUS_LEN, status_copied2 as u64
     store slot+GOAL_BUDGET_NULL, budget_null as u8
     store slot+GOAL_BUDGET, budget as i64
@@ -1799,7 +1856,7 @@ L_GS_SLOT:
     store slot+GOAL_UPDATED, now_u4 as u64
     copy_len2 = call @state_clamp_len(obj_len, GOAL_OBJ_CAP)
     obj_dst2 = ptr_add slot, GOAL_OBJ
-    copied2 = call @sa_bytes_copy(&obj_dst2, &obj_ptr, copy_len2)
+    copied2 = call @copy_bytes_into(&obj_dst2, &obj_ptr, copy_len2)
     store slot+GOAL_OBJ_LEN, copied2 as u64
     old_count = load state+ST_GOAL_COUNT as u64
     new_count = add old_count, 1
@@ -2258,7 +2315,7 @@ L_PP_CMP:
 L_PP_FOUND:
     !same
     copy_len = call @state_clamp_len(handle_len, PROC_HANDLE_CAP)
-    copied = call @sa_bytes_copy(&slot_handle, &handle_ptr, copy_len)
+    copied = call @copy_bytes_into(&slot_handle, &handle_ptr, copy_len)
     store slot+PROC_HANDLE_LEN, copied as u64
     !copied
     !copy_len
@@ -2283,7 +2340,7 @@ L_PP_FIND_NEXT_INACTIVE:
     !is_active
     copy_len_reuse = call @state_clamp_len(handle_len, PROC_HANDLE_CAP)
     handle_dst_reuse = ptr_add slot, PROC_HANDLE
-    copied_reuse = call @sa_bytes_copy(&handle_dst_reuse, &handle_ptr, copy_len_reuse)
+    copied_reuse = call @copy_bytes_into(&handle_dst_reuse, &handle_ptr, copy_len_reuse)
     store slot+PROC_ACTIVE, 1 as u8
     store slot+PROC_HANDLE_LEN, copied_reuse as u64
     !copied_reuse
@@ -2332,7 +2389,7 @@ L_PP_APPEND:
     slot2 = ptr_add state, slot_abs2
     copy_len2 = call @state_clamp_len(handle_len, PROC_HANDLE_CAP)
     handle_dst2 = ptr_add slot2, PROC_HANDLE
-    copied2 = call @sa_bytes_copy(&handle_dst2, &handle_ptr, copy_len2)
+    copied2 = call @copy_bytes_into(&handle_dst2, &handle_ptr, copy_len2)
     store slot2+PROC_ACTIVE, 1 as u8
     store slot2+PROC_HANDLE_LEN, copied2 as u64
     old_count = load state+ST_PROC_COUNT as u64
@@ -2458,7 +2515,7 @@ L_WP_CMP:
 L_WP_FOUND:
     !same
     copy_len = call @state_clamp_len(watch_len, WATCH_ID_CAP)
-    copied = call @sa_bytes_copy(&slot_watch, &watch_ptr, copy_len)
+    copied = call @copy_bytes_into(&slot_watch, &watch_ptr, copy_len)
     store slot+WATCH_ID_LEN, copied as u64
     !copied
     !copy_len
@@ -2483,7 +2540,7 @@ L_WP_FIND_NEXT_INACTIVE:
     !is_active
     copy_len_reuse = call @state_clamp_len(watch_len, WATCH_ID_CAP)
     watch_dst_reuse = ptr_add slot, WATCH_ID
-    copied_reuse = call @sa_bytes_copy(&watch_dst_reuse, &watch_ptr, copy_len_reuse)
+    copied_reuse = call @copy_bytes_into(&watch_dst_reuse, &watch_ptr, copy_len_reuse)
     store slot+WATCH_ACTIVE, 1 as u8
     store slot+WATCH_ID_LEN, copied_reuse as u64
     !copied_reuse
@@ -2532,7 +2589,7 @@ L_WP_APPEND:
     slot2 = ptr_add state, slot_abs2
     copy_len2 = call @state_clamp_len(watch_len, WATCH_ID_CAP)
     watch_dst2 = ptr_add slot2, WATCH_ID
-    copied2 = call @sa_bytes_copy(&watch_dst2, &watch_ptr, copy_len2)
+    copied2 = call @copy_bytes_into(&watch_dst2, &watch_ptr, copy_len2)
     store slot2+WATCH_ACTIVE, 1 as u8
     store slot2+WATCH_ID_LEN, copied2 as u64
     old_count = load state+ST_WATCH_COUNT as u64
@@ -2718,19 +2775,17 @@ L_NP_WRITE:
 L_ENTRY:
     writer_slot = stack_alloc 8
     buffer_slot = stack_alloc 8
-    writer_status = call @sa_json_writer_new(SA_JSON_WHITESPACE_MINIFIED, 1, 0, 0, 0, &writer_slot)
-    writer = load writer_slot+0 as ptr
-    begin_status = call @sa_json_writer_begin_object(writer)
-    method_status = call @sa_json_writer_field_string(writer, &WARN_KEY_METHOD, WARN_KEY_METHOD_LEN, &WARN_VALUE_WARNING, WARN_VALUE_WARNING_LEN)
-    params_field_status = call @sa_json_writer_object_field(writer, &WARN_KEY_PARAMS, WARN_KEY_PARAMS_LEN)
-    params_begin_status = call @sa_json_writer_begin_object(writer)
-    field_msg_status = call @sa_json_writer_field_string(writer, &WARN_KEY_MESSAGE, WARN_KEY_MESSAGE_LEN, &message_ptr, message_len)
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING method_status, writer, WARN_KEY_METHOD, WARN_KEY_METHOD_LEN, WARN_VALUE_WARNING, WARN_VALUE_WARNING_LEN
+    params_begin_status = call @json_writer_begin_field_object(writer, &WARN_KEY_PARAMS, WARN_KEY_PARAMS_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING field_msg_status, writer, WARN_KEY_MESSAGE, WARN_KEY_MESSAGE_LEN, message_ptr, message_len
     has_thread = ugt thread_len, 0
     br has_thread -> L_WARN_THREAD, L_WARN_NO_THREAD
 
 L_WARN_THREAD:
     !has_thread
-    field_thread_status = call @sa_json_writer_field_string(writer, &WARN_KEY_THREAD_ID, WARN_KEY_THREAD_ID_LEN, &thread_ptr, thread_len)
+    EXPAND JSON_WRITER_FIELD_STRING field_thread_status, writer, WARN_KEY_THREAD_ID, WARN_KEY_THREAD_ID_LEN, thread_ptr, thread_len
     !field_thread_status
     jmp L_WARN_END_OBJECT
 
@@ -2739,21 +2794,21 @@ L_WARN_NO_THREAD:
     jmp L_WARN_END_OBJECT
 
 L_WARN_END_OBJECT:
-    params_end_status = call @sa_json_writer_end_object(writer)
-    end_status = call @sa_json_writer_end_object(writer)
-    finish_status = call @sa_json_writer_finish(writer, &buffer_slot)
+    EXPAND JSON_WRITER_END_OBJECT params_end_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    frame_ptr_slot = stack_alloc 8
+    frame_len_slot_view = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &frame_ptr_slot, &frame_len_slot_view)
     buffer = load buffer_slot+0 as ptr
-    frame_ptr = call @sa_json_buffer_data(&buffer)
-    frame_len = call @sa_json_buffer_len(&buffer)
+    frame_ptr = load frame_ptr_slot+0 as ptr
+    frame_len = load frame_len_slot_view+0 as u64
     frame_len_slot = stack_alloc 8
-    frame = call @build_concat3_owned(&SSE_WARNING_PREFIX, SSE_WARNING_PREFIX_LEN, &frame_ptr, frame_len, &SSE_WARNING_SUFFIX, SSE_WARNING_SUFFIX_LEN, &frame_len_slot)
+    frame = call @sse_warning_frame_build(&frame_ptr, frame_len, &frame_len_slot)
     frame_len_total = load frame_len_slot+0 as u64
     push_status = call @state_notify_push(&state, &frame, frame_len_total)
-    buffer_free_status = call @sa_json_buffer_free(^buffer)
-    writer_free_status = call @sa_json_writer_free(^writer)
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
     !push_status
-    !buffer_free_status
-    !writer_free_status
+    !dispose_status
     !frame
     !frame_len_total
     !frame_ptr
@@ -2761,7 +2816,6 @@ L_WARN_END_OBJECT:
     !writer_status
     !begin_status
     !method_status
-    !params_field_status
     !params_begin_status
     !field_msg_status
     !params_end_status

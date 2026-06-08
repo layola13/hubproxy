@@ -9,6 +9,13 @@
 @extern build_concat3_owned(&left_ptr: ptr, left_len: u64, &mid_ptr: ptr, mid_len: u64, &right_ptr: ptr, right_len: u64, &out_len: ptr) -> ^ptr
 @extern build_concat4_owned(&a_ptr: ptr, a_len: u64, &b_ptr: ptr, b_len: u64, &c_ptr: ptr, c_len: u64, &d_ptr: ptr, d_len: u64, &out_len: ptr) -> ^ptr
 @extern build_concat5_owned(&a_ptr: ptr, a_len: u64, &b_ptr: ptr, b_len: u64, &c_ptr: ptr, c_len: u64, &d_ptr: ptr, d_len: u64, &e_ptr: ptr, e_len: u64, &out_len: ptr) -> ^ptr
+@extern build_concat6_owned(&a_ptr: ptr, a_len: u64, &b_ptr: ptr, b_len: u64, &c_ptr: ptr, c_len: u64, &d_ptr: ptr, d_len: u64, &e_ptr: ptr, e_len: u64, &f_ptr: ptr, f_len: u64, &out_len: ptr) -> ^ptr
+@extern token_preview_owned(&prefix_ptr: ptr, prefix_len: u64, &suffix_ptr: ptr, suffix_len: u64, token_len: u64, &mid_a_ptr: ptr, mid_a_len: u64, &mid_b_ptr: ptr, mid_b_len: u64, &ellipsis_ptr: ptr, ellipsis_len: u64, &out_len: ptr) -> ^ptr
+@extern prefix_with_owned(&prefix_ptr: ptr, prefix_len: u64, &value_ptr: ptr, value_len: u64, &out_len: ptr) -> ^ptr
+@extern namespace_tool_name_owned(&prefix_ptr: ptr, prefix_len: u64, &value_ptr: ptr, value_len: u64, &out_len: ptr) -> ^ptr
+@extern path_join_owned(&base_ptr: ptr, base_len: u64, &child_ptr: ptr, child_len: u64, &out_len: ptr) -> ^ptr
+@extern http_url_owned(&host_ptr: ptr, host_len: u64, port_u64: u64, &suffix_ptr: ptr, suffix_len: u64, &out_len: ptr) -> ^ptr
 @extern bytes_to_owned(&src: ptr, src_len: u64, &out_len: ptr) -> ^ptr
+@extern u64_to_owned(value: u64, &out_len: ptr) -> ^ptr
 @extern json_buffer_to_owned(buffer: ptr, &out_len: ptr) -> ^ptr
 @extern sa_bytes_to_u64(&buf: ptr, buf_len: u64) -> i64

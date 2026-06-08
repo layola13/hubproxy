@@ -2,7 +2,16 @@
 @import "strings.sai"
 @import "sa_std/fmt.sai"
 @import "sa_std/string.sai"
+@import "sa_std/path.sa"
 @import "sa_std/encoding/json.sai"
+
+@const STRINGS_HTTP_PREFIX = utf8:"http://"
+@const STRINGS_HTTP_COLON = utf8:":"
+@const STRINGS_DUNDER = utf8:"__"
+
+#def STRINGS_HTTP_PREFIX_LEN = 7
+#def STRINGS_HTTP_COLON_LEN = 1
+#def STRINGS_DUNDER_LEN = 2
 
 // sa_bytes_eq(a_ptr, a_len, b_ptr, b_len) -> u8
 // Returns 1 if byte sequences are equal, 0 otherwise.
@@ -311,6 +320,205 @@ L_ENTRY:
     !d_len
     !e_ptr
     !e_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper build_concat6_owned(&a_ptr: ptr, a_len: u64, &b_ptr: ptr, b_len: u64, &c_ptr: ptr, c_len: u64, &d_ptr: ptr, d_len: u64, &e_ptr: ptr, e_len: u64, &f_ptr: ptr, f_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    abcde_len_slot = stack_alloc 8
+    abcde = call @build_concat5_owned(&a_ptr, a_len, &b_ptr, b_len, &c_ptr, c_len, &d_ptr, d_len, &e_ptr, e_len, &abcde_len_slot)
+    abcde_len = load abcde_len_slot+0 as u64
+    out_ptr = call @build_concat_owned(&abcde, abcde_len, &f_ptr, f_len, &out_len)
+    !abcde
+    !abcde_len
+    !a_ptr
+    !a_len
+    !b_ptr
+    !b_len
+    !c_ptr
+    !c_len
+    !d_ptr
+    !d_len
+    !e_ptr
+    !e_len
+    !f_ptr
+    !f_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper token_preview_owned(&prefix_ptr: ptr, prefix_len: u64, &suffix_ptr: ptr, suffix_len: u64, token_len: u64, &mid_a_ptr: ptr, mid_a_len: u64, &mid_b_ptr: ptr, mid_b_len: u64, &ellipsis_ptr: ptr, ellipsis_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    len_text_len_slot = stack_alloc 8
+    len_text_ptr = call @u64_to_owned(token_len, &len_text_len_slot)
+    len_text_len = load len_text_len_slot+0 as u64
+    out_ptr = call @build_concat6_owned(&prefix_ptr, prefix_len, &ellipsis_ptr, ellipsis_len, &suffix_ptr, suffix_len, &mid_a_ptr, mid_a_len, &len_text_ptr, len_text_len, &mid_b_ptr, mid_b_len, &out_len)
+    !len_text_ptr
+    !len_text_len
+    !prefix_ptr
+    !prefix_len
+    !suffix_ptr
+    !suffix_len
+    !token_len
+    !mid_a_ptr
+    !mid_a_len
+    !mid_b_ptr
+    !mid_b_len
+    !ellipsis_ptr
+    !ellipsis_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper prefix_with_owned(&prefix_ptr: ptr, prefix_len: u64, &value_ptr: ptr, value_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out_ptr = call @build_concat_owned(&prefix_ptr, prefix_len, &value_ptr, value_len, &out_len)
+    !prefix_ptr
+    !prefix_len
+    !value_ptr
+    !value_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper namespace_tool_name_owned(&prefix_ptr: ptr, prefix_len: u64, &value_ptr: ptr, value_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    has_prefix = ugt prefix_len, 0
+    br has_prefix -> L_NAMESPACE_TOOL_HAS_PREFIX, L_NAMESPACE_TOOL_NO_PREFIX
+
+L_NAMESPACE_TOOL_NO_PREFIX:
+    !has_prefix
+    out_ptr_no_prefix = call @bytes_to_owned(&value_ptr, value_len, &out_len)
+    !prefix_ptr
+    !prefix_len
+    !value_ptr
+    !value_len
+    !out_len
+    return out_ptr_no_prefix
+
+L_NAMESPACE_TOOL_HAS_PREFIX:
+    !has_prefix
+    can_suffix = uge prefix_len, STRINGS_DUNDER_LEN
+    br can_suffix -> L_NAMESPACE_TOOL_SUFFIX_CHECK, L_NAMESPACE_TOOL_BUILD_DUNDER_SHORT
+
+L_NAMESPACE_TOOL_SUFFIX_CHECK:
+    !can_suffix
+    suffix_off = sub prefix_len, STRINGS_DUNDER_LEN
+    suffix_ptr = ptr_add prefix_ptr, suffix_off
+    suffix_eq = call @sa_bytes_eq(&suffix_ptr, STRINGS_DUNDER_LEN, &STRINGS_DUNDER, STRINGS_DUNDER_LEN)
+    has_dunder_suffix = eq suffix_eq, 1
+    !suffix_eq
+    br has_dunder_suffix -> L_NAMESPACE_TOOL_KEEP_PREFIX, L_NAMESPACE_TOOL_BUILD_DUNDER_LONG
+
+L_NAMESPACE_TOOL_KEEP_PREFIX:
+    !has_dunder_suffix
+    out_ptr_keep = call @build_concat_owned(&prefix_ptr, prefix_len, &value_ptr, value_len, &out_len)
+    !suffix_ptr
+    !suffix_off
+    !prefix_ptr
+    !prefix_len
+    !value_ptr
+    !value_len
+    !out_len
+    return out_ptr_keep
+
+L_NAMESPACE_TOOL_BUILD_DUNDER_LONG:
+    !has_dunder_suffix
+    !suffix_ptr
+    !suffix_off
+    out_ptr_long = call @build_concat3_owned(&prefix_ptr, prefix_len, &STRINGS_DUNDER, STRINGS_DUNDER_LEN, &value_ptr, value_len, &out_len)
+    !prefix_ptr
+    !prefix_len
+    !value_ptr
+    !value_len
+    !out_len
+    return out_ptr_long
+
+L_NAMESPACE_TOOL_BUILD_DUNDER_SHORT:
+    !can_suffix
+    out_ptr_short = call @build_concat3_owned(&prefix_ptr, prefix_len, &STRINGS_DUNDER, STRINGS_DUNDER_LEN, &value_ptr, value_len, &out_len)
+    !prefix_ptr
+    !prefix_len
+    !value_ptr
+    !value_len
+    !out_len
+    return out_ptr_short
+
+@ffi_wrapper path_join_owned(&base_ptr: ptr, base_len: u64, &child_ptr: ptr, child_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    base_slice = alloc Slice_SIZE
+    child_slice = alloc Slice_SIZE
+    EXPAND SLICE_NEW base_slice, base_ptr, base_len
+    child_has_bytes = ugt child_len, 0
+    br child_has_bytes -> L_PATH_JOIN_CHILD_CHECK, L_PATH_JOIN_CHILD_KEEP
+
+L_PATH_JOIN_CHILD_CHECK:
+    !child_has_bytes
+    child_first = load child_ptr+0 as u8
+    child_is_abs = eq child_first, 47
+    br child_is_abs -> L_PATH_JOIN_CHILD_STRIP, L_PATH_JOIN_CHILD_KEEP_FROM_CHECK
+
+L_PATH_JOIN_CHILD_STRIP:
+    !child_is_abs
+    rel_child_ptr = ptr_add child_ptr, 1
+    rel_child_len = sub child_len, 1
+    EXPAND SLICE_NEW child_slice, rel_child_ptr, rel_child_len
+    !rel_child_ptr
+    !rel_child_len
+    !child_first
+    jmp L_PATH_JOIN_HAVE_CHILD
+
+L_PATH_JOIN_CHILD_KEEP_FROM_CHECK:
+    !child_is_abs
+    !child_first
+    EXPAND SLICE_NEW child_slice, child_ptr, child_len
+    jmp L_PATH_JOIN_HAVE_CHILD
+
+L_PATH_JOIN_CHILD_KEEP:
+    !child_has_bytes
+    EXPAND SLICE_NEW child_slice, child_ptr, child_len
+    jmp L_PATH_JOIN_HAVE_CHILD
+
+L_PATH_JOIN_HAVE_CHILD:
+    EXPAND PATH_JOIN joined_slice, base_slice, child_slice
+    joined_ptr = load joined_slice+Slice_ptr as ptr
+    joined_len = load joined_slice+Slice_len as u64
+    out_ptr = call @bytes_to_owned(&joined_ptr, joined_len, &out_len)
+    !joined_ptr
+    !joined_len
+    !joined_slice
+    !child_slice
+    !base_slice
+    !base_ptr
+    !base_len
+    !child_ptr
+    !child_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper http_url_owned(&host_ptr: ptr, host_len: u64, port_u64: u64, &suffix_ptr: ptr, suffix_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    port_len_slot = stack_alloc 8
+    port_ptr = call @u64_to_owned(port_u64, &port_len_slot)
+    port_len = load port_len_slot+0 as u64
+    out_ptr = call @build_concat5_owned(&STRINGS_HTTP_PREFIX, STRINGS_HTTP_PREFIX_LEN, &host_ptr, host_len, &STRINGS_HTTP_COLON, STRINGS_HTTP_COLON_LEN, &port_ptr, port_len, &suffix_ptr, suffix_len, &out_len)
+    !port_len
+    !port_ptr
+    !host_ptr
+    !host_len
+    !port_u64
+    !suffix_ptr
+    !suffix_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper u64_to_owned(value: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    tmp = stack_alloc 32
+    len_slot = stack_alloc 8
+    fmt_status = call @sa_fmt_u64_into(value, 10, tmp, 32, &len_slot)
+    text_len = load len_slot+0 as u64
+    out_ptr = call @bytes_to_owned(&tmp, text_len, &out_len)
+    !fmt_status
+    !text_len
+    !value
     !out_len
     return out_ptr
 
