@@ -16,12 +16,22 @@
 @const HTTPD_TOTAL_TOK = utf8:"total_tokens"
 @const HTTPD_HDR_AUTH = utf8:"authorization"
 @const HTTPD_HDR_X_API_KEY = utf8:"x-api-key"
+@const HTTPD_HDR_API_KEY = utf8:"api-key"
+@const HTTPD_HDR_CONTENT_LENGTH = utf8:"content-length"
+@const HTTPD_HDR_CONNECTION = utf8:"connection"
+@const HTTPD_HDR_HOST = utf8:"host"
 @const HTTPD_BEARER_PREFIX = utf8:"Bearer "
 @const HTTPD_LOG_AUTH_OK = utf8:"[hubproxy] Auth OK\n"
 @const HTTPD_LOG_AUTH_FAIL = utf8:"[hubproxy] Auth FAILED\n"
 @const HTTPD_HDR_CONTENT_TYPE = utf8:"content-type"
-@const HTTPD_LOG_FILE_AUTH_SUFFIX = utf8:"/request-sa-auth.json"
-@const HTTPD_LOG_FILE_REQ_SUFFIX = utf8:"/request-sa-api.json"
+@const HTTPD_HDR_OPENAI_ORG = utf8:"openai-organization"
+@const HTTPD_HDR_OPENAI_PROJECT = utf8:"openai-project"
+@const HTTPD_HDR_X_REQUEST_ID = utf8:"x-request-id"
+@const HTTPD_HDR_USER_AGENT = utf8:"user-agent"
+@const HTTPD_HDR_ACCEPT_LANGUAGE = utf8:"accept-language"
+@const HTTPD_LOG_FILE_PREFIX = utf8:"request-"
+@const HTTPD_LOG_FILE_SUFFIX = utf8:".json"
+@const HTTPD_LOG_FILE_DASH = utf8:"-"
 @const HTTPD_LOG_PREVIEW_NONE = utf8:"none"
 @const HTTPD_LOG_PREVIEW_ELLIPSIS = utf8:"..."
 @const HTTPD_LOG_PREVIEW_LEN_A = utf8:" (len="
@@ -31,26 +41,31 @@
 @const HTTPD_JSON_KEY_PATH = utf8:"path"
 @const HTTPD_JSON_KEY_AUTHORIZATION = utf8:"authorization"
 @const HTTPD_JSON_KEY_EXPECTED_AUTH = utf8:"expectedAuth"
+@const HTTPD_JSON_KEY_X_API_KEY_CAMEL = utf8:"xApiKey"
 @const HTTPD_JSON_KEY_HEADERS = utf8:"headers"
 @const HTTPD_JSON_KEY_METHOD = utf8:"method"
 @const HTTPD_JSON_KEY_X_API_KEY = utf8:"x-api-key"
 @const HTTPD_JSON_KEY_CONTENT_TYPE = utf8:"content-type"
+@const HTTPD_JSON_KEY_FORWARDED = utf8:"forwarded"
+@const HTTPD_JSON_KEY_DROPPED = utf8:"dropped"
 @const HTTPD_JSON_KEY_BODY_BYTES = utf8:"bodyBytes"
 @const HTTPD_JSON_KEY_BODY = utf8:"body"
+@const HTTPD_JSON_KEY_RAW_BODY_BYTES = utf8:"rawBodyBytes"
+@const HTTPD_JSON_KEY_RAW_BODY = utf8:"rawBody"
 @const HTTPD_JSON_VALUE_AUTH_FAILURE = utf8:"auth_failure"
 @const HTTPD_JSON_VALUE_REQUEST_LOG = utf8:"request-log"
-@const HTTPD_LOG_MODELS = utf8:"[hubproxy] Proxy → /v1/models\n"
+@const HTTPD_LOG_MODELS = utf8:"[hubproxy] Proxy -> /v1/models\n"
 @const HTTPD_UP_MODELS_SUFFIX = utf8:"/models"
 @const HTTPD_MIME_JSON = utf8:"application/json"
 @const HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION = utf8:"missing upstream configuration"
 @const HTTPD_JSON_VALUE_BAD_GATEWAY = utf8:"bad gateway"
-@const HTTPD_LOG_CHAT = utf8:"[hubproxy] Proxy → /v1/chat/completions\n"
+@const HTTPD_LOG_CHAT = utf8:"[hubproxy] Proxy -> /v1/chat/completions\n"
 @const HTTPD_LOG_STREAM = utf8:"[hubproxy] Streaming response...\n"
 @const HTTPD_LOG_DONE = utf8:"[hubproxy] Stream complete\n"
 @const HTTPD_LOG_TOK = utf8:"[hubproxy] Tokens used: \n"
 @const HTTPD_UP_CHAT_SUFFIX = utf8:"/chat/completions"
 @const HTTPD_MIME_EVENT_STREAM = utf8:"text/event-stream"
-@const HTTPD_LOG_RESP = utf8:"[hubproxy] Proxy → /v1/responses\n"
+@const HTTPD_LOG_RESP = utf8:"[hubproxy] Proxy -> /v1/responses\n"
 @const HTTPD_LOG_RESP_BODY = utf8:"[hubproxy] responses body loaded\n"
 @const HTTPD_LOG_RESP_PROXY_BUILT = utf8:"[hubproxy] responses proxy body built\n"
 @const HTTPD_LOG_RESP_PROXY_NORMALIZED = utf8:"[hubproxy] responses proxy body normalized\n"
@@ -76,12 +91,22 @@
 #def HTTPD_TOTAL_TOK_LEN = 12
 #def HTTPD_HDR_AUTH_LEN = 13
 #def HTTPD_HDR_X_API_KEY_LEN = 9
+#def HTTPD_HDR_API_KEY_LEN = 7
+#def HTTPD_HDR_CONTENT_LENGTH_LEN = 14
+#def HTTPD_HDR_CONNECTION_LEN = 10
+#def HTTPD_HDR_HOST_LEN = 4
 #def HTTPD_BEARER_PREFIX_LEN = 7
 #def HTTPD_LOG_AUTH_OK_LEN = 19
 #def HTTPD_LOG_AUTH_FAIL_LEN = 23
 #def HTTPD_HDR_CONTENT_TYPE_LEN = 12
-#def HTTPD_LOG_FILE_AUTH_SUFFIX_LEN = 21
-#def HTTPD_LOG_FILE_REQ_SUFFIX_LEN = 20
+#def HTTPD_HDR_OPENAI_ORG_LEN = 19
+#def HTTPD_HDR_OPENAI_PROJECT_LEN = 14
+#def HTTPD_HDR_X_REQUEST_ID_LEN = 12
+#def HTTPD_HDR_USER_AGENT_LEN = 10
+#def HTTPD_HDR_ACCEPT_LANGUAGE_LEN = 15
+#def HTTPD_LOG_FILE_PREFIX_LEN = 8
+#def HTTPD_LOG_FILE_SUFFIX_LEN = 5
+#def HTTPD_LOG_FILE_DASH_LEN = 1
 #def HTTPD_LOG_PREVIEW_NONE_LEN = 4
 #def HTTPD_LOG_PREVIEW_ELLIPSIS_LEN = 3
 #def HTTPD_LOG_PREVIEW_LEN_A_LEN = 6
@@ -90,33 +115,41 @@
 #def HTTPD_JSON_KEY_PATH_LEN = 4
 #def HTTPD_JSON_KEY_AUTHORIZATION_LEN = 13
 #def HTTPD_JSON_KEY_EXPECTED_AUTH_LEN = 12
+#def HTTPD_JSON_KEY_X_API_KEY_CAMEL_LEN = 7
 #def HTTPD_JSON_KEY_HEADERS_LEN = 7
 #def HTTPD_JSON_KEY_METHOD_LEN = 6
 #def HTTPD_JSON_KEY_X_API_KEY_LEN = 9
 #def HTTPD_JSON_KEY_CONTENT_TYPE_LEN = 12
+#def HTTPD_JSON_KEY_FORWARDED_LEN = 9
+#def HTTPD_JSON_KEY_DROPPED_LEN = 7
 #def HTTPD_JSON_KEY_BODY_BYTES_LEN = 9
 #def HTTPD_JSON_KEY_BODY_LEN = 4
+#def HTTPD_JSON_KEY_RAW_BODY_BYTES_LEN = 12
+#def HTTPD_JSON_KEY_RAW_BODY_LEN = 7
 #def HTTPD_JSON_VALUE_AUTH_FAILURE_LEN = 12
 #def HTTPD_JSON_VALUE_REQUEST_LOG_LEN = 11
-#def HTTPD_LOG_MODELS_LEN = 32
+#def HTTPD_LOG_MODELS_LEN = 31
 #def HTTPD_UP_MODELS_SUFFIX_LEN = 7
 #def HTTPD_MIME_JSON_LEN = 16
 #def HTTPD_JSON_VALUE_MISSING_UPSTREAM_CONFIGURATION_LEN = 30
 #def HTTPD_JSON_VALUE_BAD_GATEWAY_LEN = 11
-#def HTTPD_LOG_CHAT_LEN = 42
+#def HTTPD_LOG_CHAT_LEN = 41
 #def HTTPD_LOG_STREAM_LEN = 33
 #def HTTPD_LOG_DONE_LEN = 27
 #def HTTPD_LOG_TOK_LEN = 25
 #def HTTPD_UP_CHAT_SUFFIX_LEN = 17
 #def HTTPD_MIME_EVENT_STREAM_LEN = 17
 #def HTTPD_SSE_BUF_SIZE = 8192
-#def HTTPD_LOG_RESP_LEN = 35
+#def HTTPD_LOG_RESP_LEN = 34
 #def HTTPD_LOG_RESP_BODY_LEN = 32
 #def HTTPD_LOG_RESP_PROXY_BUILT_LEN = 38
 #def HTTPD_LOG_RESP_PROXY_NORMALIZED_LEN = 43
 #def HTTPD_UP_RESP_SUFFIX_LEN = 10
 #def HTTPD_J_NULL_LEN = 4
 #def HTTPD_JSON_VALUE_BAD_REQUEST_LEN = 11
+#def HTTPD_UPSTREAM_ROUTE_MODELS = 1
+#def HTTPD_UPSTREAM_ROUTE_CHAT = 2
+#def HTTPD_UPSTREAM_ROUTE_RESPONSES = 3
 #def HTTPD_ROUTE_HEALTH_LEN = 8
 #def HTTPD_ROUTE_READY_LEN = 7
 #def HTTPD_ROUTE_CHAT_LEN = 20
@@ -152,19 +185,27 @@ L_BODY_BLANK_CHECK:
     is_lf = eq ch, 10
     is_cr = eq ch, 13
     is_tab = eq ch, 9
+    is_vtab = eq ch, 11
+    is_ff = eq ch, 12
     ws_a = or is_space, is_lf
     ws_b = or is_cr, is_tab
-    is_ws = or ws_a, ws_b
+    ws_c = or is_vtab, is_ff
+    ws_ab = or ws_a, ws_b
+    is_ws = or ws_ab, ws_c
     br is_ws -> L_BODY_BLANK_NEXT, L_BODY_BLANK_NO
 
 L_BODY_BLANK_NEXT:
     !is_ws
     !ws_a
     !ws_b
+    !ws_c
+    !ws_ab
     !is_space
     !is_lf
     !is_cr
     !is_tab
+    !is_vtab
+    !is_ff
     !ch
     !ch_ptr
     next = add i, 1
@@ -177,10 +218,14 @@ L_BODY_BLANK_NO:
     !is_ws
     !ws_a
     !ws_b
+    !ws_c
+    !ws_ab
     !is_space
     !is_lf
     !is_cr
     !is_tab
+    !is_vtab
+    !is_ff
     !ch
     !ch_ptr
     !i
@@ -194,6 +239,84 @@ L_BODY_BLANK_YES:
     !body
     !body_len
     return 1
+
+@ffi_wrapper route_is_public_models_get(&path_ptr: ptr, path_len: u64, is_get: u8) -> u8:
+L_ENTRY:
+    models_raw = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_MODELS, HTTPD_ROUTE_MODELS_LEN)
+    is_models = eq models_raw, 1
+    models_get = and is_models, is_get
+    !models_raw
+    !is_models
+    br models_get -> L_ROUTE_PUBLIC_MODELS_YES, L_ROUTE_PUBLIC_MODELS_NO
+
+L_ROUTE_PUBLIC_MODELS_YES:
+    !models_get
+    !path_ptr
+    !path_len
+    !is_get
+    return 1
+
+L_ROUTE_PUBLIC_MODELS_NO:
+    !models_get
+    !path_ptr
+    !path_len
+    !is_get
+    return 0
+
+@ffi_wrapper auth_header_matches_token(&hdr_ptr: ptr, hdr_len: u64, &token_ptr: ptr, token_len: u64) -> u8:
+L_ENTRY:
+    enough_len = uge hdr_len, HTTPD_BEARER_PREFIX_LEN
+    br enough_len -> L_AUTH_HDR_PREFIX_CMP, L_AUTH_HDR_FAIL_SHORT
+
+L_AUTH_HDR_FAIL_SHORT:
+    !enough_len
+    !hdr_ptr
+    !hdr_len
+    !token_ptr
+    !token_len
+    return 0
+
+L_AUTH_HDR_PREFIX_CMP:
+    !enough_len
+    prefix_match = call @sa_bytes_eq(&hdr_ptr, HTTPD_BEARER_PREFIX_LEN, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
+    has_prefix = eq prefix_match, 1
+    !prefix_match
+    br has_prefix -> L_AUTH_HDR_TOKEN_CMP, L_AUTH_HDR_FAIL_PREFIX
+
+L_AUTH_HDR_FAIL_PREFIX:
+    !has_prefix
+    !hdr_ptr
+    !hdr_len
+    !token_ptr
+    !token_len
+    return 0
+
+L_AUTH_HDR_TOKEN_CMP:
+    !has_prefix
+    auth_ptr = ptr_add hdr_ptr, HTTPD_BEARER_PREFIX_LEN
+    auth_len = sub hdr_len, HTTPD_BEARER_PREFIX_LEN
+    match = call @sa_bytes_eq(&auth_ptr, auth_len, &token_ptr, token_len)
+    is_match = eq match, 1
+    !match
+    !auth_ptr
+    !auth_len
+    br is_match -> L_AUTH_HDR_OK, L_AUTH_HDR_FAIL_TOKEN
+
+L_AUTH_HDR_OK:
+    !is_match
+    !hdr_ptr
+    !hdr_len
+    !token_ptr
+    !token_len
+    return 1
+
+L_AUTH_HDR_FAIL_TOKEN:
+    !is_match
+    !hdr_ptr
+    !hdr_len
+    !token_ptr
+    !token_len
+    return 0
 
 @ffi_wrapper check_auth(&req: ptr, &token_ptr: ptr, token_len: u64) -> u8:
 L_ENTRY:
@@ -224,6 +347,12 @@ L_AUTH_TRY_XKEY:
     !hdr_status
     !hdr_ptr
     !hdr_len
+    jmp L_AUTH_XKEY_FETCH
+
+L_AUTH_TRY_XKEY_AFTER_HDR:
+    jmp L_AUTH_XKEY_FETCH
+
+L_AUTH_XKEY_FETCH:
     store hdr_val_slot+0, 0 as ptr
     store hdr_len_slot+0, 0 as u64
     xkey_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &hdr_val_slot, &hdr_len_slot)
@@ -245,36 +374,13 @@ L_AUTH_XKEY_CMP:
 L_AUTH_HDR_PREP:
     !has_hdr
     !hdr_status
-    bearer_idx = call @sa_bytes_find(&hdr_ptr, hdr_len, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
-    has_bearer = sge bearer_idx, 0
-    br has_bearer -> L_AUTH_STRIP, L_AUTH_RAW
-
-L_AUTH_STRIP:
-    !has_bearer
-    !bearer_idx
-    auth_ptr = ptr_add hdr_ptr, HTTPD_BEARER_PREFIX_LEN
-    auth_len = sub hdr_len, HTTPD_BEARER_PREFIX_LEN
-    jmp L_AUTH_DO_CMP
-
-L_AUTH_RAW:
-    !has_bearer
-    !bearer_idx
-    auth_ptr = ptr_add hdr_ptr, 0
-    auth_len = add hdr_len, 0
-    jmp L_AUTH_DO_CMP
-
-L_AUTH_DO_CMP:
-    match = call @sa_bytes_eq(&auth_ptr, auth_len, &token_ptr, token_len)
-    is_match = eq match, 1
-    !match
-    !auth_ptr
-    !auth_len
-    !hdr_ptr
-    !hdr_len
-    br is_match -> L_AUTH_OK_HDR, L_AUTH_FAIL_HDR
+    auth_header_ok = call @auth_header_matches_token(&hdr_ptr, hdr_len, &token_ptr, token_len)
+    br auth_header_ok -> L_AUTH_OK_HDR, L_AUTH_FAIL_HDR
 
 L_AUTH_OK_HDR:
-    !is_match
+    !auth_header_ok
+    !hdr_ptr
+    !hdr_len
     call @sa_print_bytes(&HTTPD_LOG_AUTH_OK, HTTPD_LOG_AUTH_OK_LEN)
     !req
     !token_ptr
@@ -282,12 +388,10 @@ L_AUTH_OK_HDR:
     return 1
 
 L_AUTH_FAIL_HDR:
-    !is_match
-    call @sa_print_bytes(&HTTPD_LOG_AUTH_FAIL, HTTPD_LOG_AUTH_FAIL_LEN)
-    !req
-    !token_ptr
-    !token_len
-    return 0
+    !auth_header_ok
+    !hdr_ptr
+    !hdr_len
+    jmp L_AUTH_TRY_XKEY_AFTER_HDR
 
 L_AUTH_OK_XKEY:
     !xkey_ok
@@ -404,77 +508,484 @@ L_TOK_NO_COMMA:
     !buf
     !len
     return 0
-@ffi_wrapper json_writer_field_token_preview(writer: ptr, &key: ptr, key_len: u64, &token_ptr: ptr, token_len: u64) -> u32:
+@ffi_wrapper token_preview_value_owned(&token_ptr: ptr, token_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
     no_token = eq token_len, 0
-    br no_token -> L_JW_LOG_TOKEN_NONE, L_JW_LOG_TOKEN_PREP
+    br no_token -> L_TOKEN_PREVIEW_NONE, L_TOKEN_PREVIEW_PREP
 
-L_JW_LOG_TOKEN_NONE:
+L_TOKEN_PREVIEW_NONE:
     !no_token
-    EXPAND JSON_WRITER_FIELD_STRING field_none, writer, key, key_len, HTTPD_LOG_PREVIEW_NONE, HTTPD_LOG_PREVIEW_NONE_LEN
-    !field_none
-    !writer
-    !key
-    !key_len
+    none_out = call @bytes_to_owned(&HTTPD_LOG_PREVIEW_NONE, HTTPD_LOG_PREVIEW_NONE_LEN, &out_len)
     !token_ptr
     !token_len
-    return 0
+    !out_len
+    return none_out
 
-L_JW_LOG_TOKEN_PREP:
+L_TOKEN_PREVIEW_PREP:
     !no_token
     prefix_len = add token_len, 0
     prefix_big = ugt prefix_len, 3
-    br prefix_big -> L_JW_LOG_PREFIX_THREE, L_JW_LOG_PREFIX_KEEP
+    br prefix_big -> L_TOKEN_PREVIEW_PREFIX_THREE, L_TOKEN_PREVIEW_PREFIX_KEEP
 
-L_JW_LOG_PREFIX_THREE:
+L_TOKEN_PREVIEW_PREFIX_THREE:
     !prefix_big
     !prefix_len
     prefix_len2 = add 3, 0
-    jmp L_JW_LOG_SUFFIX_PREP
+    jmp L_TOKEN_PREVIEW_SUFFIX_PREP
 
-L_JW_LOG_PREFIX_KEEP:
+L_TOKEN_PREVIEW_PREFIX_KEEP:
     !prefix_big
     prefix_len2 = add prefix_len, 0
     !prefix_len
-    jmp L_JW_LOG_SUFFIX_PREP
+    jmp L_TOKEN_PREVIEW_SUFFIX_PREP
 
-L_JW_LOG_SUFFIX_PREP:
+L_TOKEN_PREVIEW_SUFFIX_PREP:
     suffix_len = add token_len, 0
     suffix_big = ugt suffix_len, 3
-    br suffix_big -> L_JW_LOG_SUFFIX_THREE, L_JW_LOG_SUFFIX_KEEP
+    br suffix_big -> L_TOKEN_PREVIEW_SUFFIX_THREE, L_TOKEN_PREVIEW_SUFFIX_KEEP
 
-L_JW_LOG_SUFFIX_THREE:
+L_TOKEN_PREVIEW_SUFFIX_THREE:
     !suffix_big
     !suffix_len
     suffix_len2 = add 3, 0
-    jmp L_JW_LOG_BUILD
+    jmp L_TOKEN_PREVIEW_BUILD
 
-L_JW_LOG_SUFFIX_KEEP:
+L_TOKEN_PREVIEW_SUFFIX_KEEP:
     !suffix_big
     suffix_len2 = add suffix_len, 0
     !suffix_len
-    jmp L_JW_LOG_BUILD
+    jmp L_TOKEN_PREVIEW_BUILD
 
-L_JW_LOG_BUILD:
+L_TOKEN_PREVIEW_BUILD:
     suffix_start = sub token_len, suffix_len2
     suffix_ptr = ptr_add token_ptr, suffix_start
+    preview_final = call @token_preview_owned(&token_ptr, prefix_len2, &suffix_ptr, suffix_len2, token_len, &HTTPD_LOG_PREVIEW_LEN_A, HTTPD_LOG_PREVIEW_LEN_A_LEN, &HTTPD_LOG_PREVIEW_LEN_B, HTTPD_LOG_PREVIEW_LEN_B_LEN, &HTTPD_LOG_PREVIEW_ELLIPSIS, HTTPD_LOG_PREVIEW_ELLIPSIS_LEN, &out_len)
+    !suffix_ptr
+    !suffix_start
+    !suffix_len2
+    !prefix_len2
+    !token_ptr
+    !token_len
+    !out_len
+    return preview_final
+
+@ffi_wrapper build_upstream_auth_header_owned(&api_key_ptr: ptr, api_key_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out_ptr = call @prefix_with_owned(&HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN, &api_key_ptr, api_key_len, &out_len)
+    !api_key_ptr
+    !api_key_len
+    !out_len
+    return out_ptr
+
+@ffi_wrapper build_upstream_url_owned(&base_ptr: ptr, base_len: u64, route_kind: u32, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    is_models = eq route_kind, HTTPD_UPSTREAM_ROUTE_MODELS
+    br is_models -> L_UPSTREAM_URL_MODELS, L_UPSTREAM_URL_CHECK_CHAT
+
+L_UPSTREAM_URL_MODELS:
+    !is_models
+    out_models = call @path_join_owned(&base_ptr, base_len, &HTTPD_UP_MODELS_SUFFIX, HTTPD_UP_MODELS_SUFFIX_LEN, &out_len)
+    !base_ptr
+    !base_len
+    !route_kind
+    !out_len
+    return out_models
+
+L_UPSTREAM_URL_CHECK_CHAT:
+    !is_models
+    is_chat = eq route_kind, HTTPD_UPSTREAM_ROUTE_CHAT
+    br is_chat -> L_UPSTREAM_URL_CHAT, L_UPSTREAM_URL_CHECK_RESPONSES
+
+L_UPSTREAM_URL_CHAT:
+    !is_chat
+    out_chat = call @path_join_owned(&base_ptr, base_len, &HTTPD_UP_CHAT_SUFFIX, HTTPD_UP_CHAT_SUFFIX_LEN, &out_len)
+    !base_ptr
+    !base_len
+    !route_kind
+    !out_len
+    return out_chat
+
+L_UPSTREAM_URL_CHECK_RESPONSES:
+    !is_chat
+    is_responses = eq route_kind, HTTPD_UPSTREAM_ROUTE_RESPONSES
+    br is_responses -> L_UPSTREAM_URL_RESPONSES, L_UPSTREAM_URL_UNKNOWN
+
+L_UPSTREAM_URL_RESPONSES:
+    !is_responses
+    out_responses = call @path_join_owned(&base_ptr, base_len, &HTTPD_UP_RESP_SUFFIX, HTTPD_UP_RESP_SUFFIX_LEN, &out_len)
+    !base_ptr
+    !base_len
+    !route_kind
+    !out_len
+    return out_responses
+
+L_UPSTREAM_URL_UNKNOWN:
+    !is_responses
+    out_unknown = call @copy_bytes_owned(&base_ptr, base_len, &out_len)
+    !base_ptr
+    !base_len
+    !route_kind
+    !out_len
+    return out_unknown
+
+@ffi_wrapper forward_optional_upstream_header(&src_req: ptr, out_req: ptr, &key: ptr, key_len: u64) -> u32:
+L_ENTRY:
+    value_ptr_slot = stack_alloc 8
+    value_len_slot = stack_alloc 8
+    store value_ptr_slot+0, 0 as ptr
+    store value_len_slot+0, 0 as u64
+    get_status = call @sa_http_server_req_get_header(src_req, &key, key_len, &value_ptr_slot, &value_len_slot)
+    value_ptr = load value_ptr_slot+0 as ptr
+    value_len = load value_len_slot+0 as u64
+    has_value = ne value_ptr, 0
+    br has_value -> L_FWD_OPT_PRESENT, L_FWD_OPT_DONE
+
+L_FWD_OPT_PRESENT:
+    !has_value
+    add_status = call @sa_http_client_req_add_header(out_req, &key, key_len, &value_ptr, value_len)
+    !add_status
+    jmp L_FWD_OPT_DONE_AFTER_PRESENT
+
+L_FWD_OPT_DONE_AFTER_PRESENT:
+    !value_ptr
+    !value_len
+    !get_status
+    !src_req
+    !out_req
+    !key
+    !key_len
+    return 0
+
+L_FWD_OPT_DONE:
+    !has_value
+    !value_ptr
+    !value_len
+    !get_status
+    !src_req
+    !out_req
+    !key
+    !key_len
+    return 0
+
+@ffi_wrapper forward_deno_passthrough_headers(&src_req: ptr, out_req: ptr) -> u32:
+L_ENTRY:
+    org_status = call @forward_optional_upstream_header(&src_req, out_req, &HTTPD_HDR_OPENAI_ORG, HTTPD_HDR_OPENAI_ORG_LEN)
+    project_status = call @forward_optional_upstream_header(&src_req, out_req, &HTTPD_HDR_OPENAI_PROJECT, HTTPD_HDR_OPENAI_PROJECT_LEN)
+    request_status = call @forward_optional_upstream_header(&src_req, out_req, &HTTPD_HDR_X_REQUEST_ID, HTTPD_HDR_X_REQUEST_ID_LEN)
+    ua_status = call @forward_optional_upstream_header(&src_req, out_req, &HTTPD_HDR_USER_AGENT, HTTPD_HDR_USER_AGENT_LEN)
+    lang_status = call @forward_optional_upstream_header(&src_req, out_req, &HTTPD_HDR_ACCEPT_LANGUAGE, HTTPD_HDR_ACCEPT_LANGUAGE_LEN)
+    !lang_status
+    !ua_status
+    !request_status
+    !project_status
+    !org_status
+    !src_req
+    !out_req
+    return 0
+
+@ffi_wrapper build_upstream_forward_header_plan_owned(&api_key_ptr: ptr, api_key_len: u64, include_content_type: u8, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    forwarded_begin_status = call @json_writer_begin_field_object(writer, &HTTPD_JSON_KEY_FORWARDED, HTTPD_JSON_KEY_FORWARDED_LEN)
+    auth_len_slot = stack_alloc 8
+    has_api_key = ugt api_key_len, 0
+    br has_api_key -> L_UPSTREAM_HEADER_PLAN_AUTH, L_UPSTREAM_HEADER_PLAN_NO_AUTH
+
+L_UPSTREAM_HEADER_PLAN_AUTH:
+    !has_api_key
+    auth_ptr = call @build_upstream_auth_header_owned(&api_key_ptr, api_key_len, &auth_len_slot)
+    auth_len = load auth_len_slot+0 as u64
+    EXPAND JSON_WRITER_FIELD_STRING auth_status, writer, HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, auth_ptr, auth_len
+    EXPAND JSON_WRITER_FIELD_STRING xkey_status, writer, HTTPD_JSON_KEY_X_API_KEY, HTTPD_JSON_KEY_X_API_KEY_LEN, api_key_ptr, api_key_len
+    !xkey_status
+    !auth_status
+    !auth_len
+    !auth_ptr
+    jmp L_UPSTREAM_HEADER_PLAN_CONTENT_TYPE_CHECK
+
+L_UPSTREAM_HEADER_PLAN_NO_AUTH:
+    !has_api_key
+    jmp L_UPSTREAM_HEADER_PLAN_CONTENT_TYPE_CHECK
+
+L_UPSTREAM_HEADER_PLAN_CONTENT_TYPE_CHECK:
+    include_ct = ne include_content_type, 0
+    !include_content_type
+    br include_ct -> L_UPSTREAM_HEADER_PLAN_CONTENT_TYPE, L_UPSTREAM_HEADER_PLAN_NO_CONTENT_TYPE
+
+L_UPSTREAM_HEADER_PLAN_CONTENT_TYPE:
+    !include_ct
+    EXPAND JSON_WRITER_FIELD_STRING ct_status, writer, HTTPD_JSON_KEY_CONTENT_TYPE, HTTPD_JSON_KEY_CONTENT_TYPE_LEN, HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN
+    !ct_status
+    jmp L_UPSTREAM_HEADER_PLAN_DROPPED
+
+L_UPSTREAM_HEADER_PLAN_NO_CONTENT_TYPE:
+    !include_ct
+    jmp L_UPSTREAM_HEADER_PLAN_DROPPED
+
+L_UPSTREAM_HEADER_PLAN_DROPPED:
+    EXPAND JSON_WRITER_END_OBJECT forwarded_end_status, writer
+    dropped_begin_status = call @json_writer_begin_field_array(writer, &HTTPD_JSON_KEY_DROPPED, HTTPD_JSON_KEY_DROPPED_LEN)
+    EXPAND JSON_WRITER_WRITE_STRING drop_auth_status, writer, HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN
+    EXPAND JSON_WRITER_WRITE_STRING drop_xkey_status, writer, HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN
+    EXPAND JSON_WRITER_WRITE_STRING drop_api_key_status, writer, HTTPD_HDR_API_KEY, HTTPD_HDR_API_KEY_LEN
+    EXPAND JSON_WRITER_WRITE_STRING drop_content_length_status, writer, HTTPD_HDR_CONTENT_LENGTH, HTTPD_HDR_CONTENT_LENGTH_LEN
+    EXPAND JSON_WRITER_WRITE_STRING drop_connection_status, writer, HTTPD_HDR_CONNECTION, HTTPD_HDR_CONNECTION_LEN
+    EXPAND JSON_WRITER_WRITE_STRING drop_host_status, writer, HTTPD_HDR_HOST, HTTPD_HDR_HOST_LEN
+    EXPAND JSON_WRITER_END_ARRAY dropped_end_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+
+    body_ptr_slot = stack_alloc 8
+    body_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &body_ptr_slot, &body_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    body_ptr = load body_ptr_slot+0 as ptr
+    body_len = load body_len_slot+0 as u64
+    out = call @json_buffer_to_owned_and_free(buffer, &body_ptr, body_len, &out_len)
+    writer_dispose = call @json_writer_dispose(writer)
+
+    !writer_dispose
+    !body_ptr
+    !body_len
+    !finish_status
+    !end_status
+    !dropped_end_status
+    !drop_host_status
+    !drop_connection_status
+    !drop_content_length_status
+    !drop_api_key_status
+    !drop_xkey_status
+    !drop_auth_status
+    !dropped_begin_status
+    !forwarded_end_status
+    !forwarded_begin_status
+    !begin_status
+    !writer_status
+    !api_key_ptr
+    !api_key_len
+    !out_len
+    return out
+
+@ffi_wrapper json_writer_field_token_preview(writer: ptr, &key: ptr, key_len: u64, &token_ptr: ptr, token_len: u64) -> u32:
+L_ENTRY:
     preview_full_len_slot = stack_alloc 8
-    preview_final = call @token_preview_owned(&token_ptr, prefix_len2, &suffix_ptr, suffix_len2, token_len, &HTTPD_LOG_PREVIEW_LEN_A, HTTPD_LOG_PREVIEW_LEN_A_LEN, &HTTPD_LOG_PREVIEW_LEN_B, HTTPD_LOG_PREVIEW_LEN_B_LEN, &HTTPD_LOG_PREVIEW_ELLIPSIS, HTTPD_LOG_PREVIEW_ELLIPSIS_LEN, &preview_full_len_slot)
+    preview_final = call @token_preview_value_owned(&token_ptr, token_len, &preview_full_len_slot)
     preview_full_len = load preview_full_len_slot+0 as u64
     EXPAND JSON_WRITER_FIELD_STRING field_preview, writer, key, key_len, preview_final, preview_full_len
     !field_preview
     !preview_final
     !preview_full_len
-    !suffix_ptr
-    !suffix_start
-    !suffix_len2
-    !prefix_len2
     !writer
     !key
     !key_len
     !token_ptr
     !token_len
     return 0
+
+@ffi_wrapper sanitize_log_stamp_owned(&stamp_ptr: ptr, stamp_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    out = alloc stamp_len
+    idx_slot = stack_alloc 8
+    store idx_slot+0, 0 as u64
+    store out_len+0, stamp_len as u64
+    jmp L_SANITIZE_COND
+
+L_SANITIZE_COND:
+    idx = load idx_slot+0 as u64
+    done = uge idx, stamp_len
+    br done -> L_SANITIZE_DONE, L_SANITIZE_BODY
+
+L_SANITIZE_BODY:
+    !done
+    src = ptr_add stamp_ptr, idx
+    dst = ptr_add out, idx
+    ch = load src+0 as u8
+    is_colon = eq ch, 58
+    br is_colon -> L_SANITIZE_REPLACE_COLON, L_SANITIZE_DOT_CHECK
+
+L_SANITIZE_REPLACE_COLON:
+    !is_colon
+    jmp L_SANITIZE_REPLACE
+
+L_SANITIZE_DOT_CHECK:
+    !is_colon
+    is_dot = eq ch, 46
+    br is_dot -> L_SANITIZE_REPLACE_DOT, L_SANITIZE_KEEP
+
+L_SANITIZE_REPLACE_DOT:
+    !is_dot
+    jmp L_SANITIZE_REPLACE
+
+L_SANITIZE_REPLACE:
+    store dst+0, 45 as u8
+    !ch
+    !src
+    !dst
+    next = add idx, 1
+    store idx_slot+0, next as u64
+    !next
+    !idx
+    jmp L_SANITIZE_COND
+
+L_SANITIZE_KEEP:
+    !is_dot
+    store dst+0, ch as u8
+    !ch
+    !src
+    !dst
+    next_keep = add idx, 1
+    store idx_slot+0, next_keep as u64
+    !next_keep
+    !idx
+    jmp L_SANITIZE_COND
+
+L_SANITIZE_DONE:
+    !done
+    !idx
+    !stamp_ptr
+    !stamp_len
+    !out_len
+    return out
+
+@ffi_wrapper build_request_log_file_path(&log_dir_ptr: ptr, log_dir_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    stamp_ptr_slot = stack_alloc 8
+    stamp_len_slot = stack_alloc 8
+    stamp_status = call @plugin_date_now_iso(&stamp_ptr_slot, &stamp_len_slot)
+    stamp_ptr = load stamp_ptr_slot+0 as ptr
+    stamp_len = load stamp_len_slot+0 as u64
+    clean_stamp_len_slot = stack_alloc 8
+    clean_stamp = call @sanitize_log_stamp_owned(&stamp_ptr, stamp_len, &clean_stamp_len_slot)
+    clean_stamp_len = load clean_stamp_len_slot+0 as u64
+    uuid_ptr_slot = stack_alloc 8
+    uuid_len_slot = stack_alloc 8
+    uuid_status = call @plugin_random_uuid(&uuid_ptr_slot, &uuid_len_slot)
+    uuid_ptr = load uuid_ptr_slot+0 as ptr
+    uuid_len = load uuid_len_slot+0 as u64
+    name_len_slot = stack_alloc 8
+    name_ptr = call @build_concat5_owned(&HTTPD_LOG_FILE_PREFIX, HTTPD_LOG_FILE_PREFIX_LEN, &clean_stamp, clean_stamp_len, &HTTPD_LOG_FILE_DASH, HTTPD_LOG_FILE_DASH_LEN, &uuid_ptr, uuid_len, &HTTPD_LOG_FILE_SUFFIX, HTTPD_LOG_FILE_SUFFIX_LEN, &name_len_slot)
+    name_len = load name_len_slot+0 as u64
+    file_path = call @path_join_owned(&log_dir_ptr, log_dir_len, &name_ptr, name_len, &out_len)
+    uuid_free_status = call @plugin_free_buffer(uuid_ptr, uuid_len)
+    stamp_free_status = call @plugin_free_buffer(stamp_ptr, stamp_len)
+    !stamp_free_status
+    !uuid_free_status
+    !stamp_status
+    !uuid_status
+    !stamp_ptr
+    !stamp_len
+    !clean_stamp
+    !clean_stamp_len
+    !uuid_ptr
+    !uuid_len
+    !name_ptr
+    !name_len
+    !log_dir_ptr
+    !log_dir_len
+    !out_len
+    return file_path
+
+@ffi_wrapper write_log_body_to_dir_owned(&log_dir_ptr: ptr, log_dir_len: u64, &body_ptr: ptr, body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
+    !mkdir_status
+    file_path = call @build_request_log_file_path(&log_dir_ptr, log_dir_len, &out_len)
+    file_len = load out_len+0 as u64
+    write_status = call @sa_deno_plugin_write_text_file(&file_path, file_len, &body_ptr, body_len)
+    !write_status
+    !file_len
+    !log_dir_ptr
+    !log_dir_len
+    !body_ptr
+    !body_len
+    !out_len
+    return file_path
+
+@ffi_wrapper build_auth_failure_log_body_owned(&path_ptr: ptr, path_len: u64, &auth_ptr: ptr, auth_len: u64, &xkey_ptr: ptr, xkey_len: u64, &token_ptr: ptr, token_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING kind_status, writer, HTTPD_JSON_KEY_KIND, HTTPD_JSON_KEY_KIND_LEN, HTTPD_JSON_VALUE_AUTH_FAILURE, HTTPD_JSON_VALUE_AUTH_FAILURE_LEN
+    EXPAND JSON_WRITER_FIELD_STRING path_status, writer, HTTPD_JSON_KEY_PATH, HTTPD_JSON_KEY_PATH_LEN, path_ptr, path_len
+
+    auth_has_value = ugt auth_len, 0
+    br auth_has_value -> L_AUTH_FAILURE_BODY_AUTH_PREFIX_CHECK, L_AUTH_FAILURE_BODY_AUTH_NONE
+
+L_AUTH_FAILURE_BODY_AUTH_NONE:
+    !auth_has_value
+    auth_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &HTTPD_EMPTY_TEXT, 0)
+    !auth_none_status
+    jmp L_AUTH_FAILURE_BODY_XKEY
+
+L_AUTH_FAILURE_BODY_AUTH_PREFIX_CHECK:
+    !auth_has_value
+    auth_enough = uge auth_len, HTTPD_BEARER_PREFIX_LEN
+    br auth_enough -> L_AUTH_FAILURE_BODY_AUTH_PREFIX_CMP, L_AUTH_FAILURE_BODY_AUTH_RAW_SHORT
+
+L_AUTH_FAILURE_BODY_AUTH_PREFIX_CMP:
+    !auth_enough
+    prefix_match_raw = call @sa_bytes_eq(&auth_ptr, HTTPD_BEARER_PREFIX_LEN, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
+    prefix_match = eq prefix_match_raw, 1
+    !prefix_match_raw
+    br prefix_match -> L_AUTH_FAILURE_BODY_AUTH_STRIP, L_AUTH_FAILURE_BODY_AUTH_RAW_PREFIX
+
+L_AUTH_FAILURE_BODY_AUTH_STRIP:
+    !prefix_match
+    preview_auth_ptr = ptr_add auth_ptr, HTTPD_BEARER_PREFIX_LEN
+    preview_auth_len = sub auth_len, HTTPD_BEARER_PREFIX_LEN
+    auth_preview_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &preview_auth_ptr, preview_auth_len)
+    !auth_preview_status
+    !preview_auth_ptr
+    !preview_auth_len
+    jmp L_AUTH_FAILURE_BODY_XKEY
+
+L_AUTH_FAILURE_BODY_AUTH_RAW_SHORT:
+    !auth_enough
+    raw_short_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &auth_ptr, auth_len)
+    !raw_short_status
+    jmp L_AUTH_FAILURE_BODY_XKEY
+
+L_AUTH_FAILURE_BODY_AUTH_RAW_PREFIX:
+    !prefix_match
+    raw_prefix_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &auth_ptr, auth_len)
+    !raw_prefix_status
+    jmp L_AUTH_FAILURE_BODY_XKEY
+
+L_AUTH_FAILURE_BODY_XKEY:
+    xkey_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_X_API_KEY_CAMEL, HTTPD_JSON_KEY_X_API_KEY_CAMEL_LEN, &xkey_ptr, xkey_len)
+    !xkey_status
+    expected_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_EXPECTED_AUTH, HTTPD_JSON_KEY_EXPECTED_AUTH_LEN, &token_ptr, token_len)
+    !expected_status
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    body_ptr_slot = stack_alloc 8
+    body_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &body_ptr_slot, &body_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    body_ptr = load body_ptr_slot+0 as ptr
+    body_len = load body_len_slot+0 as u64
+    out = call @json_buffer_to_owned_and_free(buffer, &body_ptr, body_len, &out_len)
+    writer_dispose = call @json_writer_dispose(writer)
+    !writer_dispose
+    !body_ptr
+    !body_len
+    !finish_status
+    !end_status
+    !path_status
+    !kind_status
+    !begin_status
+    !writer_status
+    !path_ptr
+    !path_len
+    !auth_ptr
+    !auth_len
+    !xkey_ptr
+    !xkey_len
+    !token_ptr
+    !token_len
+    !out_len
+    return out
 
 @ffi_wrapper write_auth_failure_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &token_ptr: ptr, token_len: u64) -> u32:
 L_ENTRY:
@@ -497,16 +1008,6 @@ L_AUTH_LOG_SKIP:
 
 L_AUTH_LOG_BUILD:
     !has_log
-    mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
-    !mkdir_status
-    file_len_slot = stack_alloc 8
-    file_path = call @path_join_owned(&log_dir_ptr, log_dir_len, &HTTPD_LOG_FILE_AUTH_SUFFIX, HTTPD_LOG_FILE_AUTH_SUFFIX_LEN, &file_len_slot)
-    file_len = load file_len_slot+0 as u64
-    buffer_slot = stack_alloc 8
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
-    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
-    EXPAND JSON_WRITER_FIELD_STRING kind_status, writer, HTTPD_JSON_KEY_KIND, HTTPD_JSON_KEY_KIND_LEN, HTTPD_JSON_VALUE_AUTH_FAILURE, HTTPD_JSON_VALUE_AUTH_FAILURE_LEN
-    EXPAND JSON_WRITER_FIELD_STRING path_status, writer, HTTPD_JSON_KEY_PATH, HTTPD_JSON_KEY_PATH_LEN, path_ptr, path_len
     log_auth_slot = stack_alloc 8
     log_auth_len_slot = stack_alloc 8
     store log_auth_slot+0, 0 as ptr
@@ -515,71 +1016,26 @@ L_AUTH_LOG_BUILD:
     hdr_ptr = load log_auth_slot+0 as ptr
     hdr_len = load log_auth_len_slot+0 as u64
     !hdr_status
-    has_hdr = ne hdr_ptr, 0
-    br has_hdr -> L_AUTH_LOG_HEADER_PREVIEW, L_AUTH_LOG_HEADER_NONE
-
-L_AUTH_LOG_HEADER_PREVIEW:
-    !has_hdr
-    bearer_idx = call @sa_bytes_find(&hdr_ptr, hdr_len, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
-    has_bearer = sge bearer_idx, 0
-    br has_bearer -> L_AUTH_LOG_HEADER_STRIP, L_AUTH_LOG_HEADER_RAW
-
-L_AUTH_LOG_HEADER_STRIP:
-    !has_bearer
-    !bearer_idx
-    client_ptr = ptr_add hdr_ptr, HTTPD_BEARER_PREFIX_LEN
-    client_len = sub hdr_len, HTTPD_BEARER_PREFIX_LEN
-    preview_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &client_ptr, client_len)
-    !preview_status
-    !client_ptr
-    !client_len
-    !hdr_ptr
-    !hdr_len
-    jmp L_AUTH_LOG_EXPECTED
-
-L_AUTH_LOG_HEADER_RAW:
-    !has_bearer
-    !bearer_idx
-    client_ptr2 = ptr_add hdr_ptr, 0
-    client_len2 = add hdr_len, 0
-    preview_status2 = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &client_ptr2, client_len2)
-    !preview_status2
-    !client_ptr2
-    !client_len2
-    !hdr_ptr
-    !hdr_len
-    jmp L_AUTH_LOG_EXPECTED
-
-L_AUTH_LOG_HEADER_NONE:
-    !has_hdr
-    !hdr_ptr
-    !hdr_len
-    preview_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &HTTPD_EMPTY_TEXT, 0)
-    !preview_none_status
-    jmp L_AUTH_LOG_EXPECTED
-
-L_AUTH_LOG_EXPECTED:
-    expected_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_EXPECTED_AUTH, HTTPD_JSON_KEY_EXPECTED_AUTH_LEN, &token_ptr, token_len)
-    !expected_status
-    EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    body_ptr_slot = stack_alloc 8
+    log_xkey_slot = stack_alloc 8
+    log_xkey_len_slot = stack_alloc 8
+    store log_xkey_slot+0, 0 as ptr
+    store log_xkey_len_slot+0, 0 as u64
+    xkey_status = call @sa_http_server_req_get_header(req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &log_xkey_slot, &log_xkey_len_slot)
+    xkey_ptr = load log_xkey_slot+0 as ptr
+    xkey_len = load log_xkey_len_slot+0 as u64
+    !xkey_status
     body_len_slot = stack_alloc 8
-    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &body_ptr_slot, &body_len_slot)
-    buffer = load buffer_slot+0 as ptr
-    body_ptr = load body_ptr_slot+0 as ptr
+    body_ptr = call @build_auth_failure_log_body_owned(&path_ptr, path_len, &hdr_ptr, hdr_len, &xkey_ptr, xkey_len, &token_ptr, token_len, &body_len_slot)
     body_len = load body_len_slot+0 as u64
-    write_status = call @sa_deno_plugin_write_text_file(&file_path, file_len, &body_ptr, body_len)
-    !write_status
-    dispose_status = call @json_writer_dispose_finished(buffer, writer)
-    !dispose_status
+    file_len_slot = stack_alloc 8
+    file_path = call @write_log_body_to_dir_owned(&log_dir_ptr, log_dir_len, &body_ptr, body_len, &file_len_slot)
+    file_len = load file_len_slot+0 as u64
     !body_ptr
     !body_len
-    !finish_status
-    !end_status
-    !path_status
-    !kind_status
-    !begin_status
-    !writer_status
+    !hdr_ptr
+    !hdr_len
+    !xkey_ptr
+    !xkey_len
     !file_path
     !file_len
     !log_dir_ptr
@@ -592,7 +1048,158 @@ L_AUTH_LOG_EXPECTED:
     !token_len
     return 0
 
-@ffi_wrapper write_api_request_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &body_ptr_in: ptr, body_len: u64) -> u32:
+@ffi_wrapper build_api_request_log_body_owned(&path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &auth_ptr: ptr, auth_len: u64, &xkey_ptr: ptr, xkey_len: u64, &content_type_ptr: ptr, content_type_len: u64, &body_ptr_in: ptr, body_len: u64, &raw_body_ptr_in: ptr, raw_body_len: u64, &out_len: ptr) -> ^ptr:
+L_ENTRY:
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    EXPAND JSON_WRITER_FIELD_STRING kind_status, writer, HTTPD_JSON_KEY_KIND, HTTPD_JSON_KEY_KIND_LEN, HTTPD_JSON_VALUE_REQUEST_LOG, HTTPD_JSON_VALUE_REQUEST_LOG_LEN
+    EXPAND JSON_WRITER_FIELD_STRING path_field_status, writer, HTTPD_JSON_KEY_PATH, HTTPD_JSON_KEY_PATH_LEN, path_ptr, path_len
+    EXPAND JSON_WRITER_FIELD_STRING method_status, writer, HTTPD_JSON_KEY_METHOD, HTTPD_JSON_KEY_METHOD_LEN, method_ptr, method_len
+    headers_begin_status = call @json_writer_begin_field_object(writer, &HTTPD_JSON_KEY_HEADERS, HTTPD_JSON_KEY_HEADERS_LEN)
+
+    auth_has_value = ugt auth_len, 0
+    br auth_has_value -> L_REQ_LOG_BODY_AUTH_PREFIX_CHECK, L_REQ_LOG_BODY_AUTH_NONE
+
+L_REQ_LOG_BODY_AUTH_NONE:
+    !auth_has_value
+    auth_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &HTTPD_EMPTY_TEXT, 0)
+    !auth_none_status
+    jmp L_REQ_LOG_BODY_XKEY
+
+L_REQ_LOG_BODY_AUTH_PREFIX_CHECK:
+    !auth_has_value
+    auth_enough = uge auth_len, HTTPD_BEARER_PREFIX_LEN
+    br auth_enough -> L_REQ_LOG_BODY_AUTH_PREFIX_CMP, L_REQ_LOG_BODY_AUTH_RAW_SHORT
+
+L_REQ_LOG_BODY_AUTH_PREFIX_CMP:
+    !auth_enough
+    prefix_match_raw = call @sa_bytes_eq(&auth_ptr, HTTPD_BEARER_PREFIX_LEN, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
+    prefix_match = eq prefix_match_raw, 1
+    !prefix_match_raw
+    br prefix_match -> L_REQ_LOG_BODY_AUTH_STRIP, L_REQ_LOG_BODY_AUTH_RAW_PREFIX
+
+L_REQ_LOG_BODY_AUTH_STRIP:
+    !prefix_match
+    preview_auth_ptr = ptr_add auth_ptr, HTTPD_BEARER_PREFIX_LEN
+    preview_auth_len = sub auth_len, HTTPD_BEARER_PREFIX_LEN
+    auth_preview_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &preview_auth_ptr, preview_auth_len)
+    !auth_preview_status
+    !preview_auth_ptr
+    !preview_auth_len
+    jmp L_REQ_LOG_BODY_XKEY
+
+L_REQ_LOG_BODY_AUTH_RAW_SHORT:
+    !auth_enough
+    raw_short_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &auth_ptr, auth_len)
+    !raw_short_status
+    jmp L_REQ_LOG_BODY_XKEY
+
+L_REQ_LOG_BODY_AUTH_RAW_PREFIX:
+    !prefix_match
+    raw_prefix_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &auth_ptr, auth_len)
+    !raw_prefix_status
+    jmp L_REQ_LOG_BODY_XKEY
+
+L_REQ_LOG_BODY_XKEY:
+    xkey_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_X_API_KEY, HTTPD_JSON_KEY_X_API_KEY_LEN, &xkey_ptr, xkey_len)
+    !xkey_status
+    content_type_has_value = ugt content_type_len, 0
+    br content_type_has_value -> L_REQ_LOG_BODY_CONTENT_TYPE_VALUE, L_REQ_LOG_BODY_CONTENT_TYPE_NONE
+
+L_REQ_LOG_BODY_CONTENT_TYPE_VALUE:
+    !content_type_has_value
+    EXPAND JSON_WRITER_FIELD_STRING ct_status, writer, HTTPD_JSON_KEY_CONTENT_TYPE, HTTPD_JSON_KEY_CONTENT_TYPE_LEN, content_type_ptr, content_type_len
+    !ct_status
+    jmp L_REQ_LOG_BODY_BODY_BYTES
+
+L_REQ_LOG_BODY_CONTENT_TYPE_NONE:
+    !content_type_has_value
+    EXPAND JSON_WRITER_FIELD_STRING ct_none_status, writer, HTTPD_JSON_KEY_CONTENT_TYPE, HTTPD_JSON_KEY_CONTENT_TYPE_LEN, HTTPD_LOG_PREVIEW_NONE, HTTPD_LOG_PREVIEW_NONE_LEN
+    !ct_none_status
+    jmp L_REQ_LOG_BODY_BODY_BYTES
+
+L_REQ_LOG_BODY_BODY_BYTES:
+    EXPAND JSON_WRITER_END_OBJECT headers_end_status, writer
+    body_len_i64 = bitcast body_len as i64
+    EXPAND JSON_WRITER_FIELD_I64 bytes_status, writer, HTTPD_JSON_KEY_BODY_BYTES, HTTPD_JSON_KEY_BODY_BYTES_LEN, body_len_i64
+    has_body = ugt body_len, 0
+    br has_body -> L_REQ_LOG_BODY_TEXT, L_REQ_LOG_BODY_NULL
+
+L_REQ_LOG_BODY_TEXT:
+    !has_body
+    EXPAND JSON_WRITER_FIELD_STRING body_field_status, writer, HTTPD_JSON_KEY_BODY, HTTPD_JSON_KEY_BODY_LEN, body_ptr_in, body_len
+    !body_field_status
+    jmp L_REQ_LOG_BODY_RAW_BYTES
+
+L_REQ_LOG_BODY_NULL:
+    !has_body
+    EXPAND JSON_WRITER_FIELD_NULL body_null_status, writer, HTTPD_JSON_KEY_BODY, HTTPD_JSON_KEY_BODY_LEN
+    !body_null_status
+    jmp L_REQ_LOG_BODY_RAW_BYTES
+
+L_REQ_LOG_BODY_RAW_BYTES:
+    raw_body_len_i64 = bitcast raw_body_len as i64
+    EXPAND JSON_WRITER_FIELD_I64 raw_bytes_status, writer, HTTPD_JSON_KEY_RAW_BODY_BYTES, HTTPD_JSON_KEY_RAW_BODY_BYTES_LEN, raw_body_len_i64
+    raw_has_body = ugt raw_body_len, 0
+    br raw_has_body -> L_REQ_LOG_BODY_RAW_TEXT, L_REQ_LOG_BODY_RAW_NULL
+
+L_REQ_LOG_BODY_RAW_TEXT:
+    !raw_has_body
+    EXPAND JSON_WRITER_FIELD_STRING raw_body_field_status, writer, HTTPD_JSON_KEY_RAW_BODY, HTTPD_JSON_KEY_RAW_BODY_LEN, raw_body_ptr_in, raw_body_len
+    !raw_body_field_status
+    jmp L_REQ_LOG_BODY_FINISH
+
+L_REQ_LOG_BODY_RAW_NULL:
+    !raw_has_body
+    EXPAND JSON_WRITER_FIELD_NULL raw_body_null_status, writer, HTTPD_JSON_KEY_RAW_BODY, HTTPD_JSON_KEY_RAW_BODY_LEN
+    !raw_body_null_status
+    jmp L_REQ_LOG_BODY_FINISH
+
+L_REQ_LOG_BODY_FINISH:
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    body_ptr_slot = stack_alloc 8
+    body_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &body_ptr_slot, &body_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    body_ptr = load body_ptr_slot+0 as ptr
+    log_body_len = load body_len_slot+0 as u64
+    out = call @json_buffer_to_owned_and_free(buffer, &body_ptr, log_body_len, &out_len)
+    writer_dispose = call @json_writer_dispose(writer)
+    !writer_dispose
+    !body_ptr
+    !log_body_len
+    !finish_status
+    !end_status
+    !raw_bytes_status
+    !raw_body_len_i64
+    !bytes_status
+    !body_len_i64
+    !headers_end_status
+    !headers_begin_status
+    !method_status
+    !path_field_status
+    !kind_status
+    !begin_status
+    !writer_status
+    !path_ptr
+    !path_len
+    !method_ptr
+    !method_len
+    !auth_ptr
+    !auth_len
+    !xkey_ptr
+    !xkey_len
+    !content_type_ptr
+    !content_type_len
+    !body_ptr_in
+    !body_len
+    !raw_body_ptr_in
+    !raw_body_len
+    !out_len
+    return out
+
+@ffi_wrapper write_api_request_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &body_ptr_in: ptr, body_len: u64, &raw_body_ptr_in: ptr, raw_body_len: u64) -> u32:
 L_ENTRY:
     log_dir_ptr = load cfg_ptr+CFG_LOG_PTR as ptr
     log_dir_len = load cfg_ptr+CFG_LOG_LEN as u64
@@ -611,23 +1218,12 @@ L_REQ_LOG_SKIP:
     !method_len
     !body_ptr_in
     !body_len
+    !raw_body_ptr_in
+    !raw_body_len
     return 0
 
 L_REQ_LOG_BUILD:
     !has_log
-    mkdir_status = call @sa_deno_plugin_mkdir(&log_dir_ptr, log_dir_len, 1)
-    !mkdir_status
-    file_len_slot = stack_alloc 8
-    file_path = call @path_join_owned(&log_dir_ptr, log_dir_len, &HTTPD_LOG_FILE_REQ_SUFFIX, HTTPD_LOG_FILE_REQ_SUFFIX_LEN, &file_len_slot)
-    file_len = load file_len_slot+0 as u64
-
-    buffer_slot = stack_alloc 8
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
-    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
-    EXPAND JSON_WRITER_FIELD_STRING kind_status, writer, HTTPD_JSON_KEY_KIND, HTTPD_JSON_KEY_KIND_LEN, HTTPD_JSON_VALUE_REQUEST_LOG, HTTPD_JSON_VALUE_REQUEST_LOG_LEN
-    EXPAND JSON_WRITER_FIELD_STRING path_field_status, writer, HTTPD_JSON_KEY_PATH, HTTPD_JSON_KEY_PATH_LEN, path_ptr, path_len
-    EXPAND JSON_WRITER_FIELD_STRING method_status, writer, HTTPD_JSON_KEY_METHOD, HTTPD_JSON_KEY_METHOD_LEN, method_ptr, method_len
-    headers_begin_status = call @json_writer_begin_field_object(writer, &HTTPD_JSON_KEY_HEADERS, HTTPD_JSON_KEY_HEADERS_LEN)
     auth_ptr_slot = stack_alloc 8
     auth_len_slot = stack_alloc 8
     store auth_ptr_slot+0, 0 as ptr
@@ -636,52 +1232,6 @@ L_REQ_LOG_BUILD:
     auth_hdr_ptr = load auth_ptr_slot+0 as ptr
     auth_hdr_len = load auth_len_slot+0 as u64
     !auth_hdr_status
-    auth_has_hdr = ne auth_hdr_ptr, 0
-    br auth_has_hdr -> L_REQ_LOG_AUTH_HEADER, L_REQ_LOG_AUTH_NONE
-
-L_REQ_LOG_AUTH_HEADER:
-    !auth_has_hdr
-    auth_bearer_idx = call @sa_bytes_find(&auth_hdr_ptr, auth_hdr_len, &HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN)
-    auth_has_bearer = ne auth_bearer_idx, 18446744073709551615
-    br auth_has_bearer -> L_REQ_LOG_AUTH_BEARER, L_REQ_LOG_AUTH_RAW
-
-L_REQ_LOG_AUTH_BEARER:
-    !auth_has_bearer
-    token_start = add auth_bearer_idx, HTTPD_BEARER_PREFIX_LEN
-    token_ptr = ptr_add auth_hdr_ptr, token_start
-    token_len = sub auth_hdr_len, token_start
-    token_preview_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &token_ptr, token_len)
-    !token_preview_status
-    !token_ptr
-    !token_len
-    !token_start
-    !auth_bearer_idx
-    !auth_hdr_ptr
-    !auth_hdr_len
-    jmp L_REQ_LOG_X_API_KEY
-
-L_REQ_LOG_AUTH_RAW:
-    !auth_has_bearer
-    !auth_bearer_idx
-    auth_raw_ptr = ptr_add auth_hdr_ptr, 0
-    auth_raw_len = add auth_hdr_len, 0
-    auth_raw_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &auth_raw_ptr, auth_raw_len)
-    !auth_raw_status
-    !auth_raw_ptr
-    !auth_raw_len
-    !auth_hdr_ptr
-    !auth_hdr_len
-    jmp L_REQ_LOG_X_API_KEY
-
-L_REQ_LOG_AUTH_NONE:
-    !auth_has_hdr
-    !auth_hdr_ptr
-    !auth_hdr_len
-    auth_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_AUTHORIZATION, HTTPD_JSON_KEY_AUTHORIZATION_LEN, &HTTPD_EMPTY_TEXT, 0)
-    !auth_none_status
-    jmp L_REQ_LOG_X_API_KEY
-
-L_REQ_LOG_X_API_KEY:
     xkey_ptr_slot = stack_alloc 8
     xkey_len_slot = stack_alloc 8
     store xkey_ptr_slot+0, 0 as ptr
@@ -690,26 +1240,6 @@ L_REQ_LOG_X_API_KEY:
     xkey_hdr_ptr = load xkey_ptr_slot+0 as ptr
     xkey_hdr_len = load xkey_len_slot+0 as u64
     !xkey_hdr_status
-    xkey_has_hdr = ne xkey_hdr_ptr, 0
-    br xkey_has_hdr -> L_REQ_LOG_XKEY_HEADER, L_REQ_LOG_XKEY_NONE
-
-L_REQ_LOG_XKEY_HEADER:
-    !xkey_has_hdr
-    xkey_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_X_API_KEY, HTTPD_JSON_KEY_X_API_KEY_LEN, &xkey_hdr_ptr, xkey_hdr_len)
-    !xkey_status
-    !xkey_hdr_ptr
-    !xkey_hdr_len
-    jmp L_REQ_LOG_CONTENT_TYPE
-
-L_REQ_LOG_XKEY_NONE:
-    !xkey_has_hdr
-    !xkey_hdr_ptr
-    !xkey_hdr_len
-    xkey_none_status = call @json_writer_field_token_preview(writer, &HTTPD_JSON_KEY_X_API_KEY, HTTPD_JSON_KEY_X_API_KEY_LEN, &HTTPD_EMPTY_TEXT, 0)
-    !xkey_none_status
-    jmp L_REQ_LOG_CONTENT_TYPE
-
-L_REQ_LOG_CONTENT_TYPE:
     ct_ptr_slot = stack_alloc 8
     ct_len_slot = stack_alloc 8
     store ct_ptr_slot+0, 0 as ptr
@@ -718,69 +1248,20 @@ L_REQ_LOG_CONTENT_TYPE:
     ct_hdr_ptr = load ct_ptr_slot+0 as ptr
     ct_hdr_len = load ct_len_slot+0 as u64
     !ct_hdr_status
-    ct_has_hdr = ne ct_hdr_ptr, 0
-    br ct_has_hdr -> L_REQ_LOG_CT_HEADER, L_REQ_LOG_CT_NONE
-
-L_REQ_LOG_CT_HEADER:
-    !ct_has_hdr
-    EXPAND JSON_WRITER_FIELD_STRING ct_status, writer, HTTPD_JSON_KEY_CONTENT_TYPE, HTTPD_JSON_KEY_CONTENT_TYPE_LEN, ct_hdr_ptr, ct_hdr_len
-    !ct_status
-    !ct_hdr_ptr
-    !ct_hdr_len
-    jmp L_REQ_LOG_BODY_BYTES
-
-L_REQ_LOG_CT_NONE:
-    !ct_has_hdr
-    !ct_hdr_ptr
-    !ct_hdr_len
-    EXPAND JSON_WRITER_FIELD_STRING ct_none_status, writer, HTTPD_JSON_KEY_CONTENT_TYPE, HTTPD_JSON_KEY_CONTENT_TYPE_LEN, HTTPD_LOG_PREVIEW_NONE, HTTPD_LOG_PREVIEW_NONE_LEN
-    !ct_none_status
-    jmp L_REQ_LOG_BODY_BYTES
-
-L_REQ_LOG_BODY_BYTES:
-    EXPAND JSON_WRITER_END_OBJECT headers_end_status, writer
-    body_len_i64 = bitcast body_len as i64
-    EXPAND JSON_WRITER_FIELD_I64 bytes_status, writer, HTTPD_JSON_KEY_BODY_BYTES, HTTPD_JSON_KEY_BODY_BYTES_LEN, body_len_i64
-    has_body = ugt body_len, 0
-    br has_body -> L_REQ_LOG_BODY_TEXT, L_REQ_LOG_BODY_NULL
-
-L_REQ_LOG_BODY_TEXT:
-    !has_body
-    EXPAND JSON_WRITER_FIELD_STRING body_field_status, writer, HTTPD_JSON_KEY_BODY, HTTPD_JSON_KEY_BODY_LEN, body_ptr_in, body_len
-    !body_field_status
-    jmp L_REQ_LOG_FINISH
-
-L_REQ_LOG_BODY_NULL:
-    !has_body
-    EXPAND JSON_WRITER_FIELD_NULL body_null_status, writer, HTTPD_JSON_KEY_BODY, HTTPD_JSON_KEY_BODY_LEN
-    !body_null_status
-    jmp L_REQ_LOG_FINISH
-
-L_REQ_LOG_FINISH:
-    EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    body_ptr_slot = stack_alloc 8
-    body_len_slot = stack_alloc 8
-    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &body_ptr_slot, &body_len_slot)
-    buffer = load buffer_slot+0 as ptr
-    body_ptr = load body_ptr_slot+0 as ptr
-    log_body_len = load body_len_slot+0 as u64
-    write_status = call @sa_deno_plugin_write_text_file(&file_path, file_len, &body_ptr, log_body_len)
-    !write_status
-    dispose_status = call @json_writer_dispose_finished(buffer, writer)
-    !dispose_status
-    !body_ptr
+    log_body_len_slot = stack_alloc 8
+    log_body_ptr = call @build_api_request_log_body_owned(&path_ptr, path_len, &method_ptr, method_len, &auth_hdr_ptr, auth_hdr_len, &xkey_hdr_ptr, xkey_hdr_len, &ct_hdr_ptr, ct_hdr_len, &body_ptr_in, body_len, &raw_body_ptr_in, raw_body_len, &log_body_len_slot)
+    log_body_len = load log_body_len_slot+0 as u64
+    file_len_slot = stack_alloc 8
+    file_path = call @write_log_body_to_dir_owned(&log_dir_ptr, log_dir_len, &log_body_ptr, log_body_len, &file_len_slot)
+    file_len = load file_len_slot+0 as u64
+    !log_body_ptr
     !log_body_len
-    !finish_status
-    !end_status
-    !bytes_status
-    !body_len_i64
-    !headers_end_status
-    !headers_begin_status
-    !method_status
-    !path_field_status
-    !kind_status
-    !begin_status
-    !writer_status
+    !ct_hdr_ptr
+    !ct_hdr_len
+    !xkey_hdr_ptr
+    !xkey_hdr_len
+    !auth_hdr_ptr
+    !auth_hdr_len
     !file_path
     !file_len
     !log_dir_ptr
@@ -793,6 +1274,8 @@ L_REQ_LOG_FINISH:
     !method_len
     !body_ptr_in
     !body_len
+    !raw_body_ptr_in
+    !raw_body_len
     return 0
 
 @ffi_wrapper send_builder_response(&req: ptr, ^buf: ptr) -> u32:
@@ -810,7 +1293,7 @@ L_ENTRY:
 L_ENTRY:
     call @sa_print_bytes(&HTTPD_LOG_MODELS, HTTPD_LOG_MODELS_LEN)
     models_empty_body = stack_alloc 1
-    models_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &models_empty_body, 0)
+    models_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &models_empty_body, 0, &models_empty_body, 0)
     !models_log_status
 
     m_chat_base_ptr = load cfg_ptr+CFG_CHAT_PTR as ptr
@@ -842,10 +1325,10 @@ L_MODELS_CFG_OK:
     !m_cfg_ok
     !m_has_chat_base
     m_url_len_slot = stack_alloc 8
-    m_chat_ptr = call @path_join_owned(&m_chat_base_ptr, m_chat_base_len, &HTTPD_UP_MODELS_SUFFIX, HTTPD_UP_MODELS_SUFFIX_LEN, &m_url_len_slot)
+    m_chat_ptr = call @build_upstream_url_owned(&m_chat_base_ptr, m_chat_base_len, HTTPD_UPSTREAM_ROUTE_MODELS, &m_url_len_slot)
     m_chat_len = load m_url_len_slot+0 as u64
     m_up_auth_len_slot = stack_alloc 8
-    m_up_auth_buf = call @prefix_with_owned(&HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN, &m_api_key_ptr, m_api_key_len, &m_up_auth_len_slot)
+    m_up_auth_buf = call @build_upstream_auth_header_owned(&m_api_key_ptr, m_api_key_len, &m_up_auth_len_slot)
     m_up_auth_len = load m_up_auth_len_slot+0 as u64
 
     m_client_slot = stack_alloc 8
@@ -858,6 +1341,8 @@ L_MODELS_CFG_OK:
 
     call @sa_http_client_req_add_header(m_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &m_up_auth_buf, m_up_auth_len)
     call @sa_http_client_req_add_header(m_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &m_api_key_ptr, m_api_key_len)
+    m_forward_status = call @forward_deno_passthrough_headers(&req, m_req)
+    !m_forward_status
 
     m_resp_slot = stack_alloc 8
     store m_resp_slot+0, 0 as ptr
@@ -966,8 +1451,6 @@ L_ENTRY:
     body_status = call @sa_http_server_req_get_body(req, &body_ptr_slot, &body_len_slot)
     body_ptr = load body_ptr_slot+0 as ptr
     body_len = load body_len_slot+0 as u64
-    chat_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &body_ptr, body_len)
-    !chat_log_status
     chat_blank = call @body_is_blank(&body_ptr, body_len)
     chat_blank_ok = eq chat_blank, 1
     br chat_blank_ok -> L_CHAT_EMPTY_BODY, L_CHAT_BODY_OK
@@ -997,6 +1480,8 @@ L_CHAT_BODY_OK:
     proxy_body_len_slot = stack_alloc 8
     proxy_body_ptr = call @build_chat_proxy_body(&body_ptr, body_len, &proxy_body_len_slot)
     proxy_body_len = load proxy_body_len_slot+0 as u64
+    chat_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &proxy_body_ptr, proxy_body_len, &body_ptr, body_len)
+    !chat_log_status
 
     // Get upstream URL from config
     chat_base_ptr = load cfg_ptr+CFG_CHAT_PTR as ptr
@@ -1033,10 +1518,10 @@ L_CHAT_CFG_OK:
     !chat_cfg_ok
     !has_chat_base
     upstream_len_slot = stack_alloc 8
-    upstream_ptr = call @path_join_owned(&chat_base_ptr, chat_base_len, &HTTPD_UP_CHAT_SUFFIX, HTTPD_UP_CHAT_SUFFIX_LEN, &upstream_len_slot)
+    upstream_ptr = call @build_upstream_url_owned(&chat_base_ptr, chat_base_len, HTTPD_UPSTREAM_ROUTE_CHAT, &upstream_len_slot)
     upstream_len = load upstream_len_slot+0 as u64
     up_auth_len_slot = stack_alloc 8
-    up_auth_buf = call @prefix_with_owned(&HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN, &api_key_ptr, api_key_len, &up_auth_len_slot)
+    up_auth_buf = call @build_upstream_auth_header_owned(&api_key_ptr, api_key_len, &up_auth_len_slot)
     up_auth_len = load up_auth_len_slot+0 as u64
 
     // Create outbound HTTP client (TLS=1)
@@ -1052,6 +1537,8 @@ L_CHAT_CFG_OK:
     // Match Deno forwardHeaders: upstream sees Bearer auth and raw x-api-key.
     call @sa_http_client_req_add_header(out_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &up_auth_buf, up_auth_len)
     call @sa_http_client_req_add_header(out_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &api_key_ptr, api_key_len)
+    chat_forward_status = call @forward_deno_passthrough_headers(&req, out_req)
+    !chat_forward_status
 
     // Add Content-Type header
     call @sa_http_client_req_add_header(out_req, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
@@ -1364,8 +1851,6 @@ L_RESP_BODY_READY:
     !r_body_ok
     !r_body_has_ptr
     call @sa_print_bytes(&HTTPD_LOG_RESP_BODY, HTTPD_LOG_RESP_BODY_LEN)
-    resp_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &r_body_ptr, r_body_len)
-    !resp_log_status
     resp_blank = call @body_is_blank(&r_body_ptr, r_body_len)
     resp_blank_ok = eq resp_blank, 1
     br resp_blank_ok -> L_RESP_EMPTY_BODY, L_RESP_BODY_OK
@@ -1473,7 +1958,7 @@ L_RESP_MISSING_CFG:
 L_RESP_HAVE_BASE_ROUTE:
     !resp_has_any_base
     r_up_auth_len_slot = stack_alloc 8
-    r_up_auth_buf = call @prefix_with_owned(&HTTPD_BEARER_PREFIX, HTTPD_BEARER_PREFIX_LEN, &r_api_key_ptr, r_api_key_len, &r_up_auth_len_slot)
+    r_up_auth_buf = call @build_upstream_auth_header_owned(&r_api_key_ptr, r_api_key_len, &r_up_auth_len_slot)
     r_up_auth_len = load r_up_auth_len_slot+0 as u64
     br r_has_base -> L_RESP_HAS_BASE_URL, L_RESP_NO_BASE_FALLBACK
 
@@ -1523,8 +2008,10 @@ L_RESP_NO_BASE_CHAT_FB_SEND:
 L_RESP_HAS_BASE_URL:
     !r_has_base
     r_upstream_len_slot = stack_alloc 8
-    r_upstream_ptr = call @path_join_owned(&r_base_ptr, r_base_len, &HTTPD_UP_RESP_SUFFIX, HTTPD_UP_RESP_SUFFIX_LEN, &r_upstream_len_slot)
+    r_upstream_ptr = call @build_upstream_url_owned(&r_base_ptr, r_base_len, HTTPD_UPSTREAM_ROUTE_RESPONSES, &r_upstream_len_slot)
     r_upstream_len = load r_upstream_len_slot+0 as u64
+    resp_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &r_proxy_body_ptr, r_proxy_body_len, &r_body_ptr, r_body_len)
+    !resp_log_status
 
     r_client_slot = stack_alloc 8
     r_client_status = call @sa_http_client_new(1, &r_client_slot)
@@ -1536,6 +2023,8 @@ L_RESP_HAS_BASE_URL:
 
     call @sa_http_client_req_add_header(r_out_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &r_up_auth_buf, r_up_auth_len)
     call @sa_http_client_req_add_header(r_out_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &r_api_key_ptr, r_api_key_len)
+    r_forward_status = call @forward_deno_passthrough_headers(&req, r_out_req)
+    !r_forward_status
     call @sa_http_client_req_add_header(r_out_req, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
     call @sa_http_client_req_set_body(r_out_req, &r_proxy_body_ptr, r_proxy_body_len)
 
@@ -1799,8 +2288,10 @@ L_RESP_CHAT_FB_MISSING_CFG:
 L_RESP_CHAT_FB_HAVE_CHAT_BASE:
     !r_fb_has_chat_base
     r_fb_url_len_slot = stack_alloc 8
-    r_fb_chat_url = call @path_join_owned(&r_fb_chat_base_ptr, r_fb_chat_base_len, &HTTPD_UP_CHAT_SUFFIX, HTTPD_UP_CHAT_SUFFIX_LEN, &r_fb_url_len_slot)
+    r_fb_chat_url = call @build_upstream_url_owned(&r_fb_chat_base_ptr, r_fb_chat_base_len, HTTPD_UPSTREAM_ROUTE_CHAT, &r_fb_url_len_slot)
     r_fb_chat_url_len = load r_fb_url_len_slot+0 as u64
+    r_fb_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &r_fb_body, r_fb_len, &r_body_ptr, r_body_len)
+    !r_fb_log_status
 
     r_fb_client_slot = stack_alloc 8
     r_fb_client_status = call @sa_http_client_new(1, &r_fb_client_slot)
@@ -1810,6 +2301,8 @@ L_RESP_CHAT_FB_HAVE_CHAT_BASE:
     r_fb_req = load r_fb_req_slot+0 as ptr
     call @sa_http_client_req_add_header(r_fb_req, &HTTPD_HDR_AUTH, HTTPD_HDR_AUTH_LEN, &r_up_auth_buf, r_up_auth_len)
     call @sa_http_client_req_add_header(r_fb_req, &HTTPD_HDR_X_API_KEY, HTTPD_HDR_X_API_KEY_LEN, &r_api_key_ptr, r_api_key_len)
+    r_fb_forward_status = call @forward_deno_passthrough_headers(&req, r_fb_req)
+    !r_fb_forward_status
     call @sa_http_client_req_add_header(r_fb_req, &HTTPD_HDR_CONTENT_TYPE, HTTPD_HDR_CONTENT_TYPE_LEN, &HTTPD_MIME_JSON, HTTPD_MIME_JSON_LEN)
     call @sa_http_client_req_set_body(r_fb_req, &r_fb_body, r_fb_len)
     r_fb_resp_slot = stack_alloc 8
@@ -2022,7 +2515,7 @@ L_RESP_NON_SSE_DEFAULT:
     r_plain_body_ptr = load r_plain_body_ptr_slot+0 as ptr
     r_plain_body_len = load r_plain_body_len_slot+0 as u64
     r_plain_norm_len_slot = stack_alloc 8
-    r_plain_norm_body = call @normalize_responses_client_json_body(&r_plain_body_ptr, r_plain_body_len, &r_plain_norm_len_slot)
+    r_plain_norm_body = call @normalize_responses_client_json_body(&r_plain_body_ptr, r_plain_body_len, &r_body_ptr, r_body_len, &r_plain_norm_len_slot)
     r_plain_norm_len = load r_plain_norm_len_slot+0 as u64
     r_plain_resp_slot = stack_alloc 8
     r_plain_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_plain_resp_slot)
@@ -2067,7 +2560,7 @@ L_RESP_NON_SSE_HEADER:
     r_h_body_ptr = load r_h_body_ptr_slot+0 as ptr
     r_h_body_len = load r_h_body_len_slot+0 as u64
     r_h_norm_len_slot = stack_alloc 8
-    r_h_norm_body = call @normalize_responses_client_json_body(&r_h_body_ptr, r_h_body_len, &r_h_norm_len_slot)
+    r_h_norm_body = call @normalize_responses_client_json_body(&r_h_body_ptr, r_h_body_len, &r_body_ptr, r_body_len, &r_h_norm_len_slot)
     r_h_norm_len = load r_h_norm_len_slot+0 as u64
     r_h_resp_slot = stack_alloc 8
     r_h_resp_status = call @sa_http_server_resp_new(req, r_up_status, &r_h_resp_slot)
@@ -2124,7 +2617,7 @@ L_RESP_STREAM_START:
     r_ctx_len_slot = stack_alloc 8
     r_ctx_body = call @build_response_request_context_body(&req, &state_ptr, &r_body_ptr, r_body_len, &r_ctx_len_slot)
     r_ctx_len = load r_ctx_len_slot+0 as u64
-    r_norm_body = call @normalize_responses_client_sse_body(&r_sse_body_ptr, r_sse_body_len, &r_ctx_body, r_ctx_len, &r_norm_len_slot)
+    r_norm_body = call @normalize_responses_client_sse_body(&r_sse_body_ptr, r_sse_body_len, &r_body_ptr, r_body_len, &r_ctx_body, r_ctx_len, &r_norm_len_slot)
     r_norm_len = load r_norm_len_slot+0 as u64
     r_write_status = call @sa_http_server_resp_stream_write(r_stream, &r_norm_body, r_norm_len)
     r_flush_status = call @sa_http_server_resp_stream_flush(r_stream)
@@ -2228,11 +2721,7 @@ L_CHECK_READY:
 
 L_CHECK_PUBLIC_MODELS:
     !is_ready_ok
-    is_models_public = call @sa_bytes_eq(&path_ptr, path_len, &HTTPD_ROUTE_MODELS, HTTPD_ROUTE_MODELS_LEN)
-    is_models_public_path = eq is_models_public, 1
-    is_models_public_ok = and is_models_public_path, is_get
-    !is_models_public
-    !is_models_public_path
+    is_models_public_ok = call @route_is_public_models_get(&path_ptr, path_len, is_get)
     br is_models_public_ok -> L_PROXY_MODELS_PUBLIC, L_AUTH_PREP
 
 L_AUTH_PREP:
@@ -2271,7 +2760,7 @@ L_NO_AUTH_API_LOG:
     noauth_body_status = call @sa_http_server_req_get_body(req, &noauth_body_ptr_slot, &noauth_body_len_slot)
     noauth_body_ptr = load noauth_body_ptr_slot+0 as ptr
     noauth_body_len = load noauth_body_len_slot+0 as u64
-    noauth_req_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &noauth_body_ptr, noauth_body_len)
+    noauth_req_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &noauth_body_ptr, noauth_body_len, &noauth_body_ptr, noauth_body_len)
     !noauth_req_log_status
     !noauth_body_status
     !noauth_body_ptr
@@ -2440,7 +2929,7 @@ L_HANDLE_RPC:
     rpc_body_status = call @sa_http_server_req_get_body(req, &rpc_raw_ptr_slot, &rpc_raw_len_slot)
     rpc_raw_ptr = load rpc_raw_ptr_slot+0 as ptr
     rpc_raw_len = load rpc_raw_len_slot+0 as u64
-    rpc_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &rpc_raw_ptr, rpc_raw_len)
+    rpc_log_status = call @write_api_request_log(&req, &cfg_ptr, &path_ptr, path_len, &method_ptr, method_len, &rpc_raw_ptr, rpc_raw_len, &rpc_raw_ptr, rpc_raw_len)
     !rpc_log_status
     rpc_canon_status = call @rpc_canonicalize_body(&rpc_raw_ptr, rpc_raw_len, &rpc_body_ptr_slot, &rpc_body_len_slot, &rpc_canon_buffer_slot)
     !rpc_canon_status

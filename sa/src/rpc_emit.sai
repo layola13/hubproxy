@@ -18,15 +18,26 @@
 @extern json_writer_begin_field_object(writer: ptr, &key: ptr, key_len: u64) -> u32
 @extern json_writer_field_default_or_null(writer: ptr, &field_key: ptr, field_key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8) -> u32
 @extern json_writer_field_param_or_default_from_params(writer: ptr, &field_key: ptr, field_key_len: u64, params_node: ptr, &lookup_key: ptr, lookup_key_len: u64, &fallback: ptr, fallback_len: u64, emit_null_if_missing: u8) -> u32
+@extern json_writer_write_empty_array_field_result(writer: ptr, &field_key: ptr, field_key_len: u64) -> u32
 @extern send_rpc_empty_array_field_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, &field_key: ptr, field_key_len: u64) -> u32
+@extern json_writer_write_empty_data_page_result(writer: ptr) -> u32
 @extern send_rpc_empty_data_page_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_config_requirements_result(writer: ptr) -> u32
 @extern send_rpc_config_requirements_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_plugin_marketplaces_result(writer: ptr) -> u32
 @extern send_rpc_plugin_marketplaces_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_plugin_install_unavailable_result(writer: ptr) -> u32
 @extern send_rpc_plugin_install_unavailable_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_experimental_features_result(writer: ptr) -> u32
 @extern send_rpc_experimental_features_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_account_login_state_result(writer: ptr, canceled: u8, logged_out: u8) -> u32
 @extern send_rpc_account_login_state_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, canceled: u8, logged_out: u8) -> u32
+@extern json_writer_write_approval_accept_result(writer: ptr) -> u32
 @extern send_rpc_approval_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_mcp_elicit_accept_result(writer: ptr) -> u32
 @extern send_rpc_mcp_elicit_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_permissions_default_result(writer: ptr) -> u32
 @extern send_rpc_permissions_default_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
+@extern json_writer_write_user_input_continue_result(writer: ptr) -> u32
 @extern send_rpc_user_input_continue_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32
 @extern send_rpc_realtime_voices_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32

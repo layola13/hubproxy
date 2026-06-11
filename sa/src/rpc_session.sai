@@ -52,8 +52,9 @@
 @extern send_rpc_turn_interrupt(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, thread_id: u64, turn_id: u64) -> u32
 @extern notify_turn_input_items_from_dom(&state_ptr: ptr, &body: ptr, body_len: u64, thread_id: u64, turn_id: u64) -> u64
 @extern notify_injected_items_from_dom(&state_ptr: ptr, &body: ptr, body_len: u64, thread_id: u64, turn_id: u64) -> u64
+@extern notify_item_detail_events(&state_ptr: ptr, thread_id: u64, turn_id: u64, item_node: ptr) -> u32
 @extern send_rpc_turn_steer(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, thread_id: u64, turn_id: u64, &body: ptr, body_len: u64) -> u32
-@extern send_rpc_memory_reset(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, thread_id: u64) -> u32
+@extern send_rpc_memory_reset(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32
 @extern json_writer_write_thread_envelope_prefix(writer: ptr, &body: ptr, body_len: u64, &model_ptr: ptr, model_len: u64, &provider_ptr: ptr, provider_len: u64, &dir_ptr: ptr, dir_len: u64) -> u32
 @extern json_writer_write_thread_turns_array(writer: ptr, &state_ptr: ptr, thread_id: u64) -> u32
 @extern rpc_goal_status_from_body(&body: ptr, body_len: u64) -> u8

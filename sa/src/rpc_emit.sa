@@ -656,16 +656,25 @@ L_JW_PARAM_FROM_PARAMS_MISSING:
     !emit_null_if_missing
     return 0
 
-@ffi_wrapper send_rpc_empty_array_field_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, &field_key: ptr, field_key_len: u64) -> u32:
+@ffi_wrapper json_writer_write_empty_array_field_result(writer: ptr, &field_key: ptr, field_key_len: u64) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     array_status = call @json_writer_field_empty_array(writer, &field_key, field_key_len)
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !array_status
     !begin_status
+    !field_key
+    !field_key_len
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_empty_array_field_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, &field_key: ptr, field_key_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_empty_array_field_result(writer, &field_key, field_key_len)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !field_key
     !field_key_len
@@ -674,27 +683,33 @@ L_ENTRY:
     !req
     return 0
 
-@ffi_wrapper send_rpc_empty_data_page_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_empty_data_page_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     data_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_DATA, RPC_EMIT_JSON_KEY_DATA_LEN)
     EXPAND JSON_WRITER_FIELD_NULL cursor_status, writer, RPC_EMIT_JSON_KEY_NEXT_CURSOR, RPC_EMIT_JSON_KEY_NEXT_CURSOR_LEN
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !cursor_status
     !data_status
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_empty_data_page_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_empty_data_page_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
     return 0
 
-@ffi_wrapper send_rpc_config_requirements_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_config_requirements_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     req_begin = call @json_writer_begin_field_object(writer, &RPC_EMIT_JSON_KEY_REQUIREMENTS, RPC_EMIT_JSON_KEY_REQUIREMENTS_LEN)
     EXPAND JSON_WRITER_FIELD_NULL allowed_status, writer, RPC_EMIT_JSON_KEY_ALLOWED_APPROVAL_POLICIES, RPC_EMIT_JSON_KEY_ALLOWED_APPROVAL_POLICIES_LEN
@@ -708,7 +723,6 @@ L_ENTRY:
     EXPAND JSON_WRITER_FIELD_NULL network_status, writer, RPC_EMIT_JSON_KEY_NETWORK, RPC_EMIT_JSON_KEY_NETWORK_LEN
     EXPAND JSON_WRITER_END_OBJECT req_end, writer
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !req_end
     !network_status
@@ -722,53 +736,75 @@ L_ENTRY:
     !allowed_status
     !req_begin
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_config_requirements_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_config_requirements_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
     return 0
 
-@ffi_wrapper send_rpc_plugin_marketplaces_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_plugin_marketplaces_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     featured_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_FEATURED_PLUGIN_IDS, RPC_EMIT_JSON_KEY_FEATURED_PLUGIN_IDS_LEN)
     errors_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_MARKETPLACE_LOAD_ERRORS, RPC_EMIT_JSON_KEY_MARKETPLACE_LOAD_ERRORS_LEN)
     markets_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_MARKETPLACES, RPC_EMIT_JSON_KEY_MARKETPLACES_LEN)
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !markets_status
     !errors_status
     !featured_status
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_plugin_marketplaces_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_plugin_marketplaces_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
+    return 0
+
+@ffi_wrapper json_writer_write_plugin_install_unavailable_result(writer: ptr) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    apps_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH, RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING policy_status, writer, RPC_EMIT_JSON_KEY_AUTH_POLICY, RPC_EMIT_JSON_KEY_AUTH_POLICY_LEN, RPC_EMIT_JSON_VALUE_NOT_AVAILABLE, RPC_EMIT_JSON_VALUE_NOT_AVAILABLE_LEN
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    !end_status
+    !policy_status
+    !apps_status
+    !begin_status
+    !writer
     return 0
 
 @ffi_wrapper send_rpc_plugin_install_unavailable_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
 L_ENTRY:
     EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
-    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
-    apps_status = call @json_writer_field_empty_array(writer, &RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH, RPC_EMIT_JSON_KEY_APPS_NEEDING_AUTH_LEN)
-    EXPAND JSON_WRITER_FIELD_STRING policy_status, writer, RPC_EMIT_JSON_KEY_AUTH_POLICY, RPC_EMIT_JSON_KEY_AUTH_POLICY_LEN, RPC_EMIT_JSON_VALUE_NOT_AVAILABLE, RPC_EMIT_JSON_VALUE_NOT_AVAILABLE_LEN
-    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    write_status = call @json_writer_write_plugin_install_unavailable_result(writer)
     call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
-    !end_status
-    !policy_status
-    !apps_status
-    !begin_status
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
     return 0
 
-@ffi_wrapper send_rpc_experimental_features_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_experimental_features_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     data_begin = call @json_writer_begin_field_array(writer, &RPC_EMIT_JSON_KEY_DATA, RPC_EMIT_JSON_KEY_DATA_LEN)
     EXPAND JSON_WRITER_BEGIN_OBJECT feature_begin, writer
@@ -783,7 +819,6 @@ L_ENTRY:
     EXPAND JSON_WRITER_END_ARRAY data_end, writer
     EXPAND JSON_WRITER_FIELD_NULL cursor_status, writer, RPC_EMIT_JSON_KEY_NEXT_CURSOR, RPC_EMIT_JSON_KEY_NEXT_CURSOR_LEN
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !cursor_status
     !data_end
@@ -798,24 +833,42 @@ L_ENTRY:
     !feature_begin
     !data_begin
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_experimental_features_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_experimental_features_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
     return 0
 
-@ffi_wrapper send_rpc_account_login_state_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, canceled: u8, logged_out: u8) -> u32:
+@ffi_wrapper json_writer_write_account_login_state_result(writer: ptr, canceled: u8, logged_out: u8) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     EXPAND JSON_WRITER_FIELD_BOOL canceled_status, writer, RPC_EMIT_JSON_KEY_CANCELED, RPC_EMIT_JSON_KEY_CANCELED_LEN, canceled
     EXPAND JSON_WRITER_FIELD_BOOL logged_status, writer, RPC_EMIT_JSON_KEY_LOGGED_OUT, RPC_EMIT_JSON_KEY_LOGGED_OUT_LEN, logged_out
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !logged_status
     !canceled_status
     !begin_status
+    !writer
+    !canceled
+    !logged_out
+    return 0
+
+@ffi_wrapper send_rpc_account_login_state_with_id(&req: ptr, &id_ptr: ptr, id_len: u64, canceled: u8, logged_out: u8) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_account_login_state_result(writer, canceled, logged_out)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !canceled
     !logged_out
@@ -824,65 +877,85 @@ L_ENTRY:
     !req
     return 0
 
-@ffi_wrapper send_rpc_approval_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_approval_accept_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     EXPAND JSON_WRITER_FIELD_STRING decision_status, writer, RPC_EMIT_JSON_KEY_DECISION, RPC_EMIT_JSON_KEY_DECISION_LEN, RPC_EMIT_JSON_VALUE_ACCEPT, RPC_EMIT_JSON_VALUE_ACCEPT_LEN
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !decision_status
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_approval_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_approval_accept_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
     return 0
 
-@ffi_wrapper send_rpc_mcp_elicit_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_mcp_elicit_accept_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     EXPAND JSON_WRITER_FIELD_STRING action_status, writer, RPC_EMIT_JSON_KEY_ACTION, RPC_EMIT_JSON_KEY_ACTION_LEN, RPC_EMIT_JSON_VALUE_ACCEPT, RPC_EMIT_JSON_VALUE_ACCEPT_LEN
     EXPAND JSON_WRITER_FIELD_NULL content_status, writer, RPC_EMIT_JSON_KEY_CONTENT, RPC_EMIT_JSON_KEY_CONTENT_LEN
     EXPAND JSON_WRITER_FIELD_NULL meta_status, writer, RPC_EMIT_JSON_KEY_META, RPC_EMIT_JSON_KEY_META_LEN
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !meta_status
     !content_status
     !action_status
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_mcp_elicit_accept_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_mcp_elicit_accept_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
     return 0
 
-@ffi_wrapper send_rpc_permissions_default_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_permissions_default_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     permissions_status = call @json_writer_field_empty_object(writer, &RPC_EMIT_JSON_KEY_PERMISSIONS, RPC_EMIT_JSON_KEY_PERMISSIONS_LEN)
     EXPAND JSON_WRITER_FIELD_STRING scope_status, writer, RPC_EMIT_JSON_KEY_SCOPE, RPC_EMIT_JSON_KEY_SCOPE_LEN, RPC_EMIT_JSON_VALUE_TURN, RPC_EMIT_JSON_VALUE_TURN_LEN
     EXPAND JSON_WRITER_FIELD_NULL review_status, writer, RPC_EMIT_JSON_KEY_STRICT_AUTO_REVIEW, RPC_EMIT_JSON_KEY_STRICT_AUTO_REVIEW_LEN
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !review_status
     !scope_status
     !permissions_status
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_permissions_default_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_permissions_default_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len
     !req
     return 0
 
-@ffi_wrapper send_rpc_user_input_continue_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+@ffi_wrapper json_writer_write_user_input_continue_result(writer: ptr) -> u32:
 L_ENTRY:
-    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     answers_begin = call @json_writer_begin_field_object(writer, &RPC_EMIT_JSON_KEY_ANSWERS, RPC_EMIT_JSON_KEY_ANSWERS_LEN)
     default_begin = call @json_writer_begin_field_object(writer, &RPC_EMIT_JSON_VALUE_DEFAULT, RPC_EMIT_JSON_VALUE_DEFAULT_LEN)
@@ -892,7 +965,6 @@ L_ENTRY:
     EXPAND JSON_WRITER_END_OBJECT default_end, writer
     EXPAND JSON_WRITER_END_OBJECT answers_end, writer
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
-    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
     !answers_end
     !default_end
@@ -902,6 +974,15 @@ L_ENTRY:
     !default_begin
     !answers_begin
     !begin_status
+    !writer
+    return 0
+
+@ffi_wrapper send_rpc_user_input_continue_with_id(&req: ptr, &id_ptr: ptr, id_len: u64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_user_input_continue_result(writer)
+    call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
+    !write_status
     !writer_status
     !id_ptr
     !id_len

@@ -230,7 +230,6 @@
 @const JSON_KEY_CONTENT_ITEMS = utf8:"contentItems"
 @const JSON_KEY_TEXT = utf8:"text"
 @const JSON_KEY_SUCCESS = utf8:"success"
-@const JSON_KEY_STRUCTURED_CONTENT = utf8:"structuredContent"
 @const JSON_KEY_OK = utf8:"ok"
 @const JSON_KEY_TOOL = utf8:"tool"
 @const JSON_KEY_SERVER = utf8:"server"
@@ -618,7 +617,6 @@
 #def JSON_KEY_CONTENT_ITEMS_LEN = 12
 #def JSON_KEY_TEXT_LEN = 4
 #def JSON_KEY_SUCCESS_LEN = 7
-#def JSON_KEY_STRUCTURED_CONTENT_LEN = 17
 #def JSON_KEY_OK_LEN = 2
 #def JSON_KEY_TOOL_LEN = 4
 #def JSON_KEY_SERVER_LEN = 6
@@ -887,7 +885,6 @@
 @const EV_RT_TRANSCRIPT_DONE = utf8:"thread/realtime/transcript/done"
 @const EV_RT_AUDIO_DELTA = utf8:"thread/realtime/outputAudio/delta"
 @const EV_RT_CLOSED = utf8:"thread/realtime/closed"
-@const EV_MCP_TOOL_PROGRESS = utf8:"item/mcpToolCall/progress"
 @const EV_USER_INPUT = utf8:"item/tool/requestUserInput"
 @const EV_MCP_ELICITATION = utf8:"mcpServer/elicitation/request"
 @const EV_FUZZY_UPDATED = utf8:"fuzzyFileSearch/sessionUpdated"
@@ -1049,7 +1046,6 @@
 #def EV_RT_TRANSCRIPT_DONE_LEN = 31
 #def EV_RT_AUDIO_DELTA_LEN = 33
 #def EV_RT_CLOSED_LEN = 22
-#def EV_MCP_TOOL_PROGRESS_LEN = 25
 #def EV_USER_INPUT_LEN = 26
 #def EV_MCP_ELICITATION_LEN = 29
 #def EV_FUZZY_UPDATED_LEN = 30
@@ -1744,9 +1740,7 @@ L_RPC_TRY_MEMORY_RESET:
 
 L_RPC_MEMORY_RESET:
     !m_mem_ok
-    mem_thread_id = call @rpc_resolve_thread_id(&state_ptr, &rpc_body_ptr, rpc_body_len, 0)
-    call @send_rpc_memory_reset(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, mem_thread_id)
-    !mem_thread_id
+    call @send_rpc_memory_reset(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
     jmp L_RPC_DONE
 
 L_RPC_TRY_HOOKS_LIST:
@@ -2453,8 +2447,7 @@ L_RPC_TRY_FUZZY_SESSION_START:
 
 L_RPC_MCP_TOOL_RUN:
     !m_mcp_tool_ok
-    call @notify_mcp_tool_progress(&state_ptr, &rpc_body_ptr, rpc_body_len)
-    call @send_rpc_mcp_tool_call(&req, &rpc_id_ptr, rpc_id_len, &rpc_body_ptr, rpc_body_len)
+    call @send_rpc_mcp_tool_call(&req, &rpc_id_ptr, rpc_id_len, &state_ptr, &rpc_body_ptr, rpc_body_len)
     jmp L_RPC_DONE
 
 L_RPC_TRY_FUZZY_SESSION_START_FINAL:
@@ -2569,7 +2562,7 @@ L_RPC_TRY_MCP_OAUTH_LOGIN:
 
 L_RPC_MCP_OAUTH_LOGIN:
     !m_oauth_ok
-    call @send_rpc_oauth_login(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr)
+    call @send_rpc_oauth_login(&req, &rpc_id_ptr, rpc_id_len, &cfg_ptr, &rpc_body_ptr, rpc_body_len)
     jmp L_RPC_DONE
 
 L_RPC_TRY_MOCK_EXPERIMENTAL:

@@ -1,0 +1,689 @@
+// SA native @test coverage for Deno-compatible turn RPC contracts.
+@import "../src/hub_modules.sa"
+
+@const TURN_MODE_PLAN_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"turn/start\",\"params\":{\"threadId\":\"turn-mode-thread\",\"input\":[],\"collaborationMode\":{\"mode\":\"plan\"}}}"
+@const TURN_MODE_GOAL_TRIM_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"turn/start\",\"params\":{\"threadId\":\"turn-mode-thread\",\"input\":[],\"collaborationMode\":{\"mode\":\" Goal\\t\"}}}"
+@const TURN_MODE_CODE_UPPER_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"turn/start\",\"params\":{\"threadId\":\"turn-mode-thread\",\"input\":[],\"collaborationMode\":{\"mode\":\"CODE\"}}}"
+@const TURN_MODE_REVIEW_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"turn/start\",\"params\":{\"threadId\":\"turn-mode-thread\",\"input\":[],\"collaborationMode\":{\"mode\":\" Review \"}}}"
+@const TURN_MODE_ALIAS_KIND_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"turn/start\",\"params\":{\"threadId\":\"turn-mode-thread\",\"input\":[],\"collaboration_mode\":{\"kind\":\"goal\"}}}"
+@const TURN_MODE_ALIAS_KIND_TOP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"turn/start\",\"params\":{\"threadId\":\"turn-mode-thread\",\"input\":[],\"collaborationModeKind\":\"goal\"}}"
+@const TURN_MODE_EMPTY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"turn/start\",\"params\":{\"threadId\":\"turn-mode-thread\",\"input\":[],\"collaborationMode\":{\"mode\":\"   \"}}}"
+@const TURN_THREAD_KEY = utf8:"turn-mode-thread"
+@const TURN_MODEL = utf8:"model"
+@const TURN_CWD = utf8:"/tmp"
+@const MODE_REVIEW_NORM = utf8:"review"
+@const MODE_PLAN_NORM = utf8:"plan"
+@const MODE_GOAL_NORM = utf8:"goal"
+@const TURN_ITEM_START = utf8:"[{\"type\":\"message\",\"role\":\"user\",\"content\":\"start\"}]"
+@const TURN_ITEM_STEERED = utf8:"[{\"type\":\"message\",\"role\":\"user\",\"content\":\"steered\"}]"
+@const TURN_ITEM_MERGED = utf8:"[{\"type\":\"message\",\"role\":\"user\",\"content\":\"start\"},{\"type\":\"message\",\"role\":\"user\",\"content\":\"steered\"}]"
+@const TURN_ITEM_EMPTY_ARRAY = utf8:"[]"
+@const NEEDLE_TURN_STARTED_EVENT = utf8:"event: turn/started"
+@const NEEDLE_TURN_COMPLETED_EVENT = utf8:"event: turn/completed"
+@const NEEDLE_TURN_THREAD_KEY = utf8:"\"threadId\":\"turn-mode-thread\""
+@const NEEDLE_TURN_OBJECT_2 = utf8:"\"turn\":{\"id\":\"2\""
+@const NEEDLE_TURN_STATUS_PROGRESS = utf8:"\"status\":\"inProgress\""
+@const NEEDLE_TURN_STATUS_INTERRUPTED = utf8:"\"status\":\"interrupted\""
+@const NEEDLE_TURN_MODE_PLAN = utf8:"\"collaborationModeKind\":\"plan\""
+@const NEEDLE_TURN_COMPLETED_NULL = utf8:"\"completedAt\":null"
+@const NEEDLE_TURN_ITEMS_EMPTY = utf8:"\"items\":[]"
+
+#def TURN_MODE_PLAN_BODY_LEN = 134
+#def TURN_MODE_GOAL_TRIM_BODY_LEN = 137
+#def TURN_MODE_CODE_UPPER_BODY_LEN = 134
+#def TURN_MODE_REVIEW_BODY_LEN = 138
+#def TURN_MODE_ALIAS_KIND_BODY_LEN = 135
+#def TURN_MODE_ALIAS_KIND_TOP_BODY_LEN = 129
+#def TURN_MODE_EMPTY_BODY_LEN = 133
+#def TURN_THREAD_KEY_LEN = 16
+#def TURN_MODEL_LEN = 5
+#def TURN_CWD_LEN = 4
+#def MODE_REVIEW_NORM_LEN = 6
+#def MODE_PLAN_NORM_LEN = 4
+#def MODE_GOAL_NORM_LEN = 4
+#def TURN_ITEM_START_LEN = 52
+#def TURN_ITEM_STEERED_LEN = 54
+#def TURN_ITEM_MERGED_LEN = 105
+#def TURN_ITEM_EMPTY_ARRAY_LEN = 2
+#def NEEDLE_TURN_STARTED_EVENT_LEN = 19
+#def NEEDLE_TURN_COMPLETED_EVENT_LEN = 21
+#def NEEDLE_TURN_THREAD_KEY_LEN = 29
+#def NEEDLE_TURN_OBJECT_2_LEN = 16
+#def NEEDLE_TURN_STATUS_PROGRESS_LEN = 21
+#def NEEDLE_TURN_STATUS_INTERRUPTED_LEN = 22
+#def NEEDLE_TURN_MODE_PLAN_LEN = 30
+#def NEEDLE_TURN_COMPLETED_NULL_LEN = 18
+#def NEEDLE_TURN_ITEMS_EMPTY_LEN = 10
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@test "turn start collaboration mode parser follows Deno explicit mode contract"():
+L_ENTRY:
+    plan_mode = call @rpc_turn_start_collaboration_mode(&TURN_MODE_PLAN_BODY, TURN_MODE_PLAN_BODY_LEN)
+    plan_ok = eq plan_mode, 1
+    call @assert_contract(plan_ok, 700)
+
+    goal_mode = call @rpc_turn_start_collaboration_mode(&TURN_MODE_GOAL_TRIM_BODY, TURN_MODE_GOAL_TRIM_BODY_LEN)
+    goal_ok = eq goal_mode, 2
+    call @assert_contract(goal_ok, 701)
+
+    code_mode = call @rpc_turn_start_collaboration_mode(&TURN_MODE_CODE_UPPER_BODY, TURN_MODE_CODE_UPPER_BODY_LEN)
+    code_ok = eq code_mode, 3
+    call @assert_contract(code_ok, 702)
+
+    review_mode = call @rpc_turn_start_collaboration_mode(&TURN_MODE_REVIEW_BODY, TURN_MODE_REVIEW_BODY_LEN)
+    review_known_none = eq review_mode, 0
+    call @assert_contract(review_known_none, 703)
+
+    alias_kind_mode = call @rpc_turn_start_collaboration_mode(&TURN_MODE_ALIAS_KIND_BODY, TURN_MODE_ALIAS_KIND_BODY_LEN)
+    alias_kind_none = eq alias_kind_mode, 0
+    call @assert_contract(alias_kind_none, 704)
+
+    alias_top_mode = call @rpc_turn_start_collaboration_mode(&TURN_MODE_ALIAS_KIND_TOP_BODY, TURN_MODE_ALIAS_KIND_TOP_BODY_LEN)
+    alias_top_none = eq alias_top_mode, 0
+    call @assert_contract(alias_top_none, 705)
+
+    empty_mode = call @rpc_turn_start_collaboration_mode(&TURN_MODE_EMPTY_BODY, TURN_MODE_EMPTY_BODY_LEN)
+    empty_none = eq empty_mode, 0
+    call @assert_contract(empty_none, 706)
+
+    !empty_mode
+    !empty_none
+    !alias_top_mode
+    !alias_top_none
+    !alias_kind_mode
+    !alias_kind_none
+    !review_mode
+    !review_known_none
+    !code_mode
+    !code_ok
+    !goal_mode
+    !goal_ok
+    !plan_mode
+    !plan_ok
+    return
+
+@test "turn start collaboration mode stores normalized custom text"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 710)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 711)
+
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 712)
+
+    review_code = call @rpc_turn_start_set_collaboration_mode(&state, thread_id, turn_id, &TURN_MODE_REVIEW_BODY, TURN_MODE_REVIEW_BODY_LEN)
+    review_code_none = eq review_code, 0
+    call @assert_contract(review_code_none, 713)
+
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    slot_ok = ne slot, 0
+    call @assert_contract(slot_ok, 714)
+    stored_mode = load slot+TURN_MODE as u8
+    stored_mode_none = eq stored_mode, 0
+    call @assert_contract(stored_mode_none, 715)
+    stored_len = load slot+TURN_MODE_LEN as u64
+    stored_len_ok = eq stored_len, MODE_REVIEW_NORM_LEN
+    call @assert_contract(stored_len_ok, 716)
+    stored_ptr = ptr_add slot, TURN_MODE_TEXT
+    stored_eq = call @sa_bytes_eq(&stored_ptr, stored_len, &MODE_REVIEW_NORM, MODE_REVIEW_NORM_LEN)
+    stored_eq_ok = eq stored_eq, 1
+    call @assert_contract(stored_eq_ok, 717)
+
+    goal_code = call @rpc_turn_start_set_collaboration_mode(&state, thread_id, turn_id, &TURN_MODE_GOAL_TRIM_BODY, TURN_MODE_GOAL_TRIM_BODY_LEN)
+    goal_code_ok = eq goal_code, 2
+    call @assert_contract(goal_code_ok, 718)
+    slot2 = call @state_turn_find(&state, thread_id, turn_id)
+    stored_mode2 = load slot2+TURN_MODE as u8
+    stored_mode_goal = eq stored_mode2, 2
+    call @assert_contract(stored_mode_goal, 719)
+    stored_len2 = load slot2+TURN_MODE_LEN as u64
+    stored_goal_len = eq stored_len2, MODE_GOAL_NORM_LEN
+    call @assert_contract(stored_goal_len, 720)
+    stored_ptr2 = ptr_add slot2, TURN_MODE_TEXT
+    stored_goal_eq = call @sa_bytes_eq(&stored_ptr2, stored_len2, &MODE_GOAL_NORM, MODE_GOAL_NORM_LEN)
+    stored_goal_eq_ok = eq stored_goal_eq, 1
+    call @assert_contract(stored_goal_eq_ok, 721)
+
+    !stored_goal_eq
+    !stored_goal_eq_ok
+    !stored_ptr2
+    !stored_len2
+    !stored_goal_len
+    !stored_mode2
+    !stored_mode_goal
+    !slot2
+    !goal_code
+    !goal_code_ok
+    !stored_eq
+    !stored_eq_ok
+    !stored_ptr
+    !stored_len
+    !stored_len_ok
+    !stored_mode
+    !stored_mode_none
+    !slot
+    !slot_ok
+    !review_code
+    !review_code_none
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "turn start collaboration aliases do not mutate turn mode"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 730)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 731)
+
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 732)
+
+    alias_code = call @rpc_turn_start_set_collaboration_mode(&state, thread_id, turn_id, &TURN_MODE_ALIAS_KIND_BODY, TURN_MODE_ALIAS_KIND_BODY_LEN)
+    alias_none = eq alias_code, 0
+    call @assert_contract(alias_none, 733)
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    mode = load slot+TURN_MODE as u8
+    mode_none = eq mode, 0
+    call @assert_contract(mode_none, 734)
+    mode_len = load slot+TURN_MODE_LEN as u64
+    mode_len_zero = eq mode_len, 0
+    call @assert_contract(mode_len_zero, 735)
+
+    top_alias_code = call @rpc_turn_start_set_collaboration_mode(&state, thread_id, turn_id, &TURN_MODE_ALIAS_KIND_TOP_BODY, TURN_MODE_ALIAS_KIND_TOP_BODY_LEN)
+    top_alias_none = eq top_alias_code, 0
+    call @assert_contract(top_alias_none, 736)
+    slot2 = call @state_turn_find(&state, thread_id, turn_id)
+    mode2 = load slot2+TURN_MODE as u8
+    mode2_none = eq mode2, 0
+    call @assert_contract(mode2_none, 737)
+    mode_len2 = load slot2+TURN_MODE_LEN as u64
+    mode_len2_zero = eq mode_len2, 0
+    call @assert_contract(mode_len2_zero, 738)
+
+    goal_code = call @rpc_turn_start_set_collaboration_mode(&state, thread_id, turn_id, &TURN_MODE_GOAL_TRIM_BODY, TURN_MODE_GOAL_TRIM_BODY_LEN)
+    goal_code_ok = eq goal_code, 2
+    call @assert_contract(goal_code_ok, 739)
+    empty_code = call @rpc_turn_start_set_collaboration_mode(&state, thread_id, turn_id, &TURN_MODE_EMPTY_BODY, TURN_MODE_EMPTY_BODY_LEN)
+    empty_code_none = eq empty_code, 0
+    call @assert_contract(empty_code_none, 740)
+    slot3 = call @state_turn_find(&state, thread_id, turn_id)
+    mode3 = load slot3+TURN_MODE as u8
+    mode3_none = eq mode3, 0
+    call @assert_contract(mode3_none, 741)
+    mode_len3 = load slot3+TURN_MODE_LEN as u64
+    mode_len3_zero = eq mode_len3, 0
+    call @assert_contract(mode_len3_zero, 742)
+
+    !mode_len3
+    !mode_len3_zero
+    !mode3
+    !mode3_none
+    !slot3
+    !empty_code
+    !empty_code_none
+    !goal_code
+    !goal_code_ok
+    !mode_len2
+    !mode_len2_zero
+    !mode2
+    !mode2_none
+    !slot2
+    !top_alias_code
+    !top_alias_none
+    !mode_len
+    !mode_len_zero
+    !mode
+    !mode_none
+    !slot
+    !alias_code
+    !alias_none
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "turn steer appends input items like Deno state"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 750)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 751)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 752)
+
+    set_status = call @state_turn_set_items(&state, thread_id, turn_id, &TURN_ITEM_START, TURN_ITEM_START_LEN)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 753)
+    append_status = call @state_turn_append_items(&state, thread_id, turn_id, &TURN_ITEM_STEERED, TURN_ITEM_STEERED_LEN)
+    append_ok = eq append_status, 0
+    call @assert_contract(append_ok, 754)
+
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    items_len = load slot+TURN_ITEMS_LEN as u64
+    len_ok = eq items_len, TURN_ITEM_MERGED_LEN
+    call @assert_contract(len_ok, 755)
+    items_ptr = ptr_add slot, TURN_ITEMS
+    merged_ok = call @sa_bytes_eq(&items_ptr, items_len, &TURN_ITEM_MERGED, TURN_ITEM_MERGED_LEN)
+    merged_eq = eq merged_ok, 1
+    call @assert_contract(merged_eq, 756)
+
+    !merged_eq
+    !merged_ok
+    !items_ptr
+    !items_len
+    !len_ok
+    !slot
+    !append_status
+    !append_ok
+    !set_status
+    !set_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "turn steer sets items on empty turn without nesting"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 760)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 761)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 762)
+
+    append_status = call @state_turn_append_items(&state, thread_id, turn_id, &TURN_ITEM_STEERED, TURN_ITEM_STEERED_LEN)
+    append_ok = eq append_status, 0
+    call @assert_contract(append_ok, 763)
+
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    items_len = load slot+TURN_ITEMS_LEN as u64
+    len_ok = eq items_len, TURN_ITEM_STEERED_LEN
+    call @assert_contract(len_ok, 764)
+    items_ptr = ptr_add slot, TURN_ITEMS
+    item_ok = call @sa_bytes_eq(&items_ptr, items_len, &TURN_ITEM_STEERED, TURN_ITEM_STEERED_LEN)
+    item_eq = eq item_ok, 1
+    call @assert_contract(item_eq, 765)
+
+    !item_eq
+    !item_ok
+    !items_ptr
+    !items_len
+    !len_ok
+    !slot
+    !append_status
+    !append_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "turn steer empty input preserves items and advances updatedAt"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 770)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 771)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 772)
+
+    set_status = call @state_turn_set_items(&state, thread_id, turn_id, &TURN_ITEM_START, TURN_ITEM_START_LEN)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 773)
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    before_updated = load slot+TURN_UPDATED as u64
+    EXPAND DENO_SLEEP_MS sleep_status, 1100
+
+    append_status = call @state_turn_append_items(&state, thread_id, turn_id, &TURN_ITEM_EMPTY_ARRAY, TURN_ITEM_EMPTY_ARRAY_LEN)
+    append_ok = eq append_status, 0
+    call @assert_contract(append_ok, 775)
+    after_updated = load slot+TURN_UPDATED as u64
+    advanced = ugt after_updated, before_updated
+    call @assert_contract(advanced, 776)
+    items_len = load slot+TURN_ITEMS_LEN as u64
+    len_ok = eq items_len, TURN_ITEM_START_LEN
+    call @assert_contract(len_ok, 777)
+    items_ptr = ptr_add slot, TURN_ITEMS
+    preserved_ok = call @sa_bytes_eq(&items_ptr, items_len, &TURN_ITEM_START, TURN_ITEM_START_LEN)
+    preserved_eq = eq preserved_ok, 1
+    call @assert_contract(preserved_eq, 778)
+
+    !preserved_eq
+    !preserved_ok
+    !items_ptr
+    !items_len
+    !len_ok
+    !advanced
+    !after_updated
+    !append_status
+    !append_ok
+    !sleep_status
+    !before_updated
+    !slot
+    !set_status
+    !set_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "turn interrupt preserves createdAt and sets completedAt like Deno"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 790)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 791)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 792)
+
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    slot_ok = ne slot, 0
+    call @assert_contract(slot_ok, 793)
+    before_status = load slot+TURN_STATUS as u8
+    before_in_progress = eq before_status, 1
+    call @assert_contract(before_in_progress, 794)
+    before_created = load slot+TURN_CREATED as u64
+    before_updated = load slot+TURN_UPDATED as u64
+    before_completed = load slot+TURN_COMPLETED as u64
+    before_created_updated = eq before_created, before_updated
+    call @assert_contract(before_created_updated, 795)
+    before_incomplete = eq before_completed, 0
+    call @assert_contract(before_incomplete, 796)
+
+    EXPAND DENO_SLEEP_MS sleep_status, 1100
+
+    interrupt_status = call @state_turn_interrupt(&state, thread_id, turn_id)
+    interrupt_ok = eq interrupt_status, 0
+    call @assert_contract(interrupt_ok, 797)
+    after_status = load slot+TURN_STATUS as u8
+    after_interrupted = eq after_status, 2
+    call @assert_contract(after_interrupted, 798)
+    after_created = load slot+TURN_CREATED as u64
+    after_updated = load slot+TURN_UPDATED as u64
+    after_completed = load slot+TURN_COMPLETED as u64
+    created_preserved = eq after_created, before_created
+    call @assert_contract(created_preserved, 799)
+    completed_set = ugt after_completed, 0
+    call @assert_contract(completed_set, 800)
+    completed_matches_updated = eq after_completed, after_updated
+    call @assert_contract(completed_matches_updated, 801)
+    completed_after_created = ugt after_completed, before_created
+    call @assert_contract(completed_after_created, 802)
+
+    !completed_after_created
+    !completed_matches_updated
+    !completed_set
+    !created_preserved
+    !after_completed
+    !after_updated
+    !after_created
+    !after_status
+    !after_interrupted
+    !interrupt_status
+    !interrupt_ok
+    !sleep_status
+    !before_incomplete
+    !before_created_updated
+    !before_completed
+    !before_updated
+    !before_created
+    !before_status
+    !before_in_progress
+    !slot
+    !slot_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "turn started and completed events include full turn object like Deno"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 803)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = eq thread_id, 1
+    call @assert_contract(thread_ok, 804)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, 805)
+    mode_status = call @state_turn_set_mode_text(&state, thread_id, turn_id, 1, &MODE_PLAN_NORM, MODE_PLAN_NORM_LEN)
+    mode_ok = eq mode_status, 0
+    call @assert_contract(mode_ok, 806)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    start_notify = call @notify_turn_started(&state, thread_id, turn_id)
+    start_notify_ok = eq start_notify, 0
+    call @assert_contract(start_notify_ok, 807)
+
+    start_frame = stack_alloc 2048
+    start_len_slot = stack_alloc 8
+    start_read = call @state_notify_read(&state, &cursor_slot, &start_frame, 2048, &start_len_slot)
+    start_read_ok = eq start_read, 1
+    call @assert_contract(start_read_ok, 808)
+    start_len = load start_len_slot+0 as u64
+    start_event_idx = call @sa_bytes_find(&start_frame, start_len, &NEEDLE_TURN_STARTED_EVENT, NEEDLE_TURN_STARTED_EVENT_LEN)
+    start_event_ok = sge start_event_idx, 0
+    call @assert_contract(start_event_ok, 809)
+    start_thread_idx = call @sa_bytes_find(&start_frame, start_len, &NEEDLE_TURN_THREAD_KEY, NEEDLE_TURN_THREAD_KEY_LEN)
+    start_thread_ok = sge start_thread_idx, 0
+    call @assert_contract(start_thread_ok, 810)
+    start_turn_idx = call @sa_bytes_find(&start_frame, start_len, &NEEDLE_TURN_OBJECT_2, NEEDLE_TURN_OBJECT_2_LEN)
+    start_turn_ok = sge start_turn_idx, 0
+    call @assert_contract(start_turn_ok, 811)
+    start_status_idx = call @sa_bytes_find(&start_frame, start_len, &NEEDLE_TURN_STATUS_PROGRESS, NEEDLE_TURN_STATUS_PROGRESS_LEN)
+    start_status_ok = sge start_status_idx, 0
+    call @assert_contract(start_status_ok, 812)
+    start_mode_idx = call @sa_bytes_find(&start_frame, start_len, &NEEDLE_TURN_MODE_PLAN, NEEDLE_TURN_MODE_PLAN_LEN)
+    start_mode_ok = sge start_mode_idx, 0
+    call @assert_contract(start_mode_ok, 813)
+    start_completed_idx = call @sa_bytes_find(&start_frame, start_len, &NEEDLE_TURN_COMPLETED_NULL, NEEDLE_TURN_COMPLETED_NULL_LEN)
+    start_completed_ok = sge start_completed_idx, 0
+    call @assert_contract(start_completed_ok, 814)
+    start_items_idx = call @sa_bytes_find(&start_frame, start_len, &NEEDLE_TURN_ITEMS_EMPTY, NEEDLE_TURN_ITEMS_EMPTY_LEN)
+    start_items_ok = sge start_items_idx, 0
+    call @assert_contract(start_items_ok, 815)
+
+    EXPAND DENO_SLEEP_MS sleep_status, 1100
+    interrupt_status = call @state_turn_interrupt(&state, thread_id, turn_id)
+    interrupt_ok = eq interrupt_status, 0
+    call @assert_contract(interrupt_ok, 816)
+    complete_notify = call @notify_turn_completed(&state, thread_id, turn_id)
+    complete_notify_ok = eq complete_notify, 0
+    call @assert_contract(complete_notify_ok, 817)
+    complete_frame = stack_alloc 2048
+    complete_len_slot = stack_alloc 8
+    complete_read = call @state_notify_read(&state, &cursor_slot, &complete_frame, 2048, &complete_len_slot)
+    complete_read_ok = eq complete_read, 1
+    call @assert_contract(complete_read_ok, 818)
+    complete_len = load complete_len_slot+0 as u64
+    complete_event_idx = call @sa_bytes_find(&complete_frame, complete_len, &NEEDLE_TURN_COMPLETED_EVENT, NEEDLE_TURN_COMPLETED_EVENT_LEN)
+    complete_event_ok = sge complete_event_idx, 0
+    call @assert_contract(complete_event_ok, 819)
+    complete_thread_idx = call @sa_bytes_find(&complete_frame, complete_len, &NEEDLE_TURN_THREAD_KEY, NEEDLE_TURN_THREAD_KEY_LEN)
+    complete_thread_ok = sge complete_thread_idx, 0
+    call @assert_contract(complete_thread_ok, 820)
+    complete_turn_idx = call @sa_bytes_find(&complete_frame, complete_len, &NEEDLE_TURN_OBJECT_2, NEEDLE_TURN_OBJECT_2_LEN)
+    complete_turn_ok = sge complete_turn_idx, 0
+    call @assert_contract(complete_turn_ok, 821)
+    complete_status_idx = call @sa_bytes_find(&complete_frame, complete_len, &NEEDLE_TURN_STATUS_INTERRUPTED, NEEDLE_TURN_STATUS_INTERRUPTED_LEN)
+    complete_status_ok = sge complete_status_idx, 0
+    call @assert_contract(complete_status_ok, 822)
+    complete_mode_idx = call @sa_bytes_find(&complete_frame, complete_len, &NEEDLE_TURN_MODE_PLAN, NEEDLE_TURN_MODE_PLAN_LEN)
+    complete_mode_ok = sge complete_mode_idx, 0
+    call @assert_contract(complete_mode_ok, 823)
+
+    !complete_mode_ok
+    !complete_mode_idx
+    !complete_status_ok
+    !complete_status_idx
+    !complete_turn_ok
+    !complete_turn_idx
+    !complete_thread_ok
+    !complete_thread_idx
+    !complete_event_ok
+    !complete_event_idx
+    !complete_len
+    !complete_read
+    !complete_read_ok
+    !complete_notify
+    !complete_notify_ok
+    !interrupt_status
+    !interrupt_ok
+    !sleep_status
+    !start_items_ok
+    !start_items_idx
+    !start_completed_ok
+    !start_completed_idx
+    !start_mode_ok
+    !start_mode_idx
+    !start_status_ok
+    !start_status_idx
+    !start_turn_ok
+    !start_turn_idx
+    !start_thread_ok
+    !start_thread_idx
+    !start_event_ok
+    !start_event_idx
+    !start_len
+    !start_read
+    !start_read_ok
+    !start_notify
+    !start_notify_ok
+    !cursor
+    !mode_status
+    !mode_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "turn steer unknown expected turn id does not mutate first turn"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 780)
+
+    thread_id = call @state_thread_create_with_key(&state, &TURN_THREAD_KEY, TURN_THREAD_KEY_LEN, &TURN_MODEL, TURN_MODEL_LEN, &TURN_CWD, TURN_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 781)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 782)
+    set_status = call @state_turn_set_items(&state, thread_id, turn_id, &TURN_ITEM_START, TURN_ITEM_START_LEN)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 783)
+
+    missing_slot = call @state_turn_find(&state, thread_id, 99999)
+    missing_ok = eq missing_slot, 0
+    call @assert_contract(missing_ok, 784)
+    append_status = call @state_turn_append_items(&state, thread_id, 99999, &TURN_ITEM_STEERED, TURN_ITEM_STEERED_LEN)
+    append_failed = eq append_status, 1
+    call @assert_contract(append_failed, 785)
+
+    slot = call @state_turn_find(&state, thread_id, turn_id)
+    items_len = load slot+TURN_ITEMS_LEN as u64
+    len_ok = eq items_len, TURN_ITEM_START_LEN
+    call @assert_contract(len_ok, 786)
+    items_ptr = ptr_add slot, TURN_ITEMS
+    preserved_ok = call @sa_bytes_eq(&items_ptr, items_len, &TURN_ITEM_START, TURN_ITEM_START_LEN)
+    preserved_eq = eq preserved_ok, 1
+    call @assert_contract(preserved_eq, 787)
+
+    !preserved_eq
+    !preserved_ok
+    !items_ptr
+    !items_len
+    !len_ok
+    !slot
+    !append_status
+    !append_failed
+    !missing_slot
+    !missing_ok
+    !set_status
+    !set_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return

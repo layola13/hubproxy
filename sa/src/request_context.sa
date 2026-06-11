@@ -49,15 +49,34 @@
 @const CTX_BODY_COLLAB_CODE_TEXT = utf8:"# Collaboration Mode: Code"
 @const CTX_BODY_PLAN_TEXT = utf8:"# Plan Mode (Conversational)"
 @const CTX_CHAT_PROGRESS_EN_LET_ME = utf8:"Let me"
+@const CTX_CHAT_PROGRESS_EN_LET_ME_LOWER = utf8:"let me "
+@const CTX_CHAT_PROGRESS_EN_ILL = utf8:"I'll "
+@const CTX_CHAT_PROGRESS_EN_I_WILL = utf8:"I will "
 @const CTX_CHAT_PROGRESS_EN_CHECK = utf8:"check"
 @const CTX_CHAT_PROGRESS_EN_INSPECT = utf8:"inspect"
 @const CTX_CHAT_PROGRESS_EN_READ = utf8:"read"
+@const CTX_CHAT_PROGRESS_EN_RUN = utf8:"run"
+@const CTX_CHAT_PROGRESS_EN_VERIFY = utf8:"verify"
+@const CTX_CHAT_PROGRESS_EN_REVIEW = utf8:"review"
+@const CTX_CHAT_PROGRESS_EN_ANALYZE = utf8:"analyze"
+@const CTX_CHAT_PROGRESS_EN_ANALYSE = utf8:"analyse"
 @const CTX_CHAT_PROGRESS_CN_WOHUI = utf8:"我会"
+@const CTX_CHAT_PROGRESS_CN_WOXIAN = utf8:"我先"
 @const CTX_CHAT_PROGRESS_CN_JIXU = utf8:"继续"
+@const CTX_CHAT_PROGRESS_CN_NEXT = utf8:"接下来"
 @const CTX_CHAT_PROGRESS_CN_READ = utf8:"读取"
+@const CTX_CHAT_PROGRESS_CN_VIEW = utf8:"查看"
 @const CTX_CHAT_PROGRESS_CN_CHECK = utf8:"检查"
 @const CTX_CHAT_PROGRESS_CN_RUN = utf8:"运行"
+@const CTX_CHAT_PROGRESS_CN_EXEC = utf8:"执行"
+@const CTX_CHAT_PROGRESS_CN_EVAL = utf8:"评估"
+@const CTX_CHAT_PROGRESS_CN_ANALYZE = utf8:"分析"
 @const CTX_CHAT_FINAL_CN_DONE = utf8:"我已完成"
+@const CTX_CHAT_FINAL_CN_CONCLUSION = utf8:"结论"
+@const CTX_CHAT_FINAL_CN_SUMMARY = utf8:"总结"
+@const CTX_CHAT_FINAL_EN_SUMMARY = utf8:"summary"
+@const CTX_CHAT_FINAL_EN_CONCLUSION = utf8:"conclusion"
+@const CTX_CHAT_FINAL_EN_COMPLETED = utf8:"completed"
 @const CTX_CHAT_PROPOSED_PLAN = utf8:"<proposed_plan>"
 @const CTX_RESP_EVENT_COMPLETED_PREFIX = utf8:"event: response.completed\n"
 @const CTX_RESP_EVENT_OUTPUT_ITEM_DONE = utf8:"response.output_item.done"
@@ -115,15 +134,34 @@
 #def CTX_BODY_COLLAB_CODE_TEXT_LEN = 26
 #def CTX_BODY_PLAN_TEXT_LEN = 28
 #def CTX_CHAT_PROGRESS_EN_LET_ME_LEN = 6
+#def CTX_CHAT_PROGRESS_EN_LET_ME_LOWER_LEN = 7
+#def CTX_CHAT_PROGRESS_EN_ILL_LEN = 5
+#def CTX_CHAT_PROGRESS_EN_I_WILL_LEN = 7
 #def CTX_CHAT_PROGRESS_EN_CHECK_LEN = 5
 #def CTX_CHAT_PROGRESS_EN_INSPECT_LEN = 7
 #def CTX_CHAT_PROGRESS_EN_READ_LEN = 4
+#def CTX_CHAT_PROGRESS_EN_RUN_LEN = 3
+#def CTX_CHAT_PROGRESS_EN_VERIFY_LEN = 6
+#def CTX_CHAT_PROGRESS_EN_REVIEW_LEN = 6
+#def CTX_CHAT_PROGRESS_EN_ANALYZE_LEN = 7
+#def CTX_CHAT_PROGRESS_EN_ANALYSE_LEN = 7
 #def CTX_CHAT_PROGRESS_CN_WOHUI_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_WOXIAN_LEN = 6
 #def CTX_CHAT_PROGRESS_CN_JIXU_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_NEXT_LEN = 9
 #def CTX_CHAT_PROGRESS_CN_READ_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_VIEW_LEN = 6
 #def CTX_CHAT_PROGRESS_CN_CHECK_LEN = 6
 #def CTX_CHAT_PROGRESS_CN_RUN_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_EXEC_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_EVAL_LEN = 6
+#def CTX_CHAT_PROGRESS_CN_ANALYZE_LEN = 6
 #def CTX_CHAT_FINAL_CN_DONE_LEN = 12
+#def CTX_CHAT_FINAL_CN_CONCLUSION_LEN = 6
+#def CTX_CHAT_FINAL_CN_SUMMARY_LEN = 6
+#def CTX_CHAT_FINAL_EN_SUMMARY_LEN = 7
+#def CTX_CHAT_FINAL_EN_CONCLUSION_LEN = 10
+#def CTX_CHAT_FINAL_EN_COMPLETED_LEN = 9
 #def CTX_CHAT_PROPOSED_PLAN_LEN = 15
 #def CTX_RESP_EVENT_COMPLETED_PREFIX_LEN = 26
 #def CTX_RESP_EVENT_OUTPUT_ITEM_DONE_LEN = 25
@@ -1329,25 +1367,9 @@ L_CTX_ORIGINAL:
     !out_len
     return out
 
-@ffi_wrapper response_request_context_mode(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64) -> u8:
+@ffi_wrapper response_request_context_mode_from_ids(&state_ptr: ptr, &thread_ptr: ptr, thread_len: u64, &turn_ptr: ptr, turn_len: u64, &body: ptr, body_len: u64) -> u8:
 L_ENTRY:
     body_mode = call @body_collaboration_mode(&body, body_len)
-    thread_ptr_slot = stack_alloc 8
-    thread_len_slot = stack_alloc 8
-    turn_ptr_slot = stack_alloc 8
-    turn_len_slot = stack_alloc 8
-    store thread_ptr_slot+0, 0 as ptr
-    store thread_len_slot+0, 0 as u64
-    store turn_ptr_slot+0, 0 as ptr
-    store turn_len_slot+0, 0 as u64
-    thread_hdr_status = call @sa_http_server_req_get_header(req, &CTX_HDR_THREAD_ID, CTX_HDR_THREAD_ID_LEN, &thread_ptr_slot, &thread_len_slot)
-    turn_hdr_status = call @sa_http_server_req_get_header(req, &CTX_HDR_TURN_ID, CTX_HDR_TURN_ID_LEN, &turn_ptr_slot, &turn_len_slot)
-    thread_ptr = load thread_ptr_slot+0 as ptr
-    thread_len = load thread_len_slot+0 as u64
-    turn_ptr = load turn_ptr_slot+0 as ptr
-    turn_len = load turn_len_slot+0 as u64
-    !thread_hdr_status
-    !turn_hdr_status
     has_thread = ne thread_ptr, 0
     br has_thread -> L_RESP_CTX_HAS_THREAD, L_RESP_CTX_BODY_MODE
 
@@ -1413,7 +1435,6 @@ L_RESP_CTX_STATE_MODE_KEY:
     !body
     !body_len
     !state_ptr
-    !req
     return mode_key
 
 L_RESP_CTX_BODY_MODE_AFTER_STATE_ZERO_KEY:
@@ -1453,7 +1474,6 @@ L_RESP_CTX_STATE_MODE_NUM:
     !body
     !body_len
     !state_ptr
-    !req
     return mode_num
 
 L_RESP_CTX_BODY_MODE_AFTER_STATE_ZERO_NUM:
@@ -1500,8 +1520,36 @@ L_RESP_CTX_BODY_MODE_KEEP_PTRS:
     !body
     !body_len
     !state_ptr
-    !req
     return body_mode
+
+@ffi_wrapper response_request_context_mode(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64) -> u8:
+L_ENTRY:
+    thread_ptr_slot = stack_alloc 8
+    thread_len_slot = stack_alloc 8
+    turn_ptr_slot = stack_alloc 8
+    turn_len_slot = stack_alloc 8
+    store thread_ptr_slot+0, 0 as ptr
+    store thread_len_slot+0, 0 as u64
+    store turn_ptr_slot+0, 0 as ptr
+    store turn_len_slot+0, 0 as u64
+    thread_hdr_status = call @sa_http_server_req_get_header(req, &CTX_HDR_THREAD_ID, CTX_HDR_THREAD_ID_LEN, &thread_ptr_slot, &thread_len_slot)
+    turn_hdr_status = call @sa_http_server_req_get_header(req, &CTX_HDR_TURN_ID, CTX_HDR_TURN_ID_LEN, &turn_ptr_slot, &turn_len_slot)
+    thread_ptr = load thread_ptr_slot+0 as ptr
+    thread_len = load thread_len_slot+0 as u64
+    turn_ptr = load turn_ptr_slot+0 as ptr
+    turn_len = load turn_len_slot+0 as u64
+    mode = call @response_request_context_mode_from_ids(&state_ptr, &thread_ptr, thread_len, &turn_ptr, turn_len, &body, body_len)
+    !thread_hdr_status
+    !turn_hdr_status
+    !thread_ptr
+    !thread_len
+    !turn_ptr
+    !turn_len
+    !req
+    !state_ptr
+    !body
+    !body_len
+    return mode
 
 @ffi_wrapper build_response_request_context_body(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
@@ -1519,32 +1567,80 @@ L_ENTRY:
 L_ENTRY:
     final_cn = call @bytes_has(&body, body_len, &CTX_CHAT_FINAL_CN_DONE, CTX_CHAT_FINAL_CN_DONE_LEN)
     proposed = call @bytes_has(&body, body_len, &CTX_CHAT_PROPOSED_PLAN, CTX_CHAT_PROPOSED_PLAN_LEN)
-    final_any = or final_cn, proposed
+    final_cn_conclusion = call @bytes_has(&body, body_len, &CTX_CHAT_FINAL_CN_CONCLUSION, CTX_CHAT_FINAL_CN_CONCLUSION_LEN)
+    final_cn_summary = call @bytes_has(&body, body_len, &CTX_CHAT_FINAL_CN_SUMMARY, CTX_CHAT_FINAL_CN_SUMMARY_LEN)
+    final_en_summary = call @bytes_has(&body, body_len, &CTX_CHAT_FINAL_EN_SUMMARY, CTX_CHAT_FINAL_EN_SUMMARY_LEN)
+    final_en_conclusion = call @bytes_has(&body, body_len, &CTX_CHAT_FINAL_EN_CONCLUSION, CTX_CHAT_FINAL_EN_CONCLUSION_LEN)
+    final_en_completed = call @bytes_has(&body, body_len, &CTX_CHAT_FINAL_EN_COMPLETED, CTX_CHAT_FINAL_EN_COMPLETED_LEN)
+    final_a = or final_cn, proposed
+    final_b = or final_cn_conclusion, final_cn_summary
+    final_c = or final_en_summary, final_en_conclusion
+    final_d = or final_a, final_b
+    final_e = or final_c, final_en_completed
+    final_any = or final_d, final_e
     is_final = ne final_any, 0
     br is_final -> L_RESP_PROGRESS_NO_FINAL, L_RESP_PROGRESS_MATCH
 
 L_RESP_PROGRESS_MATCH:
     !is_final
     !final_any
+    !final_e
+    !final_d
+    !final_c
+    !final_b
+    !final_a
+    !final_en_completed
+    !final_en_conclusion
+    !final_en_summary
+    !final_cn_summary
+    !final_cn_conclusion
     !proposed
     !final_cn
     en_let = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_LET_ME, CTX_CHAT_PROGRESS_EN_LET_ME_LEN)
+    en_let_lower = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_LET_ME_LOWER, CTX_CHAT_PROGRESS_EN_LET_ME_LOWER_LEN)
+    en_ill = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_ILL, CTX_CHAT_PROGRESS_EN_ILL_LEN)
+    en_i_will = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_I_WILL, CTX_CHAT_PROGRESS_EN_I_WILL_LEN)
     en_check = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_CHECK, CTX_CHAT_PROGRESS_EN_CHECK_LEN)
     en_inspect = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_INSPECT, CTX_CHAT_PROGRESS_EN_INSPECT_LEN)
     en_read = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_READ, CTX_CHAT_PROGRESS_EN_READ_LEN)
+    en_run = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_RUN, CTX_CHAT_PROGRESS_EN_RUN_LEN)
+    en_verify = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_VERIFY, CTX_CHAT_PROGRESS_EN_VERIFY_LEN)
+    en_review = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_REVIEW, CTX_CHAT_PROGRESS_EN_REVIEW_LEN)
+    en_analyze = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_ANALYZE, CTX_CHAT_PROGRESS_EN_ANALYZE_LEN)
+    en_analyse = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_EN_ANALYSE, CTX_CHAT_PROGRESS_EN_ANALYSE_LEN)
     en_tmp1 = or en_check, en_inspect
     en_tmp2 = or en_tmp1, en_read
-    en_has_action = ne en_tmp2, 0
-    en_progress_raw = and en_let, en_has_action
+    en_tmp3 = or en_run, en_verify
+    en_tmp4 = or en_review, en_analyze
+    en_tmp5 = or en_tmp3, en_tmp4
+    en_tmp6 = or en_tmp5, en_analyse
+    en_action_any = or en_tmp2, en_tmp6
+    en_has_action = ne en_action_any, 0
+    en_will_a = or en_let, en_let_lower
+    en_will_b = or en_ill, en_i_will
+    en_will_any = or en_will_a, en_will_b
+    en_progress_raw = and en_will_any, en_has_action
     cn_will = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_WOHUI, CTX_CHAT_PROGRESS_CN_WOHUI_LEN)
+    cn_wo_xian = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_WOXIAN, CTX_CHAT_PROGRESS_CN_WOXIAN_LEN)
     cn_continue = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_JIXU, CTX_CHAT_PROGRESS_CN_JIXU_LEN)
+    cn_next = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_NEXT, CTX_CHAT_PROGRESS_CN_NEXT_LEN)
     cn_read = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_READ, CTX_CHAT_PROGRESS_CN_READ_LEN)
+    cn_view = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_VIEW, CTX_CHAT_PROGRESS_CN_VIEW_LEN)
     cn_check = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_CHECK, CTX_CHAT_PROGRESS_CN_CHECK_LEN)
     cn_run = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_RUN, CTX_CHAT_PROGRESS_CN_RUN_LEN)
-    cn_tmp_will = or cn_will, cn_continue
-    cn_tmp_action1 = or cn_read, cn_check
-    cn_tmp_action2 = or cn_tmp_action1, cn_run
-    cn_has_action = ne cn_tmp_action2, 0
+    cn_exec = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_EXEC, CTX_CHAT_PROGRESS_CN_EXEC_LEN)
+    cn_eval = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_EVAL, CTX_CHAT_PROGRESS_CN_EVAL_LEN)
+    cn_analyze = call @bytes_has(&body, body_len, &CTX_CHAT_PROGRESS_CN_ANALYZE, CTX_CHAT_PROGRESS_CN_ANALYZE_LEN)
+    cn_tmp_will1 = or cn_will, cn_continue
+    cn_tmp_will2 = or cn_wo_xian, cn_next
+    cn_tmp_will = or cn_tmp_will1, cn_tmp_will2
+    cn_tmp_action1 = or cn_read, cn_view
+    cn_tmp_action2 = or cn_check, cn_run
+    cn_tmp_action3 = or cn_exec, cn_eval
+    cn_tmp_action4 = or cn_tmp_action1, cn_tmp_action2
+    cn_tmp_action5 = or cn_tmp_action3, cn_analyze
+    cn_action_any = or cn_tmp_action4, cn_tmp_action5
+    cn_has_action = ne cn_action_any, 0
     cn_progress_raw = and cn_tmp_will, cn_has_action
     progress_any = or en_progress_raw, cn_progress_raw
     is_progress = ne progress_any, 0
@@ -1555,21 +1651,49 @@ L_RESP_PROGRESS_YES:
     !progress_any
     !cn_progress_raw
     !cn_has_action
+    !cn_action_any
+    !cn_tmp_action5
+    !cn_tmp_action4
+    !cn_tmp_action3
     !cn_tmp_action2
     !cn_tmp_action1
     !cn_tmp_will
+    !cn_tmp_will2
+    !cn_tmp_will1
+    !cn_analyze
+    !cn_eval
+    !cn_exec
     !cn_run
     !cn_check
+    !cn_view
     !cn_read
+    !cn_next
     !cn_continue
+    !cn_wo_xian
     !cn_will
     !en_progress_raw
+    !en_will_any
+    !en_will_b
+    !en_will_a
     !en_has_action
+    !en_action_any
+    !en_tmp6
+    !en_tmp5
+    !en_tmp4
+    !en_tmp3
     !en_tmp2
     !en_tmp1
+    !en_analyse
+    !en_analyze
+    !en_review
+    !en_verify
+    !en_run
     !en_read
     !en_inspect
     !en_check
+    !en_i_will
+    !en_ill
+    !en_let_lower
     !en_let
     !body
     !body_len
@@ -1580,21 +1704,49 @@ L_RESP_PROGRESS_NO_MATCH:
     !progress_any
     !cn_progress_raw
     !cn_has_action
+    !cn_action_any
+    !cn_tmp_action5
+    !cn_tmp_action4
+    !cn_tmp_action3
     !cn_tmp_action2
     !cn_tmp_action1
     !cn_tmp_will
+    !cn_tmp_will2
+    !cn_tmp_will1
+    !cn_analyze
+    !cn_eval
+    !cn_exec
     !cn_run
     !cn_check
+    !cn_view
     !cn_read
+    !cn_next
     !cn_continue
+    !cn_wo_xian
     !cn_will
     !en_progress_raw
+    !en_will_any
+    !en_will_b
+    !en_will_a
     !en_has_action
+    !en_action_any
+    !en_tmp6
+    !en_tmp5
+    !en_tmp4
+    !en_tmp3
     !en_tmp2
     !en_tmp1
+    !en_analyse
+    !en_analyze
+    !en_review
+    !en_verify
+    !en_run
     !en_read
     !en_inspect
     !en_check
+    !en_i_will
+    !en_ill
+    !en_let_lower
     !en_let
     !body
     !body_len
@@ -1603,6 +1755,16 @@ L_RESP_PROGRESS_NO_MATCH:
 L_RESP_PROGRESS_NO_FINAL:
     !is_final
     !final_any
+    !final_e
+    !final_d
+    !final_c
+    !final_b
+    !final_a
+    !final_en_completed
+    !final_en_conclusion
+    !final_en_summary
+    !final_cn_summary
+    !final_cn_conclusion
     !proposed
     !final_cn
     !body
@@ -2015,6 +2177,3 @@ L_UNSAFE_GEMINI_NO:
     !body
     !body_len
     return 0
-
-
-

@@ -1,6 +1,6 @@
 // SA native @test coverage for Responses -> Chat fallback request construction.
 @import "deno.sai"
-@import "../src/strings.sa"
+@import "../src/hub_modules.sa"
 
 @const RESP_ARRAY_BODY = utf8:"{\"model\":\"models/mimo-v2.5-pro\",\"stream\":false,\"instructions\":\"follow instructions\",\"store\":false,\"prompt_cache_key\":\"drop-me\",\"include\":[\"reasoning.encrypted_content\"],\"reasoning\":{\"effort\":\"medium\"},\"tools\":[{\"type\":\"namespace\",\"name\":\"mcp__code_index__\",\"tools\":[{\"type\":\"function\",\"name\":\"describe_index\",\"parameters\":{\"type\":\"object\"}}]}],\"input\":[{\"type\":\"message\",\"role\":\"developer\",\"content\":[{\"type\":\"input_text\",\"text\":\"dev note\"}]},{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"},{\"type\":\"text\",\"text\":\" world\"}]}]}"
 @const DEFAULT_MODEL = utf8:"fallback-model"
@@ -22,6 +22,27 @@
 @const NEEDLE_CONTENT_INDEX = utf8:"\"content_index\":0"
 @const NEEDLE_DELTA_HELLO = utf8:"\"delta\":\"Hello\""
 @const NEEDLE_DELTA_WORLD = utf8:"\"delta\":\" world\""
+@const CHAT_SSE_TOOL_CALLS = utf8:"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"filePath\\\":\\\"/tmp/demo.txt\\\"}\"},\"index\":0},{\"id\":\"call_cmd\",\"type\":\"function\",\"function\":{\"name\":\"exec_command\",\"arguments\":\"{\\\"command\\\":\\\"deno check src/main.ts\\\"}\"},\"index\":1}]},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+@const CHAT_SSE_READ_ENV = utf8:"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_read_env\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"filePath\\\":\\\"/tmp/demo/.env\\\"}\"},\"index\":0}]},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+@const CHAT_SSE_READ_QUOTE = utf8:"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_read_quote\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"filePath\\\":\\\"/tmp/demo/it\\u0027works.txt\\\"}\"},\"index\":0}]},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+@const CHAT_SSE_SPLIT_TOOL_CALL = utf8:"data: {\"choices\":[{\"delta\":{\"content\":\"我先检查当前工作区。\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_pwd\",\"type\":\"function\",\"function\":{\"name\":\"exec_command\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":null,\"type\":\"function\",\"function\":{\"name\":null,\"arguments\":\"{\\\"cmd\\\":\"}}]},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":null,\"type\":\"function\",\"function\":{\"name\":null,\"arguments\":\"\\\"pwd\\\"}\"}}]},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+@const NEEDLE_CALL_READ = utf8:"\"call_id\":\"call_read\""
+@const NEEDLE_CALL_CMD = utf8:"\"call_id\":\"call_cmd\""
+@const NEEDLE_CALL_READ_ENV = utf8:"\"call_id\":\"call_read_env\""
+@const NEEDLE_CALL_READ_QUOTE = utf8:"\"call_id\":\"call_read_quote\""
+@const NEEDLE_READ_RAW = utf8:"\"name\":\"read\""
+@const NEEDLE_READ_CAT_CMD = utf8:"\\\"cmd\\\":\\\"cat '/tmp/demo.txt'\\\""
+@const NEEDLE_DENO_CHECK_CMD = utf8:"\\\"cmd\\\":\\\"deno check src/main.ts\\\""
+@const NEEDLE_ENV_SED_CMD = utf8:"sed -E"
+@const NEEDLE_ENV_REDACTED = utf8:"<redacted>"
+@const NEEDLE_ENV_PATH = utf8:"/tmp/demo/.env"
+@const NEEDLE_ENV_CAT_CMD = utf8:"\\\"cmd\\\":\\\"cat '/tmp/demo/.env'\\\""
+@const NEEDLE_QUOTED_CAT_CMD = utf8:"cat '/tmp/demo/it"
+@const NEEDLE_QUOTED_WORKS = utf8:"works.txt'"
+@const NEEDLE_RAW_UNQUOTED_QUOTE = utf8:"it'works.txt"
+@const NEEDLE_CALL_PWD = utf8:"\"call_id\":\"call_pwd\""
+@const NEEDLE_PWD_ARGS = utf8:"\"arguments\":\"{\\\"cmd\\\":\\\"pwd\\\"}\""
+@const NEEDLE_UNAVAILABLE_UNKNOWN = utf8:"Tool unknown is unavailable"
 @const RESP_STRING_BODY = utf8:"{\"model\":\"top-model\",\"instructions\":\"top sys\",\"input\":\"top input\",\"content\":\"leak content\",\"text\":\"leak text\",\"store\":false}"
 @const NEEDLE_TOP_MODEL = utf8:"\"model\":\"top-model\""
 @const NEEDLE_TOP_SYSTEM = utf8:"\"role\":\"system\",\"content\":\"top sys\""
@@ -37,6 +58,126 @@
 @const NEEDLE_HIST_RAW_CODE = utf8:"Code Index"
 @const NEEDLE_HIST_RAW_DOUBLE = utf8:"mcp__mcp_code_index___"
 @const NEEDLE_HIST_RAW_CUSTOM = utf8:"Custom Tool"
+@const RESP_NAMESPACE_HISTORY_BODY = utf8:"{\"input\":[{\"type\":\"function_call\",\"call_id\":\"call-history\",\"name\":\"build_index\",\"namespace\":\"mcp__code_index__\",\"output_kind\":\"function_call_output\",\"arguments\":\"{}\"}]}"
+@const REQ_NATIVE_MCP_TOOL_CALL_NORMALIZE_BODY = utf8:"{\"input\":[{\"type\":\"mcp_tool_call\",\"call_id\":\"call-mcp\",\"server\":\"mcp__code_index__\",\"name\":\"build_index\",\"arguments\":\"{}\"},{\"type\":\"mcp_tool_call_output\",\"call_id\":\"call-mcp\",\"output\":\"done\"},{\"type\":\"function_call\",\"call_id\":\"call-fn\",\"name\":\"unique_tool_for_backfill\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call-fn\",\"output\":\"ok\"}]}"
+@const RESP_NATIVE_MCP_OUTPUT_BODY = utf8:"{\"output\":[{\"id\":\"tool-1\",\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"mcp__code_index__build_index\",\"arguments\":\"{}\"}]}"
+@const RESP_NATIVE_MCP_ARGS_BODY = utf8:"{\"output\":[{\"id\":\"tool-args\",\"type\":\"function_call\",\"call_id\":\"call-args\",\"name\":\"mcp__code_index__read_mcp_resource\",\"arguments\":\"{\\\"server\\\":\\\"mcp__code_index__\\\",\\\"uri\\\":\\\"file:///foo\\\"}\"}]}"
+@const RESP_NATIVE_MCP_CODE_INDEX_ARGS_BODY = utf8:"{\"output\":[{\"id\":\"tool-args2\",\"type\":\"function_call\",\"call_id\":\"call-args2\",\"name\":\"mcp__code_index__read_mcp_resource\",\"arguments\":\"{\\\"server\\\":\\\"code_index\\\",\\\"uri\\\":\\\"file:///foo\\\"}\"}]}"
+@const RESP_NATIVE_MCP_CUSTOM_ARGS_BODY = utf8:"{\"output\":[{\"id\":\"tool-custom\",\"type\":\"function_call\",\"call_id\":\"call-custom\",\"name\":\"mcp__custom_tool__some_tool\",\"arguments\":\"{\\\"server\\\":\\\"mcp__custom_tool__\\\"}\"}]}"
+@const RESP_NATIVE_MCP_SSE_BODY = utf8:"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"id\":\"tool-added\",\"type\":\"function_call\",\"call_id\":\"call-a\",\"name\":\"mcp__code_index__search\",\"arguments\":\"{}\"}}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"tool-done\",\"type\":\"function_call\",\"call_id\":\"call-b\",\"name\":\"mcp__code_index__build_index\",\"arguments\":\"{}\"}}\n\n"
+@const RESP_NATIVE_TOOL_OUTPUT_KIND_BODY = utf8:"{\"output\":[{\"id\":\"fn-1\",\"type\":\"function_call\",\"call_id\":\"call-fn\",\"name\":\"exec_command\",\"arguments\":\"{}\"},{\"id\":\"custom-1\",\"type\":\"custom_tool_call\",\"call_id\":\"call-custom\",\"name\":\"custom\"},{\"id\":\"search-1\",\"type\":\"tool_search_call\",\"call_id\":\"call-search\",\"name\":\"search\"},{\"id\":\"mcp-1\",\"type\":\"mcp_tool_call\",\"call_id\":\"call-mcp\",\"name\":\"tool\"}]}"
+@const RESP_NATIVE_TOOL_OUTPUT_KIND_SSE_BODY = utf8:"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"tool-plain\",\"type\":\"function_call\",\"call_id\":\"call-fn\",\"name\":\"exec_command\",\"arguments\":\"{}\"}}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"tool-custom\",\"type\":\"custom_tool_call\",\"call_id\":\"call-custom\",\"name\":\"custom\"}}\n\n"
+@const RESP_NATIVE_THINKING_JSON_BODY = utf8:"{\"output\":[{\"id\":\"think_json\",\"type\":\"thinking\",\"text\":\"native json think\"},{\"id\":\"msg_json\",\"type\":\"message\",\"role\":\"assistant\",\"reasoning_content\":\"message json think\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}],\"output_text\":\"answer\",\"status\":\"completed\"}"
+@const RESP_NATIVE_THINKING_SSE_BODY = utf8:"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"think_native\",\"type\":\"thinking\",\"text\":\"native stream think\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_native\",\"status\":\"completed\"}}\n\n"
+@const CHAT_JSON_REASONING_TOOL_BODY = utf8:"{\"choices\":[{\"message\":{\"role\":\"assistant\",\"reasoning_content\":\"json think\",\"content\":\"<thought>internal thought</thought>Hello there\",\"tool_calls\":[{\"id\":\"call_json\",\"type\":\"function\",\"function\":{\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"pwd\\\"}\"}}]}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5,\"prompt_tokens_details\":{\"cached_tokens\":1},\"completion_tokens_details\":{\"reasoning_tokens\":2}}}"
+@const CHAT_SSE_REASONING_THINKING_SPLIT = utf8:"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think one\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"thinking\":\" and two\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"<thought>split \"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"thought</thought>\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+@const RESP_REASONING_CONTENT_BODY = utf8:"{\"input\":[{\"type\":\"reasoning\",\"summary\":[],\"content\":[{\"type\":\"reasoning_text\",\"text\":\"internal\"}],\"encrypted_content\":\"encrypted-demo\"}]}"
+@const RESP_NESTED_REASONING_METADATA_BODY = utf8:"{\"metadata\":{\"type\":\"reasoning\",\"content\":[{\"type\":\"reasoning_text\",\"text\":\"keep nested\"}],\"arguments\":\"{\\\"server\\\":\\\"Code Index\\\"}\"},\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}]}"
+@const CHAT_DEMO_DOT_BODY = utf8:"{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_demo\",\"type\":\"function\",\"function\":{\"name\":\"demo-server.rebuild\",\"arguments\":\"{}\"}}]}}]}"
+@const REQ_FORMATTED_DEMO_TOOLS_BODY = utf8:"{\"tools\":[{ \"type\": \"namespace\", \"name\": \"mcp__demo_server__\", \"tools\": [{ \"type\": \"function\", \"name\": \"rebuild\" }] }]}"
+@const REQ_FLAT_DEMO_TOOLS_BODY = utf8:"{\"tools\":[{\"type\":\"function\",\"name\":\"mcp__demo_server__rebuild\",\"parameters\":{\"type\":\"object\"}}]}"
+@const REQ_FLAT_CODE_INDEX_TOOL_BODY = utf8:"{\"tools\":[{\"type\":\"function\",\"name\":\"mcp__code_index__build_index\",\"parameters\":{\"type\":\"object\"}}]}"
+@const RESP_PROXY_NAMESPACE_TOOLS_BODY = utf8:"{\"model\":\"gpt-5.5\",\"tools\":[{\"type\":\"namespace\",\"name\":\"mcp__code_index__\",\"tools\":[{\"type\":\"function\",\"name\":\"build_index\",\"description\":\"Build index\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"search\",\"parameters\":{\"type\":\"object\"}}]},{\"type\":\"namespace\",\"name\":\"mcp__mimir__\",\"tools\":[{\"type\":\"function\",\"name\":\"mimir_search\",\"parameters\":{\"type\":\"object\"}}]}],\"input\":\"hi\"}"
+@const NEEDLE_FLAT_MCP_BUILD = utf8:"\"name\":\"mcp__code_index__build_index\""
+@const NEEDLE_FLAT_MCP_RESOURCE = utf8:"\"name\":\"mcp__code_index__read_mcp_resource\""
+@const NEEDLE_FLAT_MCP_SEARCH = utf8:"\"name\":\"mcp__code_index__search\""
+@const NEEDLE_MIMIR_SEARCH = utf8:"\"name\":\"mcp__mimir__mimir_search\""
+@const NEEDLE_NAMESPACE_TYPE = utf8:"\"type\":\"namespace\""
+@const NEEDLE_FUNCTION_CALL_TYPE = utf8:"\"type\":\"function_call\""
+@const NEEDLE_RAW_MCP_CALL_TYPE = utf8:"\"type\":\"mcp_tool_call\""
+@const NEEDLE_MCP_OUTPUT_TYPE = utf8:"\"type\":\"mcp_tool_call_output\""
+@const NEEDLE_MCP_OUTPUT_BACKFILL = utf8:"\"output\":\"done\",\"name\":\"mcp__code_index__build_index\""
+@const NEEDLE_FUNCTION_OUTPUT_BACKFILL = utf8:"\"output\":\"ok\",\"name\":\"unique_tool_for_backfill\""
+@const NEEDLE_MCP_BUILD_SHORT = utf8:"\"name\":\"build_index\""
+@const NEEDLE_MCP_SEARCH_SHORT = utf8:"\"name\":\"search\""
+@const NEEDLE_MCP_RESOURCE_SHORT = utf8:"\"name\":\"read_mcp_resource\""
+@const NEEDLE_CODE_INDEX_NAMESPACE = utf8:"\"namespace\":\"mcp__code_index__\""
+@const NEEDLE_CODE_INDEX_DENORM_SERVER = utf8:"\\\"server\\\":\\\"code-index\\\""
+@const NEEDLE_CUSTOM_NAMESPACE = utf8:"\"namespace\":\"mcp__custom_tool__\""
+@const NEEDLE_CUSTOM_TOOL_SHORT = utf8:"\"name\":\"some_tool\""
+@const NEEDLE_CUSTOM_DENORM_SERVER = utf8:"\\\"server\\\":\\\"custom-tool\\\""
+@const NEEDLE_FUNCTION_OUTPUT_KIND = utf8:"\"output_kind\":\"function_call_output\""
+@const NEEDLE_CUSTOM_OUTPUT_KIND = utf8:"\"output_kind\":\"custom_tool_call_output\""
+@const NEEDLE_TOOL_SEARCH_OUTPUT_KIND = utf8:"\"output_kind\":\"tool_search_output\""
+@const NEEDLE_MCP_OUTPUT_KIND = utf8:"\"output_kind\":\"mcp_tool_call_output\""
+@const NEEDLE_NAMESPACE_KEY = utf8:"\"namespace\""
+@const NEEDLE_OUTPUT_KIND_KEY = utf8:"\"output_kind\""
+@const NEEDLE_NATIVE_JSON_THINK = utf8:"native json think"
+@const NEEDLE_NATIVE_MSG_THINK = utf8:"message json think"
+@const NEEDLE_NATIVE_STREAM_THINK = utf8:"native stream think"
+@const NEEDLE_REASONING_TYPE = utf8:"\"type\":\"reasoning\""
+@const NEEDLE_THINKING_TYPE = utf8:"\"type\":\"thinking\""
+@const NEEDLE_REASONING_CONTENT_KEY = utf8:"reasoning_content"
+@const NEEDLE_ANSWER_OUTPUT = utf8:"\"text\":\"answer\""
+@const NEEDLE_REASONING_TEXT = utf8:"reasoning_text"
+@const NEEDLE_ENCRYPTED_DEMO = utf8:"encrypted-demo"
+@const NEEDLE_KEEP_NESTED = utf8:"keep nested"
+@const NEEDLE_RAW_CODE_INDEX_SERVER = utf8:"\\\"server\\\":\\\"Code Index\\\""
+@const NEEDLE_CHAT_JSON_REASONING = utf8:"json think"
+@const NEEDLE_CHAT_JSON_THOUGHT = utf8:"internal thought"
+@const NEEDLE_CHAT_JSON_VISIBLE = utf8:"\"text\":\"Hello there\""
+@const NEEDLE_CHAT_JSON_OUTPUT_TEXT = utf8:"\"output_text\":\"Hello there\""
+@const NEEDLE_CHAT_JSON_USAGE_INPUT = utf8:"\"input_tokens\":3"
+@const NEEDLE_CHAT_JSON_USAGE_CACHED = utf8:"\"cached_tokens\":1"
+@const NEEDLE_CHAT_JSON_USAGE_OUTPUT = utf8:"\"output_tokens\":2"
+@const NEEDLE_CHAT_JSON_USAGE_REASONING = utf8:"\"reasoning_tokens\":2"
+@const NEEDLE_CHAT_JSON_USAGE_TOTAL = utf8:"\"total_tokens\":5"
+@const NEEDLE_CHAT_JSON_CALL = utf8:"\"call_id\":\"call_json\""
+@const NEEDLE_CHAT_JSON_EXEC_NAME = utf8:"\"name\":\"exec_command\""
+@const NEEDLE_SSE_DELTA_THINK_ONE = utf8:"\"delta\":\"think one\""
+@const NEEDLE_SSE_DELTA_AND_TWO = utf8:"\"delta\":\" and two\""
+@const NEEDLE_SSE_SPLIT_THOUGHT = utf8:"split thought"
+@const NEEDLE_SSE_DELTA_ANSWER = utf8:"\"delta\":\"answer\""
+@const NEEDLE_DEMO_NAMESPACE = utf8:"\"namespace\":\"mcp__demo_server__\""
+@const NEEDLE_DEMO_REBUILD = utf8:"\"name\":\"rebuild\""
+@const NEEDLE_DEMO_DOT_RAW = utf8:"demo-server.rebuild"
+@const MCP_STATUS_DATA = utf8:"\"data\":["
+@const MCP_STATUS_TOOLS_ONLY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mcpServerStatus/list\",\"params\":{\"detail\":\"toolsAndAuthOnly\"}}"
+@const MCP_STATUS_LIMIT_ONE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mcpServerStatus/list\",\"params\":{\"detail\":\"toolsAndAuthOnly\",\"limit\":1}}"
+@const MCP_STATUS_BAD_CURSOR_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"mcpServerStatus/list\",\"params\":{\"cursor\":\"not-a-number\",\"limit\":1}}"
+@const MCP_STATUS_BAD_DETAIL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"mcpServerStatus/list\",\"params\":{\"detail\":\"unknown\"}}"
+@const MCP_RESOURCE_READ_MISSING_SERVER = utf8:"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"mcpServer/resource/read\",\"params\":{\"uri\":\"file:///tmp/demo\"}}"
+@const MCP_RESOURCE_READ_MISSING_URI = utf8:"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"mcpServer/resource/read\",\"params\":{\"server\":\"code-index\"}}"
+@const MCP_RESOURCE_READ_CODE_INDEX_MISSING = utf8:"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"mcpServer/resource/read\",\"params\":{\"server\":\"Code Index\",\"uri\":\"file:///tmp/hubproxy-sa-missing-resource-native-test\"}}"
+@const MCP_STATUS_NEXT_CURSOR = utf8:"\"nextCursor\":null"
+@const MCP_STATUS_NEXT_CURSOR_ONE = utf8:"\"nextCursor\":\"1\""
+@const MCP_STATUS_SERVER_INFO = utf8:"\"serverInfo\":"
+@const MCP_STATUS_TOOLS = utf8:"\"tools\":{"
+@const MCP_STATUS_AUTH_UNSUPPORTED = utf8:"\"authStatus\":\"unsupported\""
+@const MCP_STATUS_CODE_INDEX = utf8:"\"name\":\"code-index\""
+@const MCP_STATUS_MIMIR = utf8:"\"name\":\"mimir\""
+@const MCP_STATUS_BUILD_INDEX_TOOL = utf8:"\"build-index\""
+@const MCP_STATUS_MIMIR_SEARCH_TOOL = utf8:"\"mimir_search\""
+@const MCP_TOOL_CALL_CODE_INDEX_DESCRIBE = utf8:"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"thread-test\",\"server\":\"code-index\",\"tool\":\"describe-index\",\"_meta\":{\"existing\":true,\"threadId\":\"old\"},\"arguments\":{\"rootDir\":\"/home/vscode/projects/hubproxy\",\"outputDir\":\"/home/vscode/projects/hubproxy/.code_index\"}}}"
+@const MCP_TOOL_CALL_CODE_INDEX_BUILD = utf8:"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"thread-test\",\"server\":\"code-index\",\"tool\":\"build-index\",\"arguments\":{\"rootDir\":\"/home/vscode/projects/hubproxy\",\"outputDir\":\"/home/vscode/projects/hubproxy/.code_index\",\"maxFileBytes\":2000000}}}"
+@const MCP_TOOL_CALL_CODE_INDEX_BUILD_SAFE_NAME = utf8:"{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"thread-test\",\"server\":\"code-index\",\"tool\":\"build_index\",\"arguments\":{\"rootDir\":\"/home/vscode/projects/hubproxy\",\"outputDir\":\"/home/vscode/projects/hubproxy/.code_index\",\"maxFileBytes\":2000000}}}"
+@const MCP_TOOL_CALL_MISSING_THREAD = utf8:"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"mcpServer/tool/call\",\"params\":{\"server\":\"code-index\",\"tool\":\"describe-index\"}}"
+@const MCP_TOOL_CALL_CONTENT = utf8:"\"content\""
+@const MCP_TOOL_CALL_SUMMARY_TEXT = utf8:"summaryText"
+@const MCP_TOOL_CALL_INDEX_READY = utf8:"Startup code index ready"
+@const REQ_GOAL_EXEC = utf8:"{\"tools\":[{\"type\":\"function\",\"name\":\"exec_command\"}],\"collaborationModeKind\":\"goal\"}"
+@const REQ_CODE_EXEC = utf8:"{\"tools\":[{\"type\":\"function\",\"name\":\"exec_command\"}],\"kind\":\"code\"}"
+@const REQ_DEFAULT_EXEC = utf8:"{\"tools\":[{\"type\":\"function\",\"name\":\"exec_command\"}],\"input\":\"# Collaboration Mode: Default\"}"
+@const REQ_PLAN_EXEC = utf8:"{\"tools\":[{\"type\":\"function\",\"name\":\"exec_command\"}],\"collaborationModeKind\":\"plan\"}"
+@const REQ_GOAL_NO_EXEC = utf8:"{\"collaborationModeKind\":\"goal\"}"
+@const SSE_PROGRESS_VERIFY = utf8:"event: response.output_text.delta\ndata: {\"delta\":\"I will verify the MCP state now\"}\n\n"
+@const SSE_PROGRESS_CN = utf8:"event: response.output_text.delta\ndata: {\"delta\":\"我先检查 MCP 状态\"}\n\n"
+@const SSE_FINAL_SUMMARY = utf8:"event: response.output_text.delta\ndata: {\"delta\":\"summary: done\"}\n\n"
+@const SSE_PROPOSED_PLAN = utf8:"event: response.output_text.delta\ndata: {\"delta\":\"<proposed_plan>check files</proposed_plan>\"}\n\n"
+@const SSE_NORMAL_FINAL = utf8:"event: response.output_text.delta\ndata: {\"delta\":\"The request is complete\"}\n\n"
+@const NEEDLE_CONT_EXEC = utf8:"\"name\":\"exec_command\""
+@const NEEDLE_CONT_CALL = utf8:"\"call_id\":\"call_chat_continue\""
+@const NEEDLE_RESPONSE_DONE = utf8:"event: response.done"
+@const REQ_CTX_THREAD_KEY = utf8:"ctx-thread"
+@const REQ_CTX_MODEL = utf8:"ctx-model"
+@const REQ_CTX_CWD = utf8:"/tmp/ctx"
+@const REQ_CTX_TURN_TWO = utf8:"2"
+@const REQ_CTX_TURN_MISSING = utf8:"999"
+@const REQ_CTX_THREAD_NUMERIC_ONE = utf8:"1"
+@const REQ_CTX_GOAL_BODY = utf8:"{\"input\":[{\"role\":\"developer\",\"content\":[{\"text\":\"<goal_context>Continue working toward the active thread goal.</goal_context>\"}]}]}"
+@const REQ_CTX_CODE_BODY = utf8:"{\"client_metadata\":{\"mode\":\"code\"},\"input\":[{\"role\":\"user\",\"content\":[{\"text\":\"hi\"}]}]}"
+@const REQ_CTX_DEFAULT_BODY = utf8:"{\"input\":[{\"role\":\"developer\",\"content\":[{\"text\":\"<collaboration_mode># Plan Mode (Conversational)</collaboration_mode>\"}]},{\"role\":\"developer\",\"content\":[{\"text\":\"<collaboration_mode># Collaboration Mode: Default</collaboration_mode>\"}]}]}"
+@const REQ_CTX_PLAN_BODY = utf8:"{\"instructions\":\"# Plan Mode (Conversational)\"}"
 
 #def RESP_ARRAY_BODY_LEN = 558
 #def DEFAULT_MODEL_LEN = 14
@@ -58,6 +199,27 @@
 #def NEEDLE_CONTENT_INDEX_LEN = 17
 #def NEEDLE_DELTA_HELLO_LEN = 15
 #def NEEDLE_DELTA_WORLD_LEN = 16
+#def CHAT_SSE_TOOL_CALLS_LEN = 403
+#def CHAT_SSE_READ_ENV_LEN = 272
+#def CHAT_SSE_READ_QUOTE_LEN = 287
+#def CHAT_SSE_SPLIT_TOOL_CALL_LEN = 654
+#def NEEDLE_CALL_READ_LEN = 21
+#def NEEDLE_CALL_CMD_LEN = 20
+#def NEEDLE_CALL_READ_ENV_LEN = 25
+#def NEEDLE_CALL_READ_QUOTE_LEN = 27
+#def NEEDLE_READ_RAW_LEN = 13
+#def NEEDLE_READ_CAT_CMD_LEN = 31
+#def NEEDLE_DENO_CHECK_CMD_LEN = 34
+#def NEEDLE_ENV_SED_CMD_LEN = 6
+#def NEEDLE_ENV_REDACTED_LEN = 10
+#def NEEDLE_ENV_PATH_LEN = 14
+#def NEEDLE_ENV_CAT_CMD_LEN = 32
+#def NEEDLE_QUOTED_CAT_CMD_LEN = 17
+#def NEEDLE_QUOTED_WORKS_LEN = 10
+#def NEEDLE_RAW_UNQUOTED_QUOTE_LEN = 12
+#def NEEDLE_CALL_PWD_LEN = 20
+#def NEEDLE_PWD_ARGS_LEN = 31
+#def NEEDLE_UNAVAILABLE_UNKNOWN_LEN = 27
 #def RESP_STRING_BODY_LEN = 124
 #def NEEDLE_TOP_MODEL_LEN = 19
 #def NEEDLE_TOP_SYSTEM_LEN = 35
@@ -73,6 +235,126 @@
 #def NEEDLE_HIST_RAW_CODE_LEN = 10
 #def NEEDLE_HIST_RAW_DOUBLE_LEN = 22
 #def NEEDLE_HIST_RAW_CUSTOM_LEN = 11
+#def RESP_NAMESPACE_HISTORY_BODY_LEN = 168
+#def REQ_NATIVE_MCP_TOOL_CALL_NORMALIZE_BODY_LEN = 355
+#def RESP_NATIVE_MCP_OUTPUT_BODY_LEN = 125
+#def RESP_NATIVE_MCP_ARGS_BODY_LEN = 193
+#def RESP_NATIVE_MCP_CODE_INDEX_ARGS_BODY_LEN = 188
+#def RESP_NATIVE_MCP_CUSTOM_ARGS_BODY_LEN = 167
+#def RESP_NATIVE_MCP_SSE_BODY_LEN = 398
+#def RESP_NATIVE_TOOL_OUTPUT_KIND_BODY_LEN = 349
+#def RESP_NATIVE_TOOL_OUTPUT_KIND_SSE_BODY_LEN = 357
+#def RESP_NATIVE_THINKING_JSON_BODY_LEN = 267
+#def RESP_NATIVE_THINKING_SSE_BODY_LEN = 269
+#def CHAT_JSON_REASONING_TOOL_BODY_LEN = 419
+#def CHAT_SSE_REASONING_THINKING_SPLIT_LEN = 472
+#def RESP_REASONING_CONTENT_BODY_LEN = 138
+#def RESP_NESTED_REASONING_METADATA_BODY_LEN = 223
+#def CHAT_DEMO_DOT_BODY_LEN = 172
+#def REQ_FORMATTED_DEMO_TOOLS_BODY_LEN = 119
+#def REQ_FLAT_DEMO_TOOLS_BODY_LEN = 97
+#def REQ_FLAT_CODE_INDEX_TOOL_BODY_LEN = 100
+#def RESP_PROXY_NAMESPACE_TOOLS_BODY_LEN = 393
+#def NEEDLE_FLAT_MCP_BUILD_LEN = 37
+#def NEEDLE_FLAT_MCP_RESOURCE_LEN = 43
+#def NEEDLE_FLAT_MCP_SEARCH_LEN = 32
+#def NEEDLE_MIMIR_SEARCH_LEN = 33
+#def NEEDLE_NAMESPACE_TYPE_LEN = 18
+#def NEEDLE_FUNCTION_CALL_TYPE_LEN = 22
+#def NEEDLE_RAW_MCP_CALL_TYPE_LEN = 22
+#def NEEDLE_MCP_OUTPUT_TYPE_LEN = 29
+#def NEEDLE_MCP_OUTPUT_BACKFILL_LEN = 53
+#def NEEDLE_FUNCTION_OUTPUT_BACKFILL_LEN = 47
+#def NEEDLE_MCP_BUILD_SHORT_LEN = 20
+#def NEEDLE_MCP_SEARCH_SHORT_LEN = 15
+#def NEEDLE_MCP_RESOURCE_SHORT_LEN = 26
+#def NEEDLE_CODE_INDEX_NAMESPACE_LEN = 31
+#def NEEDLE_CODE_INDEX_DENORM_SERVER_LEN = 25
+#def NEEDLE_CUSTOM_NAMESPACE_LEN = 32
+#def NEEDLE_CUSTOM_TOOL_SHORT_LEN = 18
+#def NEEDLE_CUSTOM_DENORM_SERVER_LEN = 26
+#def NEEDLE_FUNCTION_OUTPUT_KIND_LEN = 36
+#def NEEDLE_CUSTOM_OUTPUT_KIND_LEN = 39
+#def NEEDLE_TOOL_SEARCH_OUTPUT_KIND_LEN = 34
+#def NEEDLE_MCP_OUTPUT_KIND_LEN = 36
+#def NEEDLE_NAMESPACE_KEY_LEN = 11
+#def NEEDLE_OUTPUT_KIND_KEY_LEN = 13
+#def NEEDLE_NATIVE_JSON_THINK_LEN = 17
+#def NEEDLE_NATIVE_MSG_THINK_LEN = 18
+#def NEEDLE_NATIVE_STREAM_THINK_LEN = 19
+#def NEEDLE_REASONING_TYPE_LEN = 18
+#def NEEDLE_THINKING_TYPE_LEN = 17
+#def NEEDLE_REASONING_CONTENT_KEY_LEN = 17
+#def NEEDLE_ANSWER_OUTPUT_LEN = 15
+#def NEEDLE_REASONING_TEXT_LEN = 14
+#def NEEDLE_ENCRYPTED_DEMO_LEN = 14
+#def NEEDLE_KEEP_NESTED_LEN = 11
+#def NEEDLE_RAW_CODE_INDEX_SERVER_LEN = 25
+#def NEEDLE_CHAT_JSON_REASONING_LEN = 10
+#def NEEDLE_CHAT_JSON_THOUGHT_LEN = 16
+#def NEEDLE_CHAT_JSON_VISIBLE_LEN = 20
+#def NEEDLE_CHAT_JSON_OUTPUT_TEXT_LEN = 27
+#def NEEDLE_CHAT_JSON_USAGE_INPUT_LEN = 16
+#def NEEDLE_CHAT_JSON_USAGE_CACHED_LEN = 17
+#def NEEDLE_CHAT_JSON_USAGE_OUTPUT_LEN = 17
+#def NEEDLE_CHAT_JSON_USAGE_REASONING_LEN = 20
+#def NEEDLE_CHAT_JSON_USAGE_TOTAL_LEN = 16
+#def NEEDLE_CHAT_JSON_CALL_LEN = 21
+#def NEEDLE_CHAT_JSON_EXEC_NAME_LEN = 21
+#def NEEDLE_SSE_DELTA_THINK_ONE_LEN = 19
+#def NEEDLE_SSE_DELTA_AND_TWO_LEN = 18
+#def NEEDLE_SSE_SPLIT_THOUGHT_LEN = 13
+#def NEEDLE_SSE_DELTA_ANSWER_LEN = 16
+#def NEEDLE_DEMO_NAMESPACE_LEN = 32
+#def NEEDLE_DEMO_REBUILD_LEN = 16
+#def NEEDLE_DEMO_DOT_RAW_LEN = 19
+#def MCP_STATUS_DATA_LEN = 8
+#def MCP_STATUS_TOOLS_ONLY_BODY_LEN = 95
+#def MCP_STATUS_LIMIT_ONE_BODY_LEN = 105
+#def MCP_STATUS_BAD_CURSOR_BODY_LEN = 101
+#def MCP_STATUS_BAD_DETAIL_BODY_LEN = 86
+#def MCP_RESOURCE_READ_MISSING_SERVER_LEN = 95
+#def MCP_RESOURCE_READ_MISSING_URI_LEN = 92
+#def MCP_RESOURCE_READ_CODE_INDEX_MISSING_LEN = 153
+#def MCP_STATUS_NEXT_CURSOR_LEN = 17
+#def MCP_STATUS_NEXT_CURSOR_ONE_LEN = 16
+#def MCP_STATUS_SERVER_INFO_LEN = 13
+#def MCP_STATUS_TOOLS_LEN = 9
+#def MCP_STATUS_AUTH_UNSUPPORTED_LEN = 26
+#def MCP_STATUS_CODE_INDEX_LEN = 19
+#def MCP_STATUS_MIMIR_LEN = 14
+#def MCP_STATUS_BUILD_INDEX_TOOL_LEN = 13
+#def MCP_STATUS_MIMIR_SEARCH_TOOL_LEN = 14
+#def MCP_TOOL_CALL_CODE_INDEX_DESCRIBE_LEN = 294
+#def MCP_TOOL_CALL_CODE_INDEX_BUILD_LEN = 271
+#def MCP_TOOL_CALL_CODE_INDEX_BUILD_SAFE_NAME_LEN = 271
+#def MCP_TOOL_CALL_MISSING_THREAD_LEN = 112
+#def MCP_TOOL_CALL_CONTENT_LEN = 9
+#def MCP_TOOL_CALL_SUMMARY_TEXT_LEN = 11
+#def MCP_TOOL_CALL_INDEX_READY_LEN = 24
+#def REQ_GOAL_EXEC_LEN = 84
+#def REQ_CODE_EXEC_LEN = 67
+#def REQ_DEFAULT_EXEC_LEN = 93
+#def REQ_PLAN_EXEC_LEN = 84
+#def REQ_GOAL_NO_EXEC_LEN = 32
+#def SSE_PROGRESS_VERIFY_LEN = 85
+#def SSE_PROGRESS_CN_LEN = 77
+#def SSE_FINAL_SUMMARY_LEN = 67
+#def SSE_PROPOSED_PLAN_LEN = 96
+#def SSE_NORMAL_FINAL_LEN = 77
+#def NEEDLE_CONT_EXEC_LEN = 21
+#def NEEDLE_CONT_CALL_LEN = 30
+#def NEEDLE_RESPONSE_DONE_LEN = 20
+#def REQ_CTX_THREAD_KEY_LEN = 10
+#def REQ_CTX_MODEL_LEN = 9
+#def REQ_CTX_CWD_LEN = 8
+#def REQ_CTX_TURN_TWO_LEN = 1
+#def REQ_CTX_TURN_MISSING_LEN = 3
+#def REQ_CTX_THREAD_NUMERIC_ONE_LEN = 1
+#def REQ_CTX_GOAL_BODY_LEN = 132
+#def REQ_CTX_CODE_BODY_LEN = 87
+#def REQ_CTX_DEFAULT_BODY_LEN = 240
+#def REQ_CTX_PLAN_BODY_LEN = 47
 
 @assert_contract(ok: u8, code: i32):
 L_ENTRY:
@@ -322,6 +604,402 @@ L_ENTRY:
     !has_handle
     return
 
+@test "chat fallback SSE normalizes read and exec tool calls like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_sse_to_responses(&CHAT_SSE_TOOL_CALLS, CHAT_SSE_TOOL_CALLS_LEN, &REQ_CODE_EXEC, REQ_CODE_EXEC_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 480)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 481)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 482)
+
+    raw_read_idx = call @sa_bytes_find(&data, len, &NEEDLE_READ_RAW, NEEDLE_READ_RAW_LEN)
+    no_raw_read = slt raw_read_idx, 0
+    call @assert_contract(no_raw_read, 483)
+
+    call_read_idx = call @sa_bytes_find(&data, len, &NEEDLE_CALL_READ, NEEDLE_CALL_READ_LEN)
+    has_call_read = sge call_read_idx, 0
+    call @assert_contract(has_call_read, 484)
+
+    call_cmd_idx = call @sa_bytes_find(&data, len, &NEEDLE_CALL_CMD, NEEDLE_CALL_CMD_LEN)
+    has_call_cmd = sge call_cmd_idx, 0
+    call @assert_contract(has_call_cmd, 485)
+
+    cat_idx = call @sa_bytes_find(&data, len, &NEEDLE_READ_CAT_CMD, NEEDLE_READ_CAT_CMD_LEN)
+    has_cat = sge cat_idx, 0
+    call @assert_contract(has_cat, 486)
+
+    deno_idx = call @sa_bytes_find(&data, len, &NEEDLE_DENO_CHECK_CMD, NEEDLE_DENO_CHECK_CMD_LEN)
+    has_deno = sge deno_idx, 0
+    call @assert_contract(has_deno, 487)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 488)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !deno_idx
+    !has_deno
+    !cat_idx
+    !has_cat
+    !call_cmd_idx
+    !has_call_cmd
+    !call_read_idx
+    !has_call_read
+    !raw_read_idx
+    !no_raw_read
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat fallback SSE redacts env read commands like Deno shell contract"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_sse_to_responses(&CHAT_SSE_READ_ENV, CHAT_SSE_READ_ENV_LEN, &REQ_CODE_EXEC, REQ_CODE_EXEC_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 489)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 490)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 491)
+
+    raw_read_idx = call @sa_bytes_find(&data, len, &NEEDLE_READ_RAW, NEEDLE_READ_RAW_LEN)
+    no_raw_read = slt raw_read_idx, 0
+    call @assert_contract(no_raw_read, 492)
+
+    call_read_env_idx = call @sa_bytes_find(&data, len, &NEEDLE_CALL_READ_ENV, NEEDLE_CALL_READ_ENV_LEN)
+    has_call_read_env = sge call_read_env_idx, 0
+    call @assert_contract(has_call_read_env, 493)
+
+    sed_idx = call @sa_bytes_find(&data, len, &NEEDLE_ENV_SED_CMD, NEEDLE_ENV_SED_CMD_LEN)
+    has_sed = sge sed_idx, 0
+    call @assert_contract(has_sed, 494)
+
+    redacted_idx = call @sa_bytes_find(&data, len, &NEEDLE_ENV_REDACTED, NEEDLE_ENV_REDACTED_LEN)
+    has_redacted = sge redacted_idx, 0
+    call @assert_contract(has_redacted, 495)
+
+    path_idx = call @sa_bytes_find(&data, len, &NEEDLE_ENV_PATH, NEEDLE_ENV_PATH_LEN)
+    has_path = sge path_idx, 0
+    call @assert_contract(has_path, 496)
+
+    cat_idx = call @sa_bytes_find(&data, len, &NEEDLE_ENV_CAT_CMD, NEEDLE_ENV_CAT_CMD_LEN)
+    no_cat = slt cat_idx, 0
+    call @assert_contract(no_cat, 497)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 498)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !cat_idx
+    !no_cat
+    !path_idx
+    !has_path
+    !redacted_idx
+    !has_redacted
+    !sed_idx
+    !has_sed
+    !call_read_env_idx
+    !has_call_read_env
+    !raw_read_idx
+    !no_raw_read
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat fallback SSE shell-quotes read paths with single quotes"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_sse_to_responses(&CHAT_SSE_READ_QUOTE, CHAT_SSE_READ_QUOTE_LEN, &REQ_CODE_EXEC, REQ_CODE_EXEC_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 497)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 498)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 499)
+
+    raw_read_idx = call @sa_bytes_find(&data, len, &NEEDLE_READ_RAW, NEEDLE_READ_RAW_LEN)
+    no_raw_read = slt raw_read_idx, 0
+    call @assert_contract(no_raw_read, 500)
+
+    call_read_quote_idx = call @sa_bytes_find(&data, len, &NEEDLE_CALL_READ_QUOTE, NEEDLE_CALL_READ_QUOTE_LEN)
+    has_call_read_quote = sge call_read_quote_idx, 0
+    call @assert_contract(has_call_read_quote, 501)
+
+    quoted_idx = call @sa_bytes_find(&data, len, &NEEDLE_QUOTED_CAT_CMD, NEEDLE_QUOTED_CAT_CMD_LEN)
+    has_quoted = sge quoted_idx, 0
+    call @assert_contract(has_quoted, 502)
+
+    works_idx = call @sa_bytes_find(&data, len, &NEEDLE_QUOTED_WORKS, NEEDLE_QUOTED_WORKS_LEN)
+    has_works = sge works_idx, 0
+    call @assert_contract(has_works, 503)
+
+    raw_unquoted_idx = call @sa_bytes_find(&data, len, &NEEDLE_RAW_UNQUOTED_QUOTE, NEEDLE_RAW_UNQUOTED_QUOTE_LEN)
+    no_raw_unquoted = slt raw_unquoted_idx, 0
+    call @assert_contract(no_raw_unquoted, 504)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 505)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !raw_unquoted_idx
+    !no_raw_unquoted
+    !works_idx
+    !has_works
+    !quoted_idx
+    !has_quoted
+    !call_read_quote_idx
+    !has_call_read_quote
+    !raw_read_idx
+    !no_raw_read
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat fallback SSE merges split tool-call chunks before normalizing"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_sse_to_responses(&CHAT_SSE_SPLIT_TOOL_CALL, CHAT_SSE_SPLIT_TOOL_CALL_LEN, &REQ_CODE_EXEC, REQ_CODE_EXEC_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 490)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 491)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 492)
+
+    call_pwd_idx = call @sa_bytes_find(&data, len, &NEEDLE_CALL_PWD, NEEDLE_CALL_PWD_LEN)
+    has_call_pwd = sge call_pwd_idx, 0
+    call @assert_contract(has_call_pwd, 493)
+
+    pwd_args_idx = call @sa_bytes_find(&data, len, &NEEDLE_PWD_ARGS, NEEDLE_PWD_ARGS_LEN)
+    has_pwd_args = sge pwd_args_idx, 0
+    call @assert_contract(has_pwd_args, 494)
+
+    unknown_idx = call @sa_bytes_find(&data, len, &NEEDLE_UNAVAILABLE_UNKNOWN, NEEDLE_UNAVAILABLE_UNKNOWN_LEN)
+    no_unknown = slt unknown_idx, 0
+    call @assert_contract(no_unknown, 495)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 496)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !unknown_idx
+    !no_unknown
+    !pwd_args_idx
+    !has_pwd_args
+    !call_pwd_idx
+    !has_call_pwd
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat JSON fallback maps reasoning content thought tags usage and tool calls like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_json_to_responses(&CHAT_JSON_REASONING_TOOL_BODY, CHAT_JSON_REASONING_TOOL_BODY_LEN, &REQ_CODE_EXEC, REQ_CODE_EXEC_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 506)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 507)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 508)
+
+    reasoning_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_REASONING, NEEDLE_CHAT_JSON_REASONING_LEN)
+    has_reasoning = sge reasoning_idx, 0
+    call @assert_contract(has_reasoning, 509)
+
+    thought_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_THOUGHT, NEEDLE_CHAT_JSON_THOUGHT_LEN)
+    has_thought = sge thought_idx, 0
+    call @assert_contract(has_thought, 510)
+
+    visible_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_VISIBLE, NEEDLE_CHAT_JSON_VISIBLE_LEN)
+    has_visible = sge visible_idx, 0
+    call @assert_contract(has_visible, 511)
+
+    output_text_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_OUTPUT_TEXT, NEEDLE_CHAT_JSON_OUTPUT_TEXT_LEN)
+    has_output_text = sge output_text_idx, 0
+    call @assert_contract(has_output_text, 512)
+
+    usage_input_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_USAGE_INPUT, NEEDLE_CHAT_JSON_USAGE_INPUT_LEN)
+    has_usage_input = sge usage_input_idx, 0
+    call @assert_contract(has_usage_input, 513)
+
+    usage_cached_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_USAGE_CACHED, NEEDLE_CHAT_JSON_USAGE_CACHED_LEN)
+    has_usage_cached = sge usage_cached_idx, 0
+    call @assert_contract(has_usage_cached, 514)
+
+    usage_output_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_USAGE_OUTPUT, NEEDLE_CHAT_JSON_USAGE_OUTPUT_LEN)
+    has_usage_output = sge usage_output_idx, 0
+    call @assert_contract(has_usage_output, 515)
+
+    usage_reasoning_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_USAGE_REASONING, NEEDLE_CHAT_JSON_USAGE_REASONING_LEN)
+    has_usage_reasoning = sge usage_reasoning_idx, 0
+    call @assert_contract(has_usage_reasoning, 516)
+
+    usage_total_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_USAGE_TOTAL, NEEDLE_CHAT_JSON_USAGE_TOTAL_LEN)
+    has_usage_total = sge usage_total_idx, 0
+    call @assert_contract(has_usage_total, 517)
+
+    call_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_CALL, NEEDLE_CHAT_JSON_CALL_LEN)
+    has_call = sge call_idx, 0
+    call @assert_contract(has_call, 518)
+
+    exec_name_idx = call @sa_bytes_find(&data, len, &NEEDLE_CHAT_JSON_EXEC_NAME, NEEDLE_CHAT_JSON_EXEC_NAME_LEN)
+    has_exec_name = sge exec_name_idx, 0
+    call @assert_contract(has_exec_name, 519)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 520)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !exec_name_idx
+    !has_exec_name
+    !call_idx
+    !has_call
+    !usage_total_idx
+    !has_usage_total
+    !usage_reasoning_idx
+    !has_usage_reasoning
+    !usage_output_idx
+    !has_usage_output
+    !usage_cached_idx
+    !has_usage_cached
+    !usage_input_idx
+    !has_usage_input
+    !output_text_idx
+    !has_output_text
+    !visible_idx
+    !has_visible
+    !thought_idx
+    !has_thought
+    !reasoning_idx
+    !has_reasoning
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat SSE fallback maps reasoning content thinking and split thought tags like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_sse_to_responses(&CHAT_SSE_REASONING_THINKING_SPLIT, CHAT_SSE_REASONING_THINKING_SPLIT_LEN, &EMPTY_REQ, EMPTY_REQ_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 521)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 522)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 523)
+
+    delta_one_idx = call @sa_bytes_find(&data, len, &NEEDLE_SSE_DELTA_THINK_ONE, NEEDLE_SSE_DELTA_THINK_ONE_LEN)
+    has_delta_one = sge delta_one_idx, 0
+    call @assert_contract(has_delta_one, 524)
+
+    delta_two_idx = call @sa_bytes_find(&data, len, &NEEDLE_SSE_DELTA_AND_TWO, NEEDLE_SSE_DELTA_AND_TWO_LEN)
+    has_delta_two = sge delta_two_idx, 0
+    call @assert_contract(has_delta_two, 525)
+
+    split_thought_idx = call @sa_bytes_find(&data, len, &NEEDLE_SSE_SPLIT_THOUGHT, NEEDLE_SSE_SPLIT_THOUGHT_LEN)
+    has_split_thought = sge split_thought_idx, 0
+    call @assert_contract(has_split_thought, 526)
+
+    answer_idx = call @sa_bytes_find(&data, len, &NEEDLE_SSE_DELTA_ANSWER, NEEDLE_SSE_DELTA_ANSWER_LEN)
+    has_answer = sge answer_idx, 0
+    call @assert_contract(has_answer, 527)
+
+    reason_done_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASON_DONE, NEEDLE_REASON_DONE_LEN)
+    has_reason_done = sge reason_done_idx, 0
+    call @assert_contract(has_reason_done, 528)
+
+    msg_added_idx = call @sa_bytes_find(&data, len, &NEEDLE_MSG_ADDED, NEEDLE_MSG_ADDED_LEN)
+    has_msg_added = sge msg_added_idx, 0
+    call @assert_contract(has_msg_added, 529)
+
+    msg_off = bitcast msg_added_idx as u64
+    after_msg_ptr = ptr_add data, msg_off
+    after_msg_len = sub len, msg_off
+    reason_after_msg_idx = call @sa_bytes_find(&after_msg_ptr, after_msg_len, &NEEDLE_REASON_DONE, NEEDLE_REASON_DONE_LEN)
+    no_reason_done_after_msg = slt reason_after_msg_idx, 0
+    call @assert_contract(no_reason_done_after_msg, 530)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 531)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !reason_after_msg_idx
+    !no_reason_done_after_msg
+    !after_msg_len
+    !after_msg_ptr
+    !msg_off
+    !msg_added_idx
+    !has_msg_added
+    !reason_done_idx
+    !has_reason_done
+    !answer_idx
+    !has_answer
+    !split_thought_idx
+    !has_split_thought
+    !delta_two_idx
+    !has_delta_two
+    !delta_one_idx
+    !has_delta_one
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
 @test "responses chat fallback normalizes MCP server arguments in tool history"():
 L_ENTRY:
     out_ptr_slot = stack_alloc 8
@@ -384,4 +1062,1586 @@ L_ENTRY:
     !has_len
     !data
     !has_handle
+    return
+
+@test "responses request normalize flattens namespace history calls"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_request_normalize(&RESP_NAMESPACE_HISTORY_BODY, RESP_NAMESPACE_HISTORY_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 440)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 441)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 442)
+
+    flat_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    has_flat = sge flat_idx, 0
+    call @assert_contract(has_flat, 443)
+
+    ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_NAMESPACE_KEY, NEEDLE_NAMESPACE_KEY_LEN)
+    no_namespace = slt ns_idx, 0
+    call @assert_contract(no_namespace, 444)
+
+    output_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_OUTPUT_KIND_KEY, NEEDLE_OUTPUT_KIND_KEY_LEN)
+    no_output_kind = slt output_kind_idx, 0
+    call @assert_contract(no_output_kind, 445)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 446)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !output_kind_idx
+    !no_output_kind
+    !ns_idx
+    !no_namespace
+    !flat_idx
+    !has_flat
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "responses request normalize converts native MCP calls and backfills output names"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_request_normalize(&REQ_NATIVE_MCP_TOOL_CALL_NORMALIZE_BODY, REQ_NATIVE_MCP_TOOL_CALL_NORMALIZE_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 447)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 448)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 449)
+
+    function_call_idx = call @sa_bytes_find(&data, len, &NEEDLE_FUNCTION_CALL_TYPE, NEEDLE_FUNCTION_CALL_TYPE_LEN)
+    has_function_call = sge function_call_idx, 0
+    call @assert_contract(has_function_call, 450)
+
+    raw_mcp_call_idx = call @sa_bytes_find(&data, len, &NEEDLE_RAW_MCP_CALL_TYPE, NEEDLE_RAW_MCP_CALL_TYPE_LEN)
+    no_raw_mcp_call = slt raw_mcp_call_idx, 0
+    call @assert_contract(no_raw_mcp_call, 451)
+
+    flat_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    has_flat = sge flat_idx, 0
+    call @assert_contract(has_flat, 452)
+
+    output_type_idx = call @sa_bytes_find(&data, len, &NEEDLE_MCP_OUTPUT_TYPE, NEEDLE_MCP_OUTPUT_TYPE_LEN)
+    has_output_type = sge output_type_idx, 0
+    call @assert_contract(has_output_type, 473)
+
+    mcp_output_idx = call @sa_bytes_find(&data, len, &NEEDLE_MCP_OUTPUT_BACKFILL, NEEDLE_MCP_OUTPUT_BACKFILL_LEN)
+    has_mcp_output_name = sge mcp_output_idx, 0
+    call @assert_contract(has_mcp_output_name, 474)
+
+    fn_output_idx = call @sa_bytes_find(&data, len, &NEEDLE_FUNCTION_OUTPUT_BACKFILL, NEEDLE_FUNCTION_OUTPUT_BACKFILL_LEN)
+    has_fn_output_name = sge fn_output_idx, 0
+    call @assert_contract(has_fn_output_name, 475)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 476)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !fn_output_idx
+    !has_fn_output_name
+    !mcp_output_idx
+    !has_mcp_output_name
+    !output_type_idx
+    !has_output_type
+    !flat_idx
+    !has_flat
+    !raw_mcp_call_idx
+    !no_raw_mcp_call
+    !function_call_idx
+    !has_function_call
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat fallback parses formatted MCP namespace tools"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_json_to_responses(&CHAT_DEMO_DOT_BODY, CHAT_DEMO_DOT_BODY_LEN, &REQ_FORMATTED_DEMO_TOOLS_BODY, REQ_FORMATTED_DEMO_TOOLS_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 459)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 460)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 461)
+
+    ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_DEMO_NAMESPACE, NEEDLE_DEMO_NAMESPACE_LEN)
+    has_ns = sge ns_idx, 0
+    call @assert_contract(has_ns, 462)
+
+    name_idx = call @sa_bytes_find(&data, len, &NEEDLE_DEMO_REBUILD, NEEDLE_DEMO_REBUILD_LEN)
+    has_name = sge name_idx, 0
+    call @assert_contract(has_name, 463)
+
+    raw_idx = call @sa_bytes_find(&data, len, &NEEDLE_DEMO_DOT_RAW, NEEDLE_DEMO_DOT_RAW_LEN)
+    no_raw = slt raw_idx, 0
+    call @assert_contract(no_raw, 464)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 465)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !raw_idx
+    !no_raw
+    !name_idx
+    !has_name
+    !ns_idx
+    !has_ns
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "chat fallback parses flat MCP request tools"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_chat_json_to_responses(&CHAT_DEMO_DOT_BODY, CHAT_DEMO_DOT_BODY_LEN, &REQ_FLAT_DEMO_TOOLS_BODY, REQ_FLAT_DEMO_TOOLS_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 466)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 467)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 468)
+
+    ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_DEMO_NAMESPACE, NEEDLE_DEMO_NAMESPACE_LEN)
+    has_ns = sge ns_idx, 0
+    call @assert_contract(has_ns, 469)
+
+    name_idx = call @sa_bytes_find(&data, len, &NEEDLE_DEMO_REBUILD, NEEDLE_DEMO_REBUILD_LEN)
+    has_name = sge name_idx, 0
+    call @assert_contract(has_name, 470)
+
+    raw_idx = call @sa_bytes_find(&data, len, &NEEDLE_DEMO_DOT_RAW, NEEDLE_DEMO_DOT_RAW_LEN)
+    no_raw = slt raw_idx, 0
+    call @assert_contract(no_raw, 471)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 472)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !raw_idx
+    !no_raw
+    !name_idx
+    !has_name
+    !ns_idx
+    !has_ns
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "responses proxy body preserves Code Index namespace tools"():
+L_ENTRY:
+    out_len_slot = stack_alloc 8
+    data = call @build_responses_proxy_body(&RESP_PROXY_NAMESPACE_TOOLS_BODY, RESP_PROXY_NAMESPACE_TOOLS_BODY_LEN, 0, &out_len_slot)
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 930)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 931)
+
+    code_build_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    has_code_build = sge code_build_idx, 0
+    call @assert_contract(has_code_build, 932)
+
+    code_search_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_SEARCH, NEEDLE_FLAT_MCP_SEARCH_LEN)
+    has_code_search = sge code_search_idx, 0
+    call @assert_contract(has_code_search, 933)
+
+    mimir_idx = call @sa_bytes_find(&data, len, &NEEDLE_MIMIR_SEARCH, NEEDLE_MIMIR_SEARCH_LEN)
+    has_mimir = sge mimir_idx, 0
+    call @assert_contract(has_mimir, 934)
+
+    namespace_idx = call @sa_bytes_find(&data, len, &NEEDLE_NAMESPACE_TYPE, NEEDLE_NAMESPACE_TYPE_LEN)
+    no_namespace = slt namespace_idx, 0
+    call @assert_contract(no_namespace, 935)
+
+    !namespace_idx
+    !no_namespace
+    !mimir_idx
+    !has_mimir
+    !code_search_idx
+    !has_code_search
+    !code_build_idx
+    !has_code_build
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses proxy body preserves responses-only fields"():
+L_ENTRY:
+    out_len_slot = stack_alloc 8
+    data = call @build_responses_proxy_body(&RESP_ARRAY_BODY, RESP_ARRAY_BODY_LEN, 0, &out_len_slot)
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 940)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 941)
+
+    store_idx = call @sa_bytes_find(&data, len, &NEEDLE_STORE_KEY, NEEDLE_STORE_KEY_LEN)
+    has_store = sge store_idx, 0
+    call @assert_contract(has_store, 942)
+
+    prompt_idx = call @sa_bytes_find(&data, len, &NEEDLE_PROMPT_CACHE, NEEDLE_PROMPT_CACHE_LEN)
+    has_prompt = sge prompt_idx, 0
+    call @assert_contract(has_prompt, 943)
+
+    include_idx = call @sa_bytes_find(&data, len, &NEEDLE_INCLUDE, NEEDLE_INCLUDE_LEN)
+    has_include = sge include_idx, 0
+    call @assert_contract(has_include, 944)
+
+    reasoning_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASONING, NEEDLE_REASONING_LEN)
+    has_reasoning = sge reasoning_idx, 0
+    call @assert_contract(has_reasoning, 945)
+
+    input_idx = call @sa_bytes_find(&data, len, &NEEDLE_INPUT_KEY, NEEDLE_INPUT_KEY_LEN)
+    has_input = sge input_idx, 0
+    call @assert_contract(has_input, 946)
+
+    !input_idx
+    !has_input
+    !reasoning_idx
+    !has_reasoning
+    !include_idx
+    !has_include
+    !prompt_idx
+    !has_prompt
+    !store_idx
+    !has_store
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "gemini responses proxy body strips only incompatible fields"():
+L_ENTRY:
+    out_len_slot = stack_alloc 8
+    data = call @build_responses_proxy_body(&RESP_ARRAY_BODY, RESP_ARRAY_BODY_LEN, 1, &out_len_slot)
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 950)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 951)
+
+    store_idx = call @sa_bytes_find(&data, len, &NEEDLE_STORE_KEY, NEEDLE_STORE_KEY_LEN)
+    no_store = slt store_idx, 0
+    call @assert_contract(no_store, 952)
+
+    prompt_idx = call @sa_bytes_find(&data, len, &NEEDLE_PROMPT_CACHE, NEEDLE_PROMPT_CACHE_LEN)
+    no_prompt = slt prompt_idx, 0
+    call @assert_contract(no_prompt, 953)
+
+    include_idx = call @sa_bytes_find(&data, len, &NEEDLE_INCLUDE, NEEDLE_INCLUDE_LEN)
+    has_include = sge include_idx, 0
+    call @assert_contract(has_include, 954)
+
+    reasoning_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASONING, NEEDLE_REASONING_LEN)
+    has_reasoning = sge reasoning_idx, 0
+    call @assert_contract(has_reasoning, 955)
+
+    input_idx = call @sa_bytes_find(&data, len, &NEEDLE_INPUT_KEY, NEEDLE_INPUT_KEY_LEN)
+    has_input = sge input_idx, 0
+    call @assert_contract(has_input, 956)
+
+    !input_idx
+    !has_input
+    !reasoning_idx
+    !has_reasoning
+    !include_idx
+    !has_include
+    !prompt_idx
+    !no_prompt
+    !store_idx
+    !no_store
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "responses request normalize strips reasoning content"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_request_normalize(&RESP_REASONING_CONTENT_BODY, RESP_REASONING_CONTENT_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 453)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 454)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 455)
+
+    reasoning_text_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASONING_TEXT, NEEDLE_REASONING_TEXT_LEN)
+    no_reasoning_text = slt reasoning_text_idx, 0
+    call @assert_contract(no_reasoning_text, 456)
+
+    encrypted_idx = call @sa_bytes_find(&data, len, &NEEDLE_ENCRYPTED_DEMO, NEEDLE_ENCRYPTED_DEMO_LEN)
+    has_encrypted = sge encrypted_idx, 0
+    call @assert_contract(has_encrypted, 457)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 458)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !encrypted_idx
+    !has_encrypted
+    !reasoning_text_idx
+    !no_reasoning_text
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "responses request normalize leaves nested metadata untouched like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_request_normalize(&RESP_NESTED_REASONING_METADATA_BODY, RESP_NESTED_REASONING_METADATA_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 477)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 478)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 479)
+
+    nested_idx = call @sa_bytes_find(&data, len, &NEEDLE_KEEP_NESTED, NEEDLE_KEEP_NESTED_LEN)
+    has_nested = sge nested_idx, 0
+    call @assert_contract(has_nested, 480)
+
+    raw_server_idx = call @sa_bytes_find(&data, len, &NEEDLE_RAW_CODE_INDEX_SERVER, NEEDLE_RAW_CODE_INDEX_SERVER_LEN)
+    has_raw_server = sge raw_server_idx, 0
+    call @assert_contract(has_raw_server, 481)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 482)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !raw_server_idx
+    !has_raw_server
+    !nested_idx
+    !has_nested
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses json splits flat MCP tool names like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_json_normalize(&RESP_NATIVE_MCP_OUTPUT_BODY, RESP_NATIVE_MCP_OUTPUT_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 447)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 448)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 449)
+
+    flat_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    no_flat = slt flat_idx, 0
+    call @assert_contract(no_flat, 450)
+
+    short_idx = call @sa_bytes_find(&data, len, &NEEDLE_MCP_BUILD_SHORT, NEEDLE_MCP_BUILD_SHORT_LEN)
+    has_short = sge short_idx, 0
+    call @assert_contract(has_short, 451)
+
+    code_ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    has_code_ns = sge code_ns_idx, 0
+    call @assert_contract(has_code_ns, 452)
+
+    out_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_FUNCTION_OUTPUT_KIND, NEEDLE_FUNCTION_OUTPUT_KIND_LEN)
+    has_out_kind = sge out_kind_idx, 0
+    call @assert_contract(has_out_kind, 453)
+
+    ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_NAMESPACE_KEY, NEEDLE_NAMESPACE_KEY_LEN)
+    has_namespace = sge ns_idx, 0
+    call @assert_contract(has_namespace, 454)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 452)
+
+    !free_status
+    !free_ok
+    !out_kind_idx
+    !has_out_kind
+    !code_ns_idx
+    !has_code_ns
+    !short_idx
+    !has_short
+    !status
+    !status_ok
+    !ns_idx
+    !has_namespace
+    !flat_idx
+    !no_flat
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses json only splits MCP names when request declares namespace tools"():
+L_ENTRY:
+    flat_ptr_slot = stack_alloc 8
+    flat_len_slot = stack_alloc 8
+    flat_status = call @sa_deno_plugin_responses_json_normalize_with_request(&RESP_NATIVE_MCP_OUTPUT_BODY, RESP_NATIVE_MCP_OUTPUT_BODY_LEN, &REQ_FLAT_CODE_INDEX_TOOL_BODY, REQ_FLAT_CODE_INDEX_TOOL_BODY_LEN, &flat_ptr_slot, &flat_len_slot)
+    flat_status_ok = eq flat_status, 0
+    call @assert_contract(flat_status_ok, 483)
+    flat_data = load flat_ptr_slot+0 as ptr
+    flat_len = load flat_len_slot+0 as u64
+    flat_has_handle = ne flat_data, 0
+    call @assert_contract(flat_has_handle, 484)
+
+    flat_name_idx = call @sa_bytes_find(&flat_data, flat_len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    keeps_flat = sge flat_name_idx, 0
+    call @assert_contract(keeps_flat, 485)
+
+    flat_ns_idx = call @sa_bytes_find(&flat_data, flat_len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    no_ns_without_decl = slt flat_ns_idx, 0
+    call @assert_contract(no_ns_without_decl, 486)
+
+    flat_kind_idx = call @sa_bytes_find(&flat_data, flat_len, &NEEDLE_FUNCTION_OUTPUT_KIND, NEEDLE_FUNCTION_OUTPUT_KIND_LEN)
+    has_kind_without_decl = sge flat_kind_idx, 0
+    call @assert_contract(has_kind_without_decl, 487)
+
+    flat_free_status = call @sa_deno_plugin_free_buffer(flat_data, flat_len)
+    flat_free_ok = eq flat_free_status, 0
+    call @assert_contract(flat_free_ok, 488)
+
+    ns_ptr_slot = stack_alloc 8
+    ns_len_slot = stack_alloc 8
+    ns_status = call @sa_deno_plugin_responses_json_normalize_with_request(&RESP_NATIVE_MCP_OUTPUT_BODY, RESP_NATIVE_MCP_OUTPUT_BODY_LEN, &RESP_ARRAY_BODY, RESP_ARRAY_BODY_LEN, &ns_ptr_slot, &ns_len_slot)
+    ns_status_ok = eq ns_status, 0
+    call @assert_contract(ns_status_ok, 489)
+    ns_data = load ns_ptr_slot+0 as ptr
+    ns_len = load ns_len_slot+0 as u64
+    ns_has_handle = ne ns_data, 0
+    call @assert_contract(ns_has_handle, 490)
+
+    ns_flat_idx = call @sa_bytes_find(&ns_data, ns_len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    no_flat_with_decl = slt ns_flat_idx, 0
+    call @assert_contract(no_flat_with_decl, 491)
+
+    ns_short_idx = call @sa_bytes_find(&ns_data, ns_len, &NEEDLE_MCP_BUILD_SHORT, NEEDLE_MCP_BUILD_SHORT_LEN)
+    has_short_with_decl = sge ns_short_idx, 0
+    call @assert_contract(has_short_with_decl, 492)
+
+    ns_decl_idx = call @sa_bytes_find(&ns_data, ns_len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    has_ns_with_decl = sge ns_decl_idx, 0
+    call @assert_contract(has_ns_with_decl, 493)
+
+    ns_free_status = call @sa_deno_plugin_free_buffer(ns_data, ns_len)
+    ns_free_ok = eq ns_free_status, 0
+    call @assert_contract(ns_free_ok, 494)
+
+    !ns_free_status
+    !ns_free_ok
+    !ns_decl_idx
+    !has_ns_with_decl
+    !ns_short_idx
+    !has_short_with_decl
+    !ns_flat_idx
+    !no_flat_with_decl
+    !ns_status
+    !ns_status_ok
+    !ns_len
+    !ns_data
+    !ns_has_handle
+    !flat_free_status
+    !flat_free_ok
+    !flat_kind_idx
+    !has_kind_without_decl
+    !flat_ns_idx
+    !no_ns_without_decl
+    !flat_name_idx
+    !keeps_flat
+    !flat_status
+    !flat_status_ok
+    !flat_len
+    !flat_data
+    !flat_has_handle
+    return
+
+@test "native responses json adds output kind for all tool call types like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_json_normalize(&RESP_NATIVE_TOOL_OUTPUT_KIND_BODY, RESP_NATIVE_TOOL_OUTPUT_KIND_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 469)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 470)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 471)
+
+    fn_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_FUNCTION_OUTPUT_KIND, NEEDLE_FUNCTION_OUTPUT_KIND_LEN)
+    has_fn_kind = sge fn_kind_idx, 0
+    call @assert_contract(has_fn_kind, 472)
+
+    custom_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_CUSTOM_OUTPUT_KIND, NEEDLE_CUSTOM_OUTPUT_KIND_LEN)
+    has_custom_kind = sge custom_kind_idx, 0
+    call @assert_contract(has_custom_kind, 473)
+
+    search_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_TOOL_SEARCH_OUTPUT_KIND, NEEDLE_TOOL_SEARCH_OUTPUT_KIND_LEN)
+    has_search_kind = sge search_kind_idx, 0
+    call @assert_contract(has_search_kind, 474)
+
+    mcp_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_MCP_OUTPUT_KIND, NEEDLE_MCP_OUTPUT_KIND_LEN)
+    has_mcp_kind = sge mcp_kind_idx, 0
+    call @assert_contract(has_mcp_kind, 475)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 476)
+
+    !free_status
+    !free_ok
+    !mcp_kind_idx
+    !has_mcp_kind
+    !search_kind_idx
+    !has_search_kind
+    !custom_kind_idx
+    !has_custom_kind
+    !fn_kind_idx
+    !has_fn_kind
+    !status
+    !status_ok
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses json normalizes thinking output items like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_json_normalize(&RESP_NATIVE_THINKING_JSON_BODY, RESP_NATIVE_THINKING_JSON_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 548)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 549)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 550)
+
+    reasoning_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASONING_TYPE, NEEDLE_REASONING_TYPE_LEN)
+    has_reasoning = sge reasoning_idx, 0
+    call @assert_contract(has_reasoning, 551)
+
+    native_idx = call @sa_bytes_find(&data, len, &NEEDLE_NATIVE_JSON_THINK, NEEDLE_NATIVE_JSON_THINK_LEN)
+    has_native = sge native_idx, 0
+    call @assert_contract(has_native, 552)
+
+    msg_idx = call @sa_bytes_find(&data, len, &NEEDLE_NATIVE_MSG_THINK, NEEDLE_NATIVE_MSG_THINK_LEN)
+    has_msg = sge msg_idx, 0
+    call @assert_contract(has_msg, 553)
+
+    answer_idx = call @sa_bytes_find(&data, len, &NEEDLE_ANSWER_OUTPUT, NEEDLE_ANSWER_OUTPUT_LEN)
+    has_answer = sge answer_idx, 0
+    call @assert_contract(has_answer, 554)
+
+    thinking_idx = call @sa_bytes_find(&data, len, &NEEDLE_THINKING_TYPE, NEEDLE_THINKING_TYPE_LEN)
+    no_thinking = slt thinking_idx, 0
+    call @assert_contract(no_thinking, 555)
+
+    reason_key_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASONING_CONTENT_KEY, NEEDLE_REASONING_CONTENT_KEY_LEN)
+    no_reason_key = slt reason_key_idx, 0
+    call @assert_contract(no_reason_key, 556)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 557)
+
+    !free_status
+    !free_ok
+    !reason_key_idx
+    !no_reason_key
+    !thinking_idx
+    !no_thinking
+    !answer_idx
+    !has_answer
+    !msg_idx
+    !has_msg
+    !native_idx
+    !has_native
+    !reasoning_idx
+    !has_reasoning
+    !status
+    !status_ok
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses json denormalizes MCP server arguments like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_json_normalize(&RESP_NATIVE_MCP_ARGS_BODY, RESP_NATIVE_MCP_ARGS_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 481)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 482)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 483)
+
+    server_idx = call @sa_bytes_find(&data, len, &NEEDLE_CODE_INDEX_DENORM_SERVER, NEEDLE_CODE_INDEX_DENORM_SERVER_LEN)
+    has_server = sge server_idx, 0
+    call @assert_contract(has_server, 484)
+
+    short_idx = call @sa_bytes_find(&data, len, &NEEDLE_MCP_RESOURCE_SHORT, NEEDLE_MCP_RESOURCE_SHORT_LEN)
+    has_short = sge short_idx, 0
+    call @assert_contract(has_short, 485)
+
+    ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    has_ns = sge ns_idx, 0
+    call @assert_contract(has_ns, 486)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 487)
+
+    out2_ptr_slot = stack_alloc 8
+    out2_len_slot = stack_alloc 8
+    status2 = call @sa_deno_plugin_responses_json_normalize(&RESP_NATIVE_MCP_CODE_INDEX_ARGS_BODY, RESP_NATIVE_MCP_CODE_INDEX_ARGS_BODY_LEN, &out2_ptr_slot, &out2_len_slot)
+    status2_ok = eq status2, 0
+    call @assert_contract(status2_ok, 488)
+    data2 = load out2_ptr_slot+0 as ptr
+    len2 = load out2_len_slot+0 as u64
+    server2_idx = call @sa_bytes_find(&data2, len2, &NEEDLE_CODE_INDEX_DENORM_SERVER, NEEDLE_CODE_INDEX_DENORM_SERVER_LEN)
+    has_server2 = sge server2_idx, 0
+    call @assert_contract(has_server2, 489)
+    free2_status = call @sa_deno_plugin_free_buffer(data2, len2)
+    free2_ok = eq free2_status, 0
+    call @assert_contract(free2_ok, 490)
+
+    out3_ptr_slot = stack_alloc 8
+    out3_len_slot = stack_alloc 8
+    status3 = call @sa_deno_plugin_responses_json_normalize(&RESP_NATIVE_MCP_CUSTOM_ARGS_BODY, RESP_NATIVE_MCP_CUSTOM_ARGS_BODY_LEN, &out3_ptr_slot, &out3_len_slot)
+    status3_ok = eq status3, 0
+    call @assert_contract(status3_ok, 491)
+    data3 = load out3_ptr_slot+0 as ptr
+    len3 = load out3_len_slot+0 as u64
+    server3_idx = call @sa_bytes_find(&data3, len3, &NEEDLE_CUSTOM_DENORM_SERVER, NEEDLE_CUSTOM_DENORM_SERVER_LEN)
+    has_server3 = sge server3_idx, 0
+    call @assert_contract(has_server3, 492)
+    custom_ns_idx = call @sa_bytes_find(&data3, len3, &NEEDLE_CUSTOM_NAMESPACE, NEEDLE_CUSTOM_NAMESPACE_LEN)
+    has_custom_ns = sge custom_ns_idx, 0
+    call @assert_contract(has_custom_ns, 493)
+    custom_name_idx = call @sa_bytes_find(&data3, len3, &NEEDLE_CUSTOM_TOOL_SHORT, NEEDLE_CUSTOM_TOOL_SHORT_LEN)
+    has_custom_name = sge custom_name_idx, 0
+    call @assert_contract(has_custom_name, 494)
+    free3_status = call @sa_deno_plugin_free_buffer(data3, len3)
+    free3_ok = eq free3_status, 0
+    call @assert_contract(free3_ok, 495)
+
+    !free3_status
+    !free3_ok
+    !custom_name_idx
+    !has_custom_name
+    !custom_ns_idx
+    !has_custom_ns
+    !server3_idx
+    !has_server3
+    !status3
+    !status3_ok
+    !len3
+    !data3
+    !free2_status
+    !free2_ok
+    !server2_idx
+    !has_server2
+    !status2
+    !status2_ok
+    !len2
+    !data2
+    !free_status
+    !free_ok
+    !ns_idx
+    !has_ns
+    !short_idx
+    !has_short
+    !server_idx
+    !has_server
+    !status
+    !status_ok
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses json denormalizes MCP arguments even when flat name is preserved"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_json_normalize_with_request(&RESP_NATIVE_MCP_ARGS_BODY, RESP_NATIVE_MCP_ARGS_BODY_LEN, &REQ_FLAT_CODE_INDEX_TOOL_BODY, REQ_FLAT_CODE_INDEX_TOOL_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 506)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 507)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 508)
+
+    flat_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_RESOURCE, NEEDLE_FLAT_MCP_RESOURCE_LEN)
+    keeps_flat = sge flat_idx, 0
+    call @assert_contract(keeps_flat, 509)
+
+    server_idx = call @sa_bytes_find(&data, len, &NEEDLE_CODE_INDEX_DENORM_SERVER, NEEDLE_CODE_INDEX_DENORM_SERVER_LEN)
+    has_server = sge server_idx, 0
+    call @assert_contract(has_server, 510)
+
+    ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    no_namespace = slt ns_idx, 0
+    call @assert_contract(no_namespace, 511)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 512)
+
+    !free_status
+    !free_ok
+    !ns_idx
+    !no_namespace
+    !server_idx
+    !has_server
+    !flat_idx
+    !keeps_flat
+    !status
+    !status_ok
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses sse splits flat MCP tool names on added and done like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_sse_normalize(&RESP_NATIVE_MCP_SSE_BODY, RESP_NATIVE_MCP_SSE_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 459)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 460)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 461)
+
+    flat_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    no_flat = slt flat_idx, 0
+    call @assert_contract(no_flat, 462)
+
+    flat_search_idx = call @sa_bytes_find(&data, len, &NEEDLE_FLAT_MCP_SEARCH, NEEDLE_FLAT_MCP_SEARCH_LEN)
+    no_flat_search = slt flat_search_idx, 0
+    call @assert_contract(no_flat_search, 467)
+
+    short_idx = call @sa_bytes_find(&data, len, &NEEDLE_MCP_BUILD_SHORT, NEEDLE_MCP_BUILD_SHORT_LEN)
+    has_short = sge short_idx, 0
+    call @assert_contract(has_short, 463)
+
+    search_idx = call @sa_bytes_find(&data, len, &NEEDLE_MCP_SEARCH_SHORT, NEEDLE_MCP_SEARCH_SHORT_LEN)
+    has_search = sge search_idx, 0
+    call @assert_contract(has_search, 468)
+
+    code_ns_idx = call @sa_bytes_find(&data, len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    has_code_ns = sge code_ns_idx, 0
+    call @assert_contract(has_code_ns, 464)
+
+    out_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_FUNCTION_OUTPUT_KIND, NEEDLE_FUNCTION_OUTPUT_KIND_LEN)
+    has_out_kind = sge out_kind_idx, 0
+    call @assert_contract(has_out_kind, 465)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 466)
+
+    !free_status
+    !free_ok
+    !out_kind_idx
+    !has_out_kind
+    !code_ns_idx
+    !has_code_ns
+    !search_idx
+    !has_search
+    !short_idx
+    !has_short
+    !status
+    !status_ok
+    !flat_idx
+    !no_flat
+    !flat_search_idx
+    !no_flat_search
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses sse only splits MCP names when request declares namespace tools"():
+L_ENTRY:
+    flat_ptr_slot = stack_alloc 8
+    flat_len_slot = stack_alloc 8
+    flat_status = call @sa_deno_plugin_responses_sse_normalize_with_request(&RESP_NATIVE_MCP_SSE_BODY, RESP_NATIVE_MCP_SSE_BODY_LEN, &REQ_FLAT_CODE_INDEX_TOOL_BODY, REQ_FLAT_CODE_INDEX_TOOL_BODY_LEN, &flat_ptr_slot, &flat_len_slot)
+    flat_status_ok = eq flat_status, 0
+    call @assert_contract(flat_status_ok, 495)
+    flat_data = load flat_ptr_slot+0 as ptr
+    flat_len = load flat_len_slot+0 as u64
+    flat_has_handle = ne flat_data, 0
+    call @assert_contract(flat_has_handle, 496)
+
+    flat_build_idx = call @sa_bytes_find(&flat_data, flat_len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    keeps_build_flat = sge flat_build_idx, 0
+    call @assert_contract(keeps_build_flat, 497)
+
+    flat_ns_idx = call @sa_bytes_find(&flat_data, flat_len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    no_ns_without_decl = slt flat_ns_idx, 0
+    call @assert_contract(no_ns_without_decl, 498)
+
+    flat_free_status = call @sa_deno_plugin_free_buffer(flat_data, flat_len)
+    flat_free_ok = eq flat_free_status, 0
+    call @assert_contract(flat_free_ok, 499)
+
+    ns_ptr_slot = stack_alloc 8
+    ns_len_slot = stack_alloc 8
+    ns_status = call @sa_deno_plugin_responses_sse_normalize_with_request(&RESP_NATIVE_MCP_SSE_BODY, RESP_NATIVE_MCP_SSE_BODY_LEN, &RESP_ARRAY_BODY, RESP_ARRAY_BODY_LEN, &ns_ptr_slot, &ns_len_slot)
+    ns_status_ok = eq ns_status, 0
+    call @assert_contract(ns_status_ok, 500)
+    ns_data = load ns_ptr_slot+0 as ptr
+    ns_len = load ns_len_slot+0 as u64
+    ns_has_handle = ne ns_data, 0
+    call @assert_contract(ns_has_handle, 501)
+
+    ns_flat_idx = call @sa_bytes_find(&ns_data, ns_len, &NEEDLE_FLAT_MCP_BUILD, NEEDLE_FLAT_MCP_BUILD_LEN)
+    no_flat_with_decl = slt ns_flat_idx, 0
+    call @assert_contract(no_flat_with_decl, 502)
+
+    ns_short_idx = call @sa_bytes_find(&ns_data, ns_len, &NEEDLE_MCP_BUILD_SHORT, NEEDLE_MCP_BUILD_SHORT_LEN)
+    has_short_with_decl = sge ns_short_idx, 0
+    call @assert_contract(has_short_with_decl, 503)
+
+    ns_decl_idx = call @sa_bytes_find(&ns_data, ns_len, &NEEDLE_CODE_INDEX_NAMESPACE, NEEDLE_CODE_INDEX_NAMESPACE_LEN)
+    has_ns_with_decl = sge ns_decl_idx, 0
+    call @assert_contract(has_ns_with_decl, 504)
+
+    ns_free_status = call @sa_deno_plugin_free_buffer(ns_data, ns_len)
+    ns_free_ok = eq ns_free_status, 0
+    call @assert_contract(ns_free_ok, 505)
+
+    !ns_free_status
+    !ns_free_ok
+    !ns_decl_idx
+    !has_ns_with_decl
+    !ns_short_idx
+    !has_short_with_decl
+    !ns_flat_idx
+    !no_flat_with_decl
+    !ns_status
+    !ns_status_ok
+    !ns_len
+    !ns_data
+    !ns_has_handle
+    !flat_free_status
+    !flat_free_ok
+    !flat_ns_idx
+    !no_ns_without_decl
+    !flat_build_idx
+    !keeps_build_flat
+    !flat_status
+    !flat_status_ok
+    !flat_len
+    !flat_data
+    !flat_has_handle
+    return
+
+@test "native responses sse adds output kind for non-namespace tool calls like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_sse_normalize(&RESP_NATIVE_TOOL_OUTPUT_KIND_SSE_BODY, RESP_NATIVE_TOOL_OUTPUT_KIND_SSE_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 477)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 478)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 479)
+
+    fn_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_FUNCTION_OUTPUT_KIND, NEEDLE_FUNCTION_OUTPUT_KIND_LEN)
+    has_fn_kind = sge fn_kind_idx, 0
+    call @assert_contract(has_fn_kind, 480)
+
+    custom_kind_idx = call @sa_bytes_find(&data, len, &NEEDLE_CUSTOM_OUTPUT_KIND, NEEDLE_CUSTOM_OUTPUT_KIND_LEN)
+    has_custom_kind = sge custom_kind_idx, 0
+    call @assert_contract(has_custom_kind, 481)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 482)
+
+    !free_status
+    !free_ok
+    !custom_kind_idx
+    !has_custom_kind
+    !fn_kind_idx
+    !has_fn_kind
+    !status
+    !status_ok
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "native responses sse normalizes thinking output items like Deno"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_responses_sse_normalize(&RESP_NATIVE_THINKING_SSE_BODY, RESP_NATIVE_THINKING_SSE_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 558)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 559)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 560)
+
+    reasoning_idx = call @sa_bytes_find(&data, len, &NEEDLE_REASONING_TYPE, NEEDLE_REASONING_TYPE_LEN)
+    has_reasoning = sge reasoning_idx, 0
+    call @assert_contract(has_reasoning, 561)
+
+    stream_idx = call @sa_bytes_find(&data, len, &NEEDLE_NATIVE_STREAM_THINK, NEEDLE_NATIVE_STREAM_THINK_LEN)
+    has_stream = sge stream_idx, 0
+    call @assert_contract(has_stream, 562)
+
+    thinking_idx = call @sa_bytes_find(&data, len, &NEEDLE_THINKING_TYPE, NEEDLE_THINKING_TYPE_LEN)
+    no_thinking = slt thinking_idx, 0
+    call @assert_contract(no_thinking, 563)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 564)
+
+    !free_status
+    !free_ok
+    !thinking_idx
+    !no_thinking
+    !stream_idx
+    !has_stream
+    !reasoning_idx
+    !has_reasoning
+    !status
+    !status_ok
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "mcp server status list enumerates installed Codex MCP tools"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_server_status_list(&MCP_STATUS_TOOLS_ONLY_BODY, MCP_STATUS_TOOLS_ONLY_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 459)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 460)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 461)
+
+    data_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_DATA, MCP_STATUS_DATA_LEN)
+    has_data = sge data_idx, 0
+    call @assert_contract(has_data, 462)
+
+    cursor_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_NEXT_CURSOR, MCP_STATUS_NEXT_CURSOR_LEN)
+    has_cursor = sge cursor_idx, 0
+    call @assert_contract(has_cursor, 463)
+
+    server_info_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_SERVER_INFO, MCP_STATUS_SERVER_INFO_LEN)
+    has_server_info = sge server_info_idx, 0
+    call @assert_contract(has_server_info, 493)
+
+    tools_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_TOOLS, MCP_STATUS_TOOLS_LEN)
+    has_tools = sge tools_idx, 0
+    call @assert_contract(has_tools, 464)
+
+    auth_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_AUTH_UNSUPPORTED, MCP_STATUS_AUTH_UNSUPPORTED_LEN)
+    has_auth = sge auth_idx, 0
+    call @assert_contract(has_auth, 492)
+
+    code_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_CODE_INDEX, MCP_STATUS_CODE_INDEX_LEN)
+    has_code = sge code_idx, 0
+    call @assert_contract(has_code, 465)
+
+    build_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_BUILD_INDEX_TOOL, MCP_STATUS_BUILD_INDEX_TOOL_LEN)
+    has_build = sge build_idx, 0
+    call @assert_contract(has_build, 466)
+
+    mimir_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_MIMIR, MCP_STATUS_MIMIR_LEN)
+    has_mimir = sge mimir_idx, 0
+    call @assert_contract(has_mimir, 467)
+
+    mimir_tool_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_MIMIR_SEARCH_TOOL, MCP_STATUS_MIMIR_SEARCH_TOOL_LEN)
+    has_mimir_tool = sge mimir_tool_idx, 0
+    call @assert_contract(has_mimir_tool, 468)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 469)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !mimir_tool_idx
+    !has_mimir_tool
+    !mimir_idx
+    !has_mimir
+    !build_idx
+    !has_build
+    !code_idx
+    !has_code
+    !auth_idx
+    !has_auth
+    !tools_idx
+    !has_tools
+    !cursor_idx
+    !has_cursor
+    !server_info_idx
+    !has_server_info
+    !data_idx
+    !has_data
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "mcp server status list paginates installed Codex MCP tools"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_server_status_list(&MCP_STATUS_LIMIT_ONE_BODY, MCP_STATUS_LIMIT_ONE_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 486)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 487)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 488)
+
+    data_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_DATA, MCP_STATUS_DATA_LEN)
+    has_data = sge data_idx, 0
+    call @assert_contract(has_data, 489)
+
+    cursor_idx = call @sa_bytes_find(&data, len, &MCP_STATUS_NEXT_CURSOR_ONE, MCP_STATUS_NEXT_CURSOR_ONE_LEN)
+    has_cursor = sge cursor_idx, 0
+    call @assert_contract(has_cursor, 490)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 491)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !cursor_idx
+    !has_cursor
+    !data_idx
+    !has_data
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "mcp server status list rejects invalid params like Codex protocol"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_server_status_list(&MCP_STATUS_BAD_CURSOR_BODY, MCP_STATUS_BAD_CURSOR_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_invalid = eq status, 3
+    call @assert_contract(status_invalid, 494)
+
+    detail_status = call @sa_deno_plugin_mcp_server_status_list(&MCP_STATUS_BAD_DETAIL_BODY, MCP_STATUS_BAD_DETAIL_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    detail_invalid = eq detail_status, 3
+    call @assert_contract(detail_invalid, 497)
+
+    !detail_status
+    !detail_invalid
+    !status
+    !status_invalid
+    return
+
+@test "mcp resource read requires server and uri like Codex protocol"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    missing_server_status = call @sa_deno_plugin_mcp_resource_read(&MCP_RESOURCE_READ_MISSING_SERVER, MCP_RESOURCE_READ_MISSING_SERVER_LEN, &out_ptr_slot, &out_len_slot)
+    missing_server_invalid = eq missing_server_status, 3
+    call @assert_contract(missing_server_invalid, 495)
+
+    missing_uri_status = call @sa_deno_plugin_mcp_resource_read(&MCP_RESOURCE_READ_MISSING_URI, MCP_RESOURCE_READ_MISSING_URI_LEN, &out_ptr_slot, &out_len_slot)
+    missing_uri_invalid = eq missing_uri_status, 3
+    call @assert_contract(missing_uri_invalid, 496)
+
+    !missing_uri_status
+    !missing_uri_invalid
+    !missing_server_status
+    !missing_server_invalid
+    return
+
+@test "mcp resource read reports installed MCP execution failure"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_resource_read(&MCP_RESOURCE_READ_CODE_INDEX_MISSING, MCP_RESOURCE_READ_CODE_INDEX_MISSING_LEN, &out_ptr_slot, &out_len_slot)
+    status_failed = eq status, 4
+    call @assert_contract(status_failed, 828)
+
+    !status
+    !status_failed
+    return
+
+@test "mcp tool call invokes installed Code Index MCP server"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_tool_call(&MCP_TOOL_CALL_CODE_INDEX_DESCRIBE, MCP_TOOL_CALL_CODE_INDEX_DESCRIBE_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 470)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 471)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 472)
+
+    content_idx = call @sa_bytes_find(&data, len, &MCP_TOOL_CALL_CONTENT, MCP_TOOL_CALL_CONTENT_LEN)
+    has_content = sge content_idx, 0
+    call @assert_contract(has_content, 473)
+
+    summary_idx = call @sa_bytes_find(&data, len, &MCP_TOOL_CALL_SUMMARY_TEXT, MCP_TOOL_CALL_SUMMARY_TEXT_LEN)
+    has_summary = sge summary_idx, 0
+    call @assert_contract(has_summary, 474)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 475)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !summary_idx
+    !has_summary
+    !content_idx
+    !has_content
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "mcp tool call requires threadId like Codex protocol"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_tool_call(&MCP_TOOL_CALL_MISSING_THREAD, MCP_TOOL_CALL_MISSING_THREAD_LEN, &out_ptr_slot, &out_len_slot)
+    status_invalid = eq status, 3
+    call @assert_contract(status_invalid, 476)
+
+    !status
+    !status_invalid
+    return
+
+@test "mcp tool call rebuilds Code Index through installed MCP server"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_tool_call(&MCP_TOOL_CALL_CODE_INDEX_BUILD, MCP_TOOL_CALL_CODE_INDEX_BUILD_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 480)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 481)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 482)
+
+    content_idx = call @sa_bytes_find(&data, len, &MCP_TOOL_CALL_CONTENT, MCP_TOOL_CALL_CONTENT_LEN)
+    has_content = sge content_idx, 0
+    call @assert_contract(has_content, 483)
+
+    ready_idx = call @sa_bytes_find(&data, len, &MCP_TOOL_CALL_INDEX_READY, MCP_TOOL_CALL_INDEX_READY_LEN)
+    has_ready = sge ready_idx, 0
+    call @assert_contract(has_ready, 484)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 485)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !ready_idx
+    !has_ready
+    !content_idx
+    !has_content
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "mcp tool call resolves safe function name through installed MCP server"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_tool_call(&MCP_TOOL_CALL_CODE_INDEX_BUILD_SAFE_NAME, MCP_TOOL_CALL_CODE_INDEX_BUILD_SAFE_NAME_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 498)
+    data = load out_ptr_slot+0 as ptr
+    len = load out_len_slot+0 as u64
+    has_handle = ne data, 0
+    call @assert_contract(has_handle, 499)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 500)
+
+    content_idx = call @sa_bytes_find(&data, len, &MCP_TOOL_CALL_CONTENT, MCP_TOOL_CALL_CONTENT_LEN)
+    has_content = sge content_idx, 0
+    call @assert_contract(has_content, 501)
+
+    ready_idx = call @sa_bytes_find(&data, len, &MCP_TOOL_CALL_INDEX_READY, MCP_TOOL_CALL_INDEX_READY_LEN)
+    has_ready = sge ready_idx, 0
+    call @assert_contract(has_ready, 502)
+
+    free_status = call @sa_deno_plugin_free_buffer(data, len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 503)
+
+    !free_status
+    !free_ok
+    !status
+    !status_ok
+    !ready_idx
+    !has_ready
+    !content_idx
+    !has_content
+    !len
+    !has_len
+    !data
+    !has_handle
+    return
+
+@test "progress continuation allows Deno goal code and default contexts with exec"():
+L_ENTRY:
+    goal_allowed = call @body_allows_progress_continuation(&REQ_GOAL_EXEC, REQ_GOAL_EXEC_LEN)
+    goal_ok = eq goal_allowed, 1
+    call @assert_contract(goal_ok, 510)
+
+    code_allowed = call @body_allows_progress_continuation(&REQ_CODE_EXEC, REQ_CODE_EXEC_LEN)
+    code_ok = eq code_allowed, 1
+    call @assert_contract(code_ok, 511)
+
+    default_allowed = call @body_allows_progress_continuation(&REQ_DEFAULT_EXEC, REQ_DEFAULT_EXEC_LEN)
+    default_ok = eq default_allowed, 1
+    call @assert_contract(default_ok, 512)
+
+    !default_allowed
+    !default_ok
+    !code_allowed
+    !code_ok
+    !goal_allowed
+    !goal_ok
+    return
+
+@test "progress continuation rejects plan context and missing exec tool"():
+L_ENTRY:
+    plan_allowed = call @body_allows_progress_continuation(&REQ_PLAN_EXEC, REQ_PLAN_EXEC_LEN)
+    plan_rejected = eq plan_allowed, 0
+    call @assert_contract(plan_rejected, 513)
+
+    no_exec_allowed = call @body_allows_progress_continuation(&REQ_GOAL_NO_EXEC, REQ_GOAL_NO_EXEC_LEN)
+    no_exec_rejected = eq no_exec_allowed, 0
+    call @assert_contract(no_exec_rejected, 514)
+
+    !no_exec_allowed
+    !no_exec_rejected
+    !plan_allowed
+    !plan_rejected
+    return
+
+@test "progress continuation text detector matches Deno progress phrases"():
+L_ENTRY:
+    en_progress = call @responses_sse_is_progress_message(&SSE_PROGRESS_VERIFY, SSE_PROGRESS_VERIFY_LEN)
+    en_ok = eq en_progress, 1
+    call @assert_contract(en_ok, 515)
+
+    cn_progress = call @responses_sse_is_progress_message(&SSE_PROGRESS_CN, SSE_PROGRESS_CN_LEN)
+    cn_ok = eq cn_progress, 1
+    call @assert_contract(cn_ok, 516)
+
+    !cn_progress
+    !cn_ok
+    !en_progress
+    !en_ok
+    return
+
+@test "progress continuation text detector rejects final and proposed plan outputs"():
+L_ENTRY:
+    summary_progress = call @responses_sse_is_progress_message(&SSE_FINAL_SUMMARY, SSE_FINAL_SUMMARY_LEN)
+    summary_rejected = eq summary_progress, 0
+    call @assert_contract(summary_rejected, 517)
+
+    plan_progress = call @responses_sse_is_progress_message(&SSE_PROPOSED_PLAN, SSE_PROPOSED_PLAN_LEN)
+    plan_rejected = eq plan_progress, 0
+    call @assert_contract(plan_rejected, 518)
+
+    normal_progress = call @responses_sse_is_progress_message(&SSE_NORMAL_FINAL, SSE_NORMAL_FINAL_LEN)
+    normal_rejected = eq normal_progress, 0
+    call @assert_contract(normal_rejected, 519)
+
+    !normal_progress
+    !normal_rejected
+    !plan_progress
+    !plan_rejected
+    !summary_progress
+    !summary_rejected
+    return
+
+@test "progress continuation builder emits exec tool call and response done"():
+L_ENTRY:
+    out_len_slot = stack_alloc 8
+    out = call @build_native_progress_continuation(&out_len_slot)
+    out_len = load out_len_slot+0 as u64
+    has_out = ne out, 0
+    call @assert_contract(has_out, 520)
+    has_len = ugt out_len, 0
+    call @assert_contract(has_len, 521)
+
+    exec_idx = call @sa_bytes_find(&out, out_len, &NEEDLE_CONT_EXEC, NEEDLE_CONT_EXEC_LEN)
+    has_exec = sge exec_idx, 0
+    call @assert_contract(has_exec, 522)
+
+    call_idx = call @sa_bytes_find(&out, out_len, &NEEDLE_CONT_CALL, NEEDLE_CONT_CALL_LEN)
+    has_call = sge call_idx, 0
+    call @assert_contract(has_call, 523)
+
+    done_idx = call @sa_bytes_find(&out, out_len, &NEEDLE_RESPONSE_DONE, NEEDLE_RESPONSE_DONE_LEN)
+    has_done = sge done_idx, 0
+    call @assert_contract(has_done, 524)
+
+    !done_idx
+    !has_done
+    !call_idx
+    !has_call
+    !exec_idx
+    !has_exec
+    !out_len
+    !has_len
+    !out
+    !has_out
+    return
+
+@test "request context uses current turn mode from string thread id like Deno"():
+L_ENTRY:
+    state = stack_alloc STATE_MEM_SIZE
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 525)
+
+    thread_id = call @state_thread_create_with_key(&state, &REQ_CTX_THREAD_KEY, REQ_CTX_THREAD_KEY_LEN, &REQ_CTX_MODEL, REQ_CTX_MODEL_LEN, &REQ_CTX_CWD, REQ_CTX_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 526)
+
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, 527)
+
+    set_status = call @state_turn_set_mode(&state, thread_id, turn_id, 2)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 528)
+
+    mode = call @response_request_context_mode_from_ids(&state, &REQ_CTX_THREAD_KEY, REQ_CTX_THREAD_KEY_LEN, &REQ_CTX_TURN_TWO, REQ_CTX_TURN_TWO_LEN, &REQ_CTX_PLAN_BODY, REQ_CTX_PLAN_BODY_LEN)
+    state_goal_wins = eq mode, 2
+    call @assert_contract(state_goal_wins, 529)
+
+    !mode
+    !state_goal_wins
+    !set_status
+    !set_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    return
+
+@test "request context ignores stale turn id and falls back to body mode"():
+L_ENTRY:
+    state = stack_alloc STATE_MEM_SIZE
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 530)
+
+    thread_id = call @state_thread_create_with_key(&state, &REQ_CTX_THREAD_KEY, REQ_CTX_THREAD_KEY_LEN, &REQ_CTX_MODEL, REQ_CTX_MODEL_LEN, &REQ_CTX_CWD, REQ_CTX_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 531)
+
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, 532)
+
+    set_status = call @state_turn_set_mode(&state, thread_id, turn_id, 1)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 533)
+
+    stale_mode = call @response_request_context_mode_from_ids(&state, &REQ_CTX_THREAD_KEY, REQ_CTX_THREAD_KEY_LEN, &REQ_CTX_TURN_MISSING, REQ_CTX_TURN_MISSING_LEN, &REQ_CTX_GOAL_BODY, REQ_CTX_GOAL_BODY_LEN)
+    stale_falls_back_goal = eq stale_mode, 2
+    call @assert_contract(stale_falls_back_goal, 534)
+
+    !stale_mode
+    !stale_falls_back_goal
+    !set_status
+    !set_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    return
+
+@test "request context infers code and default body modes without local turn"():
+L_ENTRY:
+    state = stack_alloc STATE_MEM_SIZE
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 535)
+
+    code_mode = call @response_request_context_mode_from_ids(&state, &REQ_CTX_THREAD_KEY, REQ_CTX_THREAD_KEY_LEN, &REQ_CTX_TURN_TWO, REQ_CTX_TURN_TWO_LEN, &REQ_CTX_CODE_BODY, REQ_CTX_CODE_BODY_LEN)
+    code_ok = eq code_mode, 3
+    call @assert_contract(code_ok, 536)
+
+    default_mode = call @response_request_context_mode_from_ids(&state, &REQ_CTX_THREAD_KEY, REQ_CTX_THREAD_KEY_LEN, &REQ_CTX_TURN_TWO, REQ_CTX_TURN_TWO_LEN, &REQ_CTX_DEFAULT_BODY, REQ_CTX_DEFAULT_BODY_LEN)
+    default_ok = eq default_mode, 3
+    call @assert_contract(default_ok, 537)
+
+    !default_mode
+    !default_ok
+    !code_mode
+    !code_ok
+    !init_status
+    !init_ok
+    return
+
+@test "request context falls back to numeric thread id like SA HTTP headers"():
+L_ENTRY:
+    state = stack_alloc STATE_MEM_SIZE
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 538)
+
+    thread_id = call @state_thread_create(&state, &REQ_CTX_MODEL, REQ_CTX_MODEL_LEN, &REQ_CTX_CWD, REQ_CTX_CWD_LEN)
+    thread_ok = eq thread_id, 1
+    call @assert_contract(thread_ok, 539)
+
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, 540)
+
+    set_status = call @state_turn_set_mode(&state, thread_id, turn_id, 1)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 541)
+
+    mode = call @response_request_context_mode_from_ids(&state, &REQ_CTX_THREAD_NUMERIC_ONE, REQ_CTX_THREAD_NUMERIC_ONE_LEN, &REQ_CTX_TURN_TWO, REQ_CTX_TURN_TWO_LEN, &REQ_CTX_GOAL_BODY, REQ_CTX_GOAL_BODY_LEN)
+    numeric_plan_wins = eq mode, 1
+    call @assert_contract(numeric_plan_wins, 542)
+
+    !mode
+    !numeric_plan_wins
+    !set_status
+    !set_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
     return

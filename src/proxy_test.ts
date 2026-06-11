@@ -711,6 +711,63 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing in 
   }
 });
 
+Deno.test('proxyOpenAI routes responses to chat base when responses base url is missing and chat fallback is unavailable', async () => {
+  const seen: { url?: string; body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.url = String(input);
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(
+      JSON.stringify({
+        id: 'resp_raw',
+        object: 'response',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        output_text: 'ok',
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemini-2.5-pro',
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call_1',
+              name: 'read_file',
+              arguments: '{}',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(seen.url, 'http://127.0.0.1:8789/v1/responses');
+    assertEquals(JSON.parse(seen.body ?? '{}').model, 'models/gemini-2.5-pro');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI falls back to chat stream when responses upstream returns 404', async () => {
   const calls: string[] = [];
   const originalFetch = globalThis.fetch;

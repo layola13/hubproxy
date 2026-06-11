@@ -1,0 +1,1267 @@
+// SA native @test coverage for MCP JSON-RPC protocol parameter contracts.
+@import "../src/hub_modules.sa"
+
+@const RELOAD_DEFAULT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"config/mcpServer/reload\",\"params\":{}}"
+@const RELOAD_NAMED_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"config/mcpServer/reload\",\"params\":{\"name\":\"custom\"}}"
+@const STATUS_TOOLS_ONLY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"mcpServerStatus/list\",\"params\":{\"detail\":\"toolsAndAuthOnly\",\"limit\":1}}"
+@const NEEDLE_RELOAD_DEFAULT_NAME = utf8:"\"name\":\"local\""
+@const NEEDLE_RELOAD_CUSTOM_NAME = utf8:"\"name\":\"custom\""
+@const NEEDLE_RELOADED_TRUE = utf8:"\"reloaded\":true"
+@const NEEDLE_STATUS_DATA = utf8:"\"data\":[{"
+@const NEEDLE_STATUS_NAME = utf8:"\"name\":"
+@const NEEDLE_STATUS_TOOLS = utf8:"\"tools\":"
+@const NEEDLE_STATUS_AUTH = utf8:"\"authStatus\":"
+@const OAUTH_LOGIN_VALID = utf8:"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mcpServer/oauth/login\",\"params\":{\"name\":\"local\"}}"
+@const OAUTH_LOGIN_MISSING_NAME = utf8:"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"mcpServer/oauth/login\",\"params\":{}}"
+@const OAUTH_LOGIN_EMPTY_NAME = utf8:"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"mcpServer/oauth/login\",\"params\":{\"name\":\"\"}}"
+@const OAUTH_LOGIN_NUMERIC_NAME = utf8:"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"mcpServer/oauth/login\",\"params\":{\"name\":1}}"
+@const MCP_TOOL_MISSING_THREAD = utf8:"{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"mcpServer/tool/call\",\"params\":{\"server\":\"code-index\",\"tool\":\"describe-index\"}}"
+@const MCP_TOOL_MISSING_SERVER = utf8:"{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"thr-1\",\"tool\":\"describe-index\"}}"
+@const MCP_TOOL_MISSING_TOOL = utf8:"{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"thr-1\",\"server\":\"code-index\"}}"
+@const MCP_TOOL_PROGRESS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"mcpServer/tool/call\",\"params\":{\"threadId\":\"thr-1\",\"turnId\":\"turn-2\",\"itemId\":\"item-3\",\"message\":\"working\",\"server\":\"code-index\",\"tool\":\"describe-index\"}}"
+@const USER_INPUT_EVENT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"item/tool/requestUserInput\",\"params\":{\"threadId\":\"thr-1\",\"turnId\":\"turn-2\",\"itemId\":\"item-9\"}}"
+@const MCP_ELICIT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"mcpServer/elicitation/request\",\"params\":{\"threadId\":\"thr-1\",\"turnId\":\"turn-2\",\"serverName\":\"Code Index\"}}"
+@const MCP_ELICIT_NO_TURN_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"mcpServer/elicitation/request\",\"params\":{\"threadId\":\"thr-1\",\"serverName\":\"Code Index\"}}"
+@const MCP_STARTUP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"config/mcpServer/reload\",\"params\":{\"name\":\"Code Index\"}}"
+@const RT_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"thread/realtime/start\",\"params\":{\"threadId\":\"thr-rt\"}}"
+@const RT_THREAD_ID = utf8:"thr-rt"
+@const RT_AUDIO_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"thread/realtime/appendAudio\",\"params\":{\"threadId\":\"thr-rt\",\"audio\":\"abc\"}}"
+@const RT_TEXT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"thread/realtime/appendText\",\"params\":{\"threadId\":\"thr-rt\",\"role\":\"user\",\"text\":\"hello\"}}"
+@const RT_STOP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"thread/realtime/stop\",\"params\":{\"threadId\":\"thr-rt\"}}"
+@const RT_SDP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"thread/realtime/sdp\",\"params\":{\"threadId\":\"thr-rt\",\"sdp\":\"offer\"}}"
+@const RT_ERROR_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"thread/realtime/error\",\"params\":{\"threadId\":\"thr-rt\",\"error\":\"boom\"}}"
+@const RT_AUDIO_KEY = utf8:"\"audio\":\""
+@const RT_TEXT_KEY = utf8:"\"text\":\""
+@const RT_SDP_KEY = utf8:"\"sdp\":\""
+@const RT_ERROR_KEY = utf8:"\"error\":\""
+@const RT_SDP_FIELD = utf8:"sdp"
+@const RT_ERROR_FIELD = utf8:"error"
+@const RT_DELTA_MID = utf8:",\"delta\":"
+@const RT_TEXT_MID = utf8:",\"text\":"
+@const TEST_EV_RT_SDP = utf8:"thread/realtime/sdp"
+@const TEST_EV_RT_ERROR = utf8:"thread/realtime/error"
+@const TEST_WATCH_ID = utf8:"watch-1"
+@const TEST_WATCH_PATH = utf8:"/tmp/demo.txt"
+@const TEST_PROCESS_HANDLE = utf8:"proc-1"
+@const TEST_PROCESS_STREAM = utf8:"stdout"
+@const TEST_PROCESS_STDOUT = utf8:"hi"
+@const TEST_PROCESS_STDERR = utf8:"err"
+@const NEEDLE_MCP_PROGRESS_EVENT = utf8:"event: item/mcpToolCall/progress"
+@const NEEDLE_MCP_PROGRESS_THREAD = utf8:"\"threadId\":\"thr-1\""
+@const NEEDLE_MCP_PROGRESS_TURN = utf8:"\"turnId\":\"turn-2\""
+@const NEEDLE_MCP_PROGRESS_ITEM = utf8:"\"itemId\":\"item-3\""
+@const NEEDLE_MCP_PROGRESS_MESSAGE = utf8:"\"message\":\"working\""
+@const NEEDLE_USER_INPUT_EVENT = utf8:"event: item/tool/requestUserInput"
+@const NEEDLE_USER_INPUT_ITEM = utf8:"\"itemId\":\"item-9\""
+@const NEEDLE_USER_INPUT_QUESTIONS = utf8:"\"questions\":[{\"id\":\"default\""
+@const NEEDLE_USER_INPUT_HEADER = utf8:"\"header\":\"Input\""
+@const NEEDLE_USER_INPUT_OTHER = utf8:"\"isOther\":true"
+@const NEEDLE_MCP_ELICIT_EVENT = utf8:"event: mcpServer/elicitation/request"
+@const NEEDLE_MCP_SERVER = utf8:"\"serverName\":\"Code Index\""
+@const NEEDLE_MCP_TURN_NULL = utf8:"\"turnId\":null"
+@const NEEDLE_MCP_SCHEMA = utf8:"\"requestedSchema\":{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\""
+@const NEEDLE_MCP_INSTRUCTIONS = utf8:"\"instructions\":\"Provide a value to continue.\""
+@const NEEDLE_MCP_STARTUP_EVENT = utf8:"event: mcpServer/startupStatus/updated"
+@const NEEDLE_MCP_STARTUP_NAME = utf8:"\"name\":\"Code Index\""
+@const NEEDLE_MCP_STARTUP_STATUS = utf8:"\"status\":\"starting\""
+@const NEEDLE_MCP_STARTUP_ERROR = utf8:"\"error\":null"
+@const NEEDLE_WORLD_WARNING_EVENT = utf8:"event: windows/worldWritableWarning"
+@const NEEDLE_WORLD_SAMPLE_PATHS = utf8:"\"samplePaths\":[]"
+@const NEEDLE_WORLD_EXTRA = utf8:"\"extraCount\":0"
+@const NEEDLE_WORLD_FAILED = utf8:"\"failedScan\":false"
+@const NEEDLE_SKILLS_CHANGED_EVENT = utf8:"event: skills/changed"
+@const NEEDLE_SKILLS_CHANGED_DATA = utf8:"data: {\"method\":\"skills/changed\",\"params\":{}}"
+@const NEEDLE_FS_EVENT = utf8:"event: fs/changed"
+@const NEEDLE_FS_WATCH = utf8:"\"watchId\":\"watch-1\""
+@const NEEDLE_FS_PATH = utf8:"\"changedPaths\":[\"/tmp/demo.txt\"]"
+@const NEEDLE_PROCESS_OUTPUT_EVENT = utf8:"event: process/outputDelta"
+@const NEEDLE_PROCESS_EXITED_EVENT = utf8:"event: process/exited"
+@const NEEDLE_PROCESS_HANDLE = utf8:"\"processHandle\":\"proc-1\""
+@const NEEDLE_PROCESS_STREAM = utf8:"\"stream\":\"stdout\""
+@const NEEDLE_PROCESS_DELTA = utf8:"\"deltaBase64\":\"aGk=\""
+@const NEEDLE_PROCESS_CAP = utf8:"\"capReached\":false"
+@const NEEDLE_PROCESS_EXIT_CODE = utf8:"\"exitCode\":7"
+@const NEEDLE_PROCESS_STDOUT = utf8:"\"stdout\":\"hi\""
+@const NEEDLE_PROCESS_STDERR = utf8:"\"stderr\":\"err\""
+@const NEEDLE_PROCESS_STDOUT_CAP = utf8:"\"stdoutCapReached\":false"
+@const NEEDLE_PROCESS_STDERR_CAP = utf8:"\"stderrCapReached\":false"
+@const NEEDLE_RT_STARTED_EVENT = utf8:"event: thread/realtime/started"
+@const NEEDLE_RT_ITEM_EVENT = utf8:"event: thread/realtime/itemAdded"
+@const NEEDLE_RT_AUDIO_DELTA_EVENT = utf8:"event: thread/realtime/outputAudio/delta"
+@const NEEDLE_RT_TRANSCRIPT_DELTA_EVENT = utf8:"event: thread/realtime/transcript/delta"
+@const NEEDLE_RT_TRANSCRIPT_DONE_EVENT = utf8:"event: thread/realtime/transcript/done"
+@const NEEDLE_RT_SDP_EVENT = utf8:"event: thread/realtime/sdp"
+@const NEEDLE_RT_ERROR_EVENT = utf8:"event: thread/realtime/error"
+@const NEEDLE_RT_CLOSED_EVENT = utf8:"event: thread/realtime/closed"
+@const NEEDLE_RT_THREAD = utf8:"\"threadId\":\"thr-rt\""
+@const NEEDLE_RT_VERSION = utf8:"\"version\":\"v2\""
+@const NEEDLE_RT_SESSION = utf8:"\"realtimeSessionId\":"
+@const NEEDLE_RT_SESSION_FIXED = utf8:"\"realtimeSessionId\":\"sa-realtime\""
+@const NEEDLE_RT_TURN_ID_KEY = utf8:"\"turn\":{\"id\":\""
+@const NEEDLE_RT_TURN_FIXED = utf8:"\"id\":\"sa-realtime\""
+@const NEEDLE_RT_CREATED_AT = utf8:"\"createdAt\":1760000000"
+@const NEEDLE_RT_UPDATED_AT = utf8:"\"updatedAt\":1760000000"
+@const NEEDLE_RT_STARTED_AT = utf8:"\"startedAt\":1760000000"
+@const NEEDLE_RT_COMPLETED_AT = utf8:"\"completedAt\":1760000000"
+@const NEEDLE_RT_DURATION_ZERO = utf8:"\"durationMs\":0"
+@const NEEDLE_RT_STATUS_COMPLETED = utf8:"\"status\":\"completed\""
+@const NEEDLE_RT_ITEMS_EMPTY = utf8:"\"items\":[]"
+@const NEEDLE_RT_ITEMS_VIEW = utf8:"\"itemsView\":\"full\""
+@const NEEDLE_RT_ERROR_NULL = utf8:"\"error\":null"
+@const NEEDLE_RT_APPENDED_TRUE = utf8:"\"appended\":true"
+@const NEEDLE_RT_KIND_AUDIO = utf8:"\"kind\":\"audio\""
+@const NEEDLE_RT_KIND_TEXT = utf8:"\"kind\":\"text\""
+@const NEEDLE_RT_STOPPED_TRUE = utf8:"\"stopped\":true"
+@const NEEDLE_RT_AUDIO_ITEM = utf8:"\"item\":{\"type\":\"audio\",\"audio\":\"abc\"}"
+@const NEEDLE_RT_AUDIO = utf8:"\"audio\":\"abc\""
+@const NEEDLE_RT_TEXT_ITEM = utf8:"\"item\":{\"type\":\"text\",\"text\":\"hello\"}"
+@const NEEDLE_RT_ROLE = utf8:"\"role\":\"user\""
+@const NEEDLE_RT_DELTA = utf8:"\"delta\":\"hello\""
+@const NEEDLE_RT_TEXT = utf8:"\"text\":\"hello\""
+@const NEEDLE_RT_SDP = utf8:"\"sdp\":\"offer\""
+@const NEEDLE_RT_ERROR_VALUE = utf8:"\"error\":\"boom\""
+@const NEEDLE_ATTEST_TOKEN = utf8:"\"token\":\"attest_"
+@const NEEDLE_ATTEST_FIXED = utf8:"\"token\":\"attest_sa\""
+
+#def RELOAD_DEFAULT_BODY_LEN = 71
+#def RELOAD_NAMED_BODY_LEN = 86
+#def STATUS_TOOLS_ONLY_BODY_LEN = 105
+#def NEEDLE_RELOAD_DEFAULT_NAME_LEN = 14
+#def NEEDLE_RELOAD_CUSTOM_NAME_LEN = 15
+#def NEEDLE_RELOADED_TRUE_LEN = 15
+#def NEEDLE_STATUS_DATA_LEN = 9
+#def NEEDLE_STATUS_NAME_LEN = 7
+#def NEEDLE_STATUS_TOOLS_LEN = 8
+#def NEEDLE_STATUS_AUTH_LEN = 13
+#def OAUTH_LOGIN_VALID_LEN = 83
+#def OAUTH_LOGIN_MISSING_NAME_LEN = 69
+#def OAUTH_LOGIN_EMPTY_NAME_LEN = 78
+#def OAUTH_LOGIN_NUMERIC_NAME_LEN = 77
+#def MCP_TOOL_MISSING_THREAD_LEN = 113
+#def MCP_TOOL_MISSING_SERVER_LEN = 110
+#def MCP_TOOL_MISSING_TOOL_LEN = 108
+#def MCP_TOOL_PROGRESS_BODY_LEN = 188
+#def USER_INPUT_EVENT_BODY_LEN = 129
+#def MCP_ELICIT_BODY_LEN = 140
+#def MCP_ELICIT_NO_TURN_BODY_LEN = 122
+#def MCP_STARTUP_BODY_LEN = 91
+#def RT_START_BODY_LEN = 89
+#def RT_THREAD_ID_LEN = 6
+#def RT_AUDIO_BODY_LEN = 109
+#def RT_TEXT_BODY_LEN = 123
+#def RT_STOP_BODY_LEN = 88
+#def RT_SDP_BODY_LEN = 101
+#def RT_ERROR_BODY_LEN = 104
+#def RT_AUDIO_KEY_LEN = 9
+#def RT_TEXT_KEY_LEN = 8
+#def RT_SDP_KEY_LEN = 7
+#def RT_ERROR_KEY_LEN = 9
+#def RT_SDP_FIELD_LEN = 3
+#def RT_ERROR_FIELD_LEN = 5
+#def RT_DELTA_MID_LEN = 9
+#def RT_TEXT_MID_LEN = 8
+#def TEST_EV_RT_SDP_LEN = 19
+#def TEST_EV_RT_ERROR_LEN = 21
+#def TEST_WATCH_ID_LEN = 7
+#def TEST_WATCH_PATH_LEN = 13
+#def TEST_PROCESS_HANDLE_LEN = 6
+#def TEST_PROCESS_STREAM_LEN = 6
+#def TEST_PROCESS_STDOUT_LEN = 2
+#def TEST_PROCESS_STDERR_LEN = 3
+#def NEEDLE_MCP_PROGRESS_EVENT_LEN = 32
+#def NEEDLE_MCP_PROGRESS_THREAD_LEN = 18
+#def NEEDLE_MCP_PROGRESS_TURN_LEN = 17
+#def NEEDLE_MCP_PROGRESS_ITEM_LEN = 17
+#def NEEDLE_MCP_PROGRESS_MESSAGE_LEN = 19
+#def NEEDLE_USER_INPUT_EVENT_LEN = 33
+#def NEEDLE_USER_INPUT_ITEM_LEN = 17
+#def NEEDLE_USER_INPUT_QUESTIONS_LEN = 28
+#def NEEDLE_USER_INPUT_HEADER_LEN = 16
+#def NEEDLE_USER_INPUT_OTHER_LEN = 14
+#def NEEDLE_MCP_ELICIT_EVENT_LEN = 36
+#def NEEDLE_MCP_SERVER_LEN = 25
+#def NEEDLE_MCP_TURN_NULL_LEN = 13
+#def NEEDLE_MCP_SCHEMA_LEN = 75
+#def NEEDLE_MCP_INSTRUCTIONS_LEN = 45
+#def NEEDLE_MCP_STARTUP_EVENT_LEN = 38
+#def NEEDLE_MCP_STARTUP_NAME_LEN = 19
+#def NEEDLE_MCP_STARTUP_STATUS_LEN = 19
+#def NEEDLE_MCP_STARTUP_ERROR_LEN = 12
+#def NEEDLE_WORLD_WARNING_EVENT_LEN = 35
+#def NEEDLE_WORLD_SAMPLE_PATHS_LEN = 16
+#def NEEDLE_WORLD_EXTRA_LEN = 14
+#def NEEDLE_WORLD_FAILED_LEN = 18
+#def NEEDLE_SKILLS_CHANGED_EVENT_LEN = 21
+#def NEEDLE_SKILLS_CHANGED_DATA_LEN = 45
+#def NEEDLE_FS_EVENT_LEN = 17
+#def NEEDLE_FS_WATCH_LEN = 19
+#def NEEDLE_FS_PATH_LEN = 32
+#def NEEDLE_PROCESS_OUTPUT_EVENT_LEN = 26
+#def NEEDLE_PROCESS_EXITED_EVENT_LEN = 21
+#def NEEDLE_PROCESS_HANDLE_LEN = 24
+#def NEEDLE_PROCESS_STREAM_LEN = 17
+#def NEEDLE_PROCESS_DELTA_LEN = 20
+#def NEEDLE_PROCESS_CAP_LEN = 18
+#def NEEDLE_PROCESS_EXIT_CODE_LEN = 12
+#def NEEDLE_PROCESS_STDOUT_LEN = 13
+#def NEEDLE_PROCESS_STDERR_LEN = 14
+#def NEEDLE_PROCESS_STDOUT_CAP_LEN = 24
+#def NEEDLE_PROCESS_STDERR_CAP_LEN = 24
+#def NEEDLE_RT_STARTED_EVENT_LEN = 30
+#def NEEDLE_RT_ITEM_EVENT_LEN = 32
+#def NEEDLE_RT_AUDIO_DELTA_EVENT_LEN = 40
+#def NEEDLE_RT_TRANSCRIPT_DELTA_EVENT_LEN = 39
+#def NEEDLE_RT_TRANSCRIPT_DONE_EVENT_LEN = 38
+#def NEEDLE_RT_SDP_EVENT_LEN = 26
+#def NEEDLE_RT_ERROR_EVENT_LEN = 28
+#def NEEDLE_RT_CLOSED_EVENT_LEN = 29
+#def NEEDLE_RT_THREAD_LEN = 19
+#def NEEDLE_RT_VERSION_LEN = 14
+#def NEEDLE_RT_SESSION_LEN = 20
+#def NEEDLE_RT_SESSION_FIXED_LEN = 33
+#def NEEDLE_RT_TURN_ID_KEY_LEN = 14
+#def NEEDLE_RT_TURN_FIXED_LEN = 18
+#def NEEDLE_RT_CREATED_AT_LEN = 22
+#def NEEDLE_RT_UPDATED_AT_LEN = 22
+#def NEEDLE_RT_STARTED_AT_LEN = 22
+#def NEEDLE_RT_COMPLETED_AT_LEN = 24
+#def NEEDLE_RT_DURATION_ZERO_LEN = 14
+#def NEEDLE_RT_STATUS_COMPLETED_LEN = 20
+#def NEEDLE_RT_ITEMS_EMPTY_LEN = 10
+#def NEEDLE_RT_ITEMS_VIEW_LEN = 18
+#def NEEDLE_RT_ERROR_NULL_LEN = 12
+#def NEEDLE_RT_APPENDED_TRUE_LEN = 15
+#def NEEDLE_RT_KIND_AUDIO_LEN = 14
+#def NEEDLE_RT_KIND_TEXT_LEN = 13
+#def NEEDLE_RT_STOPPED_TRUE_LEN = 14
+#def NEEDLE_RT_AUDIO_ITEM_LEN = 37
+#def NEEDLE_RT_AUDIO_LEN = 13
+#def NEEDLE_RT_TEXT_ITEM_LEN = 37
+#def NEEDLE_RT_ROLE_LEN = 13
+#def NEEDLE_RT_DELTA_LEN = 15
+#def NEEDLE_RT_TEXT_LEN = 14
+#def NEEDLE_RT_SDP_LEN = 13
+#def NEEDLE_RT_ERROR_VALUE_LEN = 14
+#def NEEDLE_ATTEST_TOKEN_LEN = 16
+#def NEEDLE_ATTEST_FIXED_LEN = 19
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@assert_buffer_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    ok = sge idx, 0
+    call @assert_contract(ok, code)
+    !ok
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@assert_buffer_not_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    ok = slt idx, 0
+    call @assert_contract(ok, code)
+    !ok
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@assert_uuid_v4_shape(&value: ptr, value_len: u64, code: i32):
+L_ENTRY:
+    len_ok = eq value_len, 36
+    call @assert_contract(len_ok, code)
+    p8 = ptr_add value, 8
+    b8 = load p8+0 as u8
+    dash8 = eq b8, 45
+    call @assert_contract(dash8, code)
+    p13 = ptr_add value, 13
+    b13 = load p13+0 as u8
+    dash13 = eq b13, 45
+    call @assert_contract(dash13, code)
+    p18 = ptr_add value, 18
+    b18 = load p18+0 as u8
+    dash18 = eq b18, 45
+    call @assert_contract(dash18, code)
+    p23 = ptr_add value, 23
+    b23 = load p23+0 as u8
+    dash23 = eq b23, 45
+    call @assert_contract(dash23, code)
+    p14 = ptr_add value, 14
+    b14 = load p14+0 as u8
+    version_ok = eq b14, 52
+    call @assert_contract(version_ok, code)
+    p19 = ptr_add value, 19
+    b19 = load p19+0 as u8
+    is8 = eq b19, 56
+    is9 = eq b19, 57
+    isa = eq b19, 97
+    isb = eq b19, 98
+    var_a = or is8, is9
+    var_b = or isa, isb
+    variant_ok = or var_a, var_b
+    call @assert_contract(variant_ok, code)
+
+    !variant_ok
+    !var_b
+    !var_a
+    !isb
+    !isa
+    !is9
+    !is8
+    !b19
+    !p19
+    !version_ok
+    !b14
+    !p14
+    !dash23
+    !b23
+    !p23
+    !dash18
+    !b18
+    !p18
+    !dash13
+    !b13
+    !p13
+    !dash8
+    !b8
+    !p8
+    !len_ok
+    !value
+    !value_len
+    !code
+    return
+
+@test "mcp oauth login requires nonempty name like Codex protocol"():
+L_ENTRY:
+    valid = call @mcp_oauth_login_has_required_name(&OAUTH_LOGIN_VALID, OAUTH_LOGIN_VALID_LEN)
+    valid_ok = eq valid, 1
+    call @assert_contract(valid_ok, 1)
+
+    missing = call @mcp_oauth_login_has_required_name(&OAUTH_LOGIN_MISSING_NAME, OAUTH_LOGIN_MISSING_NAME_LEN)
+    missing_bad = eq missing, 0
+    call @assert_contract(missing_bad, 2)
+
+    empty = call @mcp_oauth_login_has_required_name(&OAUTH_LOGIN_EMPTY_NAME, OAUTH_LOGIN_EMPTY_NAME_LEN)
+    empty_bad = eq empty, 0
+    call @assert_contract(empty_bad, 3)
+
+    numeric = call @mcp_oauth_login_has_required_name(&OAUTH_LOGIN_NUMERIC_NAME, OAUTH_LOGIN_NUMERIC_NAME_LEN)
+    numeric_bad = eq numeric, 0
+    call @assert_contract(numeric_bad, 4)
+
+    !numeric
+    !numeric_bad
+    !empty
+    !empty_bad
+    !missing
+    !missing_bad
+    !valid
+    !valid_ok
+    return
+
+@test "mcp tool call plugin rejects missing required protocol fields"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    missing_thread = call @sa_deno_plugin_mcp_tool_call(&MCP_TOOL_MISSING_THREAD, MCP_TOOL_MISSING_THREAD_LEN, &out_ptr_slot, &out_len_slot)
+    missing_thread_bad = eq missing_thread, 3
+    call @assert_contract(missing_thread_bad, 11)
+
+    missing_server = call @sa_deno_plugin_mcp_tool_call(&MCP_TOOL_MISSING_SERVER, MCP_TOOL_MISSING_SERVER_LEN, &out_ptr_slot, &out_len_slot)
+    missing_server_bad = eq missing_server, 3
+    call @assert_contract(missing_server_bad, 12)
+
+    missing_tool = call @sa_deno_plugin_mcp_tool_call(&MCP_TOOL_MISSING_TOOL, MCP_TOOL_MISSING_TOOL_LEN, &out_ptr_slot, &out_len_slot)
+    missing_tool_bad = eq missing_tool, 3
+    call @assert_contract(missing_tool_bad, 13)
+
+    !missing_tool_bad
+    !missing_tool
+    !missing_server_bad
+    !missing_server
+    !missing_thread_bad
+    !missing_thread
+    return
+
+@test "mcp tool progress event frame includes required protocol fields"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 14)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    notify_status = call @notify_mcp_tool_progress(&state, &MCP_TOOL_PROGRESS_BODY, MCP_TOOL_PROGRESS_BODY_LEN)
+    notify_ok = eq notify_status, 0
+    call @assert_contract(notify_ok, 15)
+
+    out_frame = stack_alloc 1024
+    out_len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &out_frame, 1024, &out_len_slot)
+    read_ok = eq read_status, 1
+    call @assert_contract(read_ok, 16)
+    frame_len = load out_len_slot+0 as u64
+
+    event_idx = call @sa_bytes_find(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_EVENT, NEEDLE_MCP_PROGRESS_EVENT_LEN)
+    event_ok = sge event_idx, 0
+    call @assert_contract(event_ok, 17)
+
+    thread_idx = call @sa_bytes_find(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_THREAD, NEEDLE_MCP_PROGRESS_THREAD_LEN)
+    thread_ok = sge thread_idx, 0
+    call @assert_contract(thread_ok, 18)
+
+    turn_idx = call @sa_bytes_find(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_TURN, NEEDLE_MCP_PROGRESS_TURN_LEN)
+    turn_ok = sge turn_idx, 0
+    call @assert_contract(turn_ok, 19)
+
+    item_idx = call @sa_bytes_find(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_ITEM, NEEDLE_MCP_PROGRESS_ITEM_LEN)
+    item_ok = sge item_idx, 0
+    call @assert_contract(item_ok, 20)
+
+    message_idx = call @sa_bytes_find(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_MESSAGE, NEEDLE_MCP_PROGRESS_MESSAGE_LEN)
+    message_ok = sge message_idx, 0
+    call @assert_contract(message_ok, 21)
+
+    !message_ok
+    !message_idx
+    !item_ok
+    !item_idx
+    !turn_ok
+    !turn_idx
+    !thread_ok
+    !thread_idx
+    !event_ok
+    !event_idx
+    !frame_len
+    !read_status
+    !read_ok
+    !notify_status
+    !notify_ok
+    !cursor
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "user input event frame matches Deno request shape"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 30)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    notify_status = call @notify_user_input_request(&state, &USER_INPUT_EVENT_BODY, USER_INPUT_EVENT_BODY_LEN)
+    notify_ok = eq notify_status, 0
+    call @assert_contract(notify_ok, 31)
+
+    out_frame = stack_alloc 2048
+    out_len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &out_frame, 2048, &out_len_slot)
+    read_ok = eq read_status, 1
+    call @assert_contract(read_ok, 32)
+    frame_len = load out_len_slot+0 as u64
+
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_USER_INPUT_EVENT, NEEDLE_USER_INPUT_EVENT_LEN, 33)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_THREAD, NEEDLE_MCP_PROGRESS_THREAD_LEN, 34)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_TURN, NEEDLE_MCP_PROGRESS_TURN_LEN, 35)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_USER_INPUT_ITEM, NEEDLE_USER_INPUT_ITEM_LEN, 36)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_USER_INPUT_QUESTIONS, NEEDLE_USER_INPUT_QUESTIONS_LEN, 37)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_USER_INPUT_HEADER, NEEDLE_USER_INPUT_HEADER_LEN, 38)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_USER_INPUT_OTHER, NEEDLE_USER_INPUT_OTHER_LEN, 39)
+
+    !frame_len
+    !read_status
+    !read_ok
+    !notify_status
+    !notify_ok
+    !cursor
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "mcp elicitation event frame matches Deno request shape"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 40)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    notify_status = call @notify_mcp_elicitation_request(&state, &MCP_ELICIT_BODY, MCP_ELICIT_BODY_LEN)
+    notify_ok = eq notify_status, 0
+    call @assert_contract(notify_ok, 41)
+
+    out_frame = stack_alloc 2048
+    out_len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &out_frame, 2048, &out_len_slot)
+    read_ok = eq read_status, 1
+    call @assert_contract(read_ok, 42)
+    frame_len = load out_len_slot+0 as u64
+
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_ELICIT_EVENT, NEEDLE_MCP_ELICIT_EVENT_LEN, 43)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_THREAD, NEEDLE_MCP_PROGRESS_THREAD_LEN, 44)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_PROGRESS_TURN, NEEDLE_MCP_PROGRESS_TURN_LEN, 45)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_SERVER, NEEDLE_MCP_SERVER_LEN, 46)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_SCHEMA, NEEDLE_MCP_SCHEMA_LEN, 47)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_MCP_INSTRUCTIONS, NEEDLE_MCP_INSTRUCTIONS_LEN, 48)
+
+    notify2_status = call @notify_mcp_elicitation_request(&state, &MCP_ELICIT_NO_TURN_BODY, MCP_ELICIT_NO_TURN_BODY_LEN)
+    notify2_ok = eq notify2_status, 0
+    call @assert_contract(notify2_ok, 49)
+    out2_frame = stack_alloc 2048
+    out2_len_slot = stack_alloc 8
+    read2_status = call @state_notify_read(&state, &cursor_slot, &out2_frame, 2048, &out2_len_slot)
+    read2_ok = eq read2_status, 1
+    call @assert_contract(read2_ok, 50)
+    frame2_len = load out2_len_slot+0 as u64
+    call @assert_buffer_contains(&out2_frame, frame2_len, &NEEDLE_MCP_TURN_NULL, NEEDLE_MCP_TURN_NULL_LEN, 51)
+    call @assert_buffer_contains(&out2_frame, frame2_len, &NEEDLE_MCP_SERVER, NEEDLE_MCP_SERVER_LEN, 52)
+
+    !frame2_len
+    !read2_status
+    !read2_ok
+    !notify2_status
+    !notify2_ok
+    !frame_len
+    !read_status
+    !read_ok
+    !notify_status
+    !notify_ok
+    !cursor
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "startup warning and skills event frames match Deno shapes"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 60)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    startup_status = call @notify_mcp_startup_params(&state, &MCP_STARTUP_BODY, MCP_STARTUP_BODY_LEN)
+    startup_ok = eq startup_status, 0
+    call @assert_contract(startup_ok, 61)
+    startup_frame = stack_alloc 1024
+    startup_len_slot = stack_alloc 8
+    startup_read = call @state_notify_read(&state, &cursor_slot, &startup_frame, 1024, &startup_len_slot)
+    startup_read_ok = eq startup_read, 1
+    call @assert_contract(startup_read_ok, 62)
+    startup_len = load startup_len_slot+0 as u64
+    call @assert_buffer_contains(&startup_frame, startup_len, &NEEDLE_MCP_STARTUP_EVENT, NEEDLE_MCP_STARTUP_EVENT_LEN, 63)
+    call @assert_buffer_contains(&startup_frame, startup_len, &NEEDLE_MCP_STARTUP_NAME, NEEDLE_MCP_STARTUP_NAME_LEN, 64)
+    call @assert_buffer_contains(&startup_frame, startup_len, &NEEDLE_MCP_STARTUP_STATUS, NEEDLE_MCP_STARTUP_STATUS_LEN, 65)
+    call @assert_buffer_contains(&startup_frame, startup_len, &NEEDLE_MCP_STARTUP_ERROR, NEEDLE_MCP_STARTUP_ERROR_LEN, 66)
+
+    warning_status = call @notify_world_warning_params(&state)
+    warning_ok = eq warning_status, 0
+    call @assert_contract(warning_ok, 67)
+    warning_frame = stack_alloc 1024
+    warning_len_slot = stack_alloc 8
+    warning_read = call @state_notify_read(&state, &cursor_slot, &warning_frame, 1024, &warning_len_slot)
+    warning_read_ok = eq warning_read, 1
+    call @assert_contract(warning_read_ok, 68)
+    warning_len = load warning_len_slot+0 as u64
+    call @assert_buffer_contains(&warning_frame, warning_len, &NEEDLE_WORLD_WARNING_EVENT, NEEDLE_WORLD_WARNING_EVENT_LEN, 69)
+    call @assert_buffer_contains(&warning_frame, warning_len, &NEEDLE_WORLD_SAMPLE_PATHS, NEEDLE_WORLD_SAMPLE_PATHS_LEN, 70)
+    call @assert_buffer_contains(&warning_frame, warning_len, &NEEDLE_WORLD_EXTRA, NEEDLE_WORLD_EXTRA_LEN, 71)
+    call @assert_buffer_contains(&warning_frame, warning_len, &NEEDLE_WORLD_FAILED, NEEDLE_WORLD_FAILED_LEN, 72)
+
+    skills_status = call @notify_skills_changed(&state)
+    skills_ok = eq skills_status, 0
+    call @assert_contract(skills_ok, 73)
+    skills_frame = stack_alloc 512
+    skills_len_slot = stack_alloc 8
+    skills_read = call @state_notify_read(&state, &cursor_slot, &skills_frame, 512, &skills_len_slot)
+    skills_read_ok = eq skills_read, 1
+    call @assert_contract(skills_read_ok, 74)
+    skills_len = load skills_len_slot+0 as u64
+    call @assert_buffer_contains(&skills_frame, skills_len, &NEEDLE_SKILLS_CHANGED_EVENT, NEEDLE_SKILLS_CHANGED_EVENT_LEN, 75)
+    call @assert_buffer_contains(&skills_frame, skills_len, &NEEDLE_SKILLS_CHANGED_DATA, NEEDLE_SKILLS_CHANGED_DATA_LEN, 76)
+
+    !skills_len
+    !skills_read
+    !skills_read_ok
+    !skills_status
+    !skills_ok
+    !warning_len
+    !warning_read
+    !warning_read_ok
+    !warning_status
+    !warning_ok
+    !startup_len
+    !startup_read
+    !startup_read_ok
+    !startup_status
+    !startup_ok
+    !cursor
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "fs process and realtime event frames match Deno shapes"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 80)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+
+    fs_status = call @notify_fs_changed(&state, &TEST_WATCH_ID, TEST_WATCH_ID_LEN, &TEST_WATCH_PATH, TEST_WATCH_PATH_LEN)
+    fs_ok = eq fs_status, 0
+    call @assert_contract(fs_ok, 81)
+    fs_frame = stack_alloc 1024
+    fs_len_slot = stack_alloc 8
+    fs_read = call @state_notify_read(&state, &cursor_slot, &fs_frame, 1024, &fs_len_slot)
+    fs_read_ok = eq fs_read, 1
+    call @assert_contract(fs_read_ok, 82)
+    fs_len = load fs_len_slot+0 as u64
+    call @assert_buffer_contains(&fs_frame, fs_len, &NEEDLE_FS_EVENT, NEEDLE_FS_EVENT_LEN, 83)
+    call @assert_buffer_contains(&fs_frame, fs_len, &NEEDLE_FS_WATCH, NEEDLE_FS_WATCH_LEN, 84)
+    call @assert_buffer_contains(&fs_frame, fs_len, &NEEDLE_FS_PATH, NEEDLE_FS_PATH_LEN, 85)
+
+    process_output_status = call @notify_process_output(&state, &TEST_PROCESS_HANDLE, TEST_PROCESS_HANDLE_LEN, &TEST_PROCESS_STREAM, TEST_PROCESS_STREAM_LEN, &TEST_PROCESS_STDOUT, TEST_PROCESS_STDOUT_LEN)
+    process_output_ok = eq process_output_status, 0
+    call @assert_contract(process_output_ok, 86)
+    process_output_frame = stack_alloc 1024
+    process_output_len_slot = stack_alloc 8
+    process_output_read = call @state_notify_read(&state, &cursor_slot, &process_output_frame, 1024, &process_output_len_slot)
+    process_output_read_ok = eq process_output_read, 1
+    call @assert_contract(process_output_read_ok, 87)
+    process_output_len = load process_output_len_slot+0 as u64
+    call @assert_buffer_contains(&process_output_frame, process_output_len, &NEEDLE_PROCESS_OUTPUT_EVENT, NEEDLE_PROCESS_OUTPUT_EVENT_LEN, 88)
+    call @assert_buffer_contains(&process_output_frame, process_output_len, &NEEDLE_PROCESS_HANDLE, NEEDLE_PROCESS_HANDLE_LEN, 89)
+    call @assert_buffer_contains(&process_output_frame, process_output_len, &NEEDLE_PROCESS_STREAM, NEEDLE_PROCESS_STREAM_LEN, 90)
+    call @assert_buffer_contains(&process_output_frame, process_output_len, &NEEDLE_PROCESS_DELTA, NEEDLE_PROCESS_DELTA_LEN, 91)
+    call @assert_buffer_contains(&process_output_frame, process_output_len, &NEEDLE_PROCESS_CAP, NEEDLE_PROCESS_CAP_LEN, 92)
+
+    process_exit_status = call @notify_process_exited(&state, &TEST_PROCESS_HANDLE, TEST_PROCESS_HANDLE_LEN, 7, &TEST_PROCESS_STDOUT, TEST_PROCESS_STDOUT_LEN, &TEST_PROCESS_STDERR, TEST_PROCESS_STDERR_LEN)
+    process_exit_ok = eq process_exit_status, 0
+    call @assert_contract(process_exit_ok, 93)
+    process_exit_frame = stack_alloc 1024
+    process_exit_len_slot = stack_alloc 8
+    process_exit_read = call @state_notify_read(&state, &cursor_slot, &process_exit_frame, 1024, &process_exit_len_slot)
+    process_exit_read_ok = eq process_exit_read, 1
+    call @assert_contract(process_exit_read_ok, 94)
+    process_exit_len = load process_exit_len_slot+0 as u64
+    call @assert_buffer_contains(&process_exit_frame, process_exit_len, &NEEDLE_PROCESS_EXITED_EVENT, NEEDLE_PROCESS_EXITED_EVENT_LEN, 95)
+    call @assert_buffer_contains(&process_exit_frame, process_exit_len, &NEEDLE_PROCESS_HANDLE, NEEDLE_PROCESS_HANDLE_LEN, 96)
+    call @assert_buffer_contains(&process_exit_frame, process_exit_len, &NEEDLE_PROCESS_EXIT_CODE, NEEDLE_PROCESS_EXIT_CODE_LEN, 97)
+    call @assert_buffer_contains(&process_exit_frame, process_exit_len, &NEEDLE_PROCESS_STDOUT, NEEDLE_PROCESS_STDOUT_LEN, 98)
+    call @assert_buffer_contains(&process_exit_frame, process_exit_len, &NEEDLE_PROCESS_STDERR, NEEDLE_PROCESS_STDERR_LEN, 99)
+    call @assert_buffer_contains(&process_exit_frame, process_exit_len, &NEEDLE_PROCESS_STDOUT_CAP, NEEDLE_PROCESS_STDOUT_CAP_LEN, 100)
+    call @assert_buffer_contains(&process_exit_frame, process_exit_len, &NEEDLE_PROCESS_STDERR_CAP, NEEDLE_PROCESS_STDERR_CAP_LEN, 101)
+
+    rt_start_status = call @notify_realtime_started(&state, &RT_START_BODY, RT_START_BODY_LEN)
+    rt_start_ok = eq rt_start_status, 0
+    call @assert_contract(rt_start_ok, 102)
+    rt_start_frame = stack_alloc 1024
+    rt_start_len_slot = stack_alloc 8
+    rt_start_read = call @state_notify_read(&state, &cursor_slot, &rt_start_frame, 1024, &rt_start_len_slot)
+    rt_start_read_ok = eq rt_start_read, 1
+    call @assert_contract(rt_start_read_ok, 103)
+    rt_start_len = load rt_start_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_start_frame, rt_start_len, &NEEDLE_RT_STARTED_EVENT, NEEDLE_RT_STARTED_EVENT_LEN, 104)
+    call @assert_buffer_contains(&rt_start_frame, rt_start_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 105)
+    call @assert_buffer_contains(&rt_start_frame, rt_start_len, &NEEDLE_RT_VERSION, NEEDLE_RT_VERSION_LEN, 106)
+    call @assert_buffer_contains(&rt_start_frame, rt_start_len, &NEEDLE_RT_SESSION, NEEDLE_RT_SESSION_LEN, 107)
+    call @assert_buffer_not_contains(&rt_start_frame, rt_start_len, &NEEDLE_RT_SESSION_FIXED, NEEDLE_RT_SESSION_FIXED_LEN, 132)
+
+    rt_audio_item_status = call @notify_rt_item_value(&state, &EV_RT_ITEM, EV_RT_ITEM_LEN, &RT_AUDIO_BODY, RT_AUDIO_BODY_LEN, &RT_AUDIO_KEY, RT_AUDIO_KEY_LEN)
+    rt_audio_item_ok = eq rt_audio_item_status, 0
+    call @assert_contract(rt_audio_item_ok, 108)
+    rt_audio_item_frame = stack_alloc 1024
+    rt_audio_item_len_slot = stack_alloc 8
+    rt_audio_item_read = call @state_notify_read(&state, &cursor_slot, &rt_audio_item_frame, 1024, &rt_audio_item_len_slot)
+    rt_audio_item_read_ok = eq rt_audio_item_read, 1
+    call @assert_contract(rt_audio_item_read_ok, 109)
+    rt_audio_item_len = load rt_audio_item_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_audio_item_frame, rt_audio_item_len, &NEEDLE_RT_ITEM_EVENT, NEEDLE_RT_ITEM_EVENT_LEN, 110)
+    call @assert_buffer_contains(&rt_audio_item_frame, rt_audio_item_len, &NEEDLE_RT_AUDIO_ITEM, NEEDLE_RT_AUDIO_ITEM_LEN, 111)
+
+    rt_audio_delta_status = call @notify_rt_item_value(&state, &EV_RT_AUDIO_DELTA, EV_RT_AUDIO_DELTA_LEN, &RT_AUDIO_BODY, RT_AUDIO_BODY_LEN, &RT_AUDIO_KEY, RT_AUDIO_KEY_LEN)
+    rt_audio_delta_ok = eq rt_audio_delta_status, 0
+    call @assert_contract(rt_audio_delta_ok, 112)
+    rt_audio_delta_frame = stack_alloc 1024
+    rt_audio_delta_len_slot = stack_alloc 8
+    rt_audio_delta_read = call @state_notify_read(&state, &cursor_slot, &rt_audio_delta_frame, 1024, &rt_audio_delta_len_slot)
+    rt_audio_delta_read_ok = eq rt_audio_delta_read, 1
+    call @assert_contract(rt_audio_delta_read_ok, 113)
+    rt_audio_delta_len = load rt_audio_delta_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_audio_delta_frame, rt_audio_delta_len, &NEEDLE_RT_AUDIO_DELTA_EVENT, NEEDLE_RT_AUDIO_DELTA_EVENT_LEN, 114)
+    call @assert_buffer_contains(&rt_audio_delta_frame, rt_audio_delta_len, &NEEDLE_RT_AUDIO, NEEDLE_RT_AUDIO_LEN, 115)
+
+    rt_text_item_status = call @notify_rt_item_value(&state, &EV_RT_ITEM, EV_RT_ITEM_LEN, &RT_TEXT_BODY, RT_TEXT_BODY_LEN, &RT_TEXT_KEY, RT_TEXT_KEY_LEN)
+    rt_text_item_ok = eq rt_text_item_status, 0
+    call @assert_contract(rt_text_item_ok, 116)
+    rt_text_item_frame = stack_alloc 1024
+    rt_text_item_len_slot = stack_alloc 8
+    rt_text_item_read = call @state_notify_read(&state, &cursor_slot, &rt_text_item_frame, 1024, &rt_text_item_len_slot)
+    rt_text_item_read_ok = eq rt_text_item_read, 1
+    call @assert_contract(rt_text_item_read_ok, 117)
+    rt_text_item_len = load rt_text_item_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_text_item_frame, rt_text_item_len, &NEEDLE_RT_TEXT_ITEM, NEEDLE_RT_TEXT_ITEM_LEN, 118)
+
+    rt_delta_status = call @notify_rt_role_value(&state, &EV_RT_TRANSCRIPT_DELTA, EV_RT_TRANSCRIPT_DELTA_LEN, &RT_TEXT_BODY, RT_TEXT_BODY_LEN, &RT_TEXT_KEY, RT_TEXT_KEY_LEN, &RT_DELTA_MID, RT_DELTA_MID_LEN)
+    rt_delta_ok = eq rt_delta_status, 0
+    call @assert_contract(rt_delta_ok, 119)
+    rt_delta_frame = stack_alloc 1024
+    rt_delta_len_slot = stack_alloc 8
+    rt_delta_read = call @state_notify_read(&state, &cursor_slot, &rt_delta_frame, 1024, &rt_delta_len_slot)
+    rt_delta_read_ok = eq rt_delta_read, 1
+    call @assert_contract(rt_delta_read_ok, 120)
+    rt_delta_len = load rt_delta_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_delta_frame, rt_delta_len, &NEEDLE_RT_TRANSCRIPT_DELTA_EVENT, NEEDLE_RT_TRANSCRIPT_DELTA_EVENT_LEN, 121)
+    call @assert_buffer_contains(&rt_delta_frame, rt_delta_len, &NEEDLE_RT_ROLE, NEEDLE_RT_ROLE_LEN, 122)
+    call @assert_buffer_contains(&rt_delta_frame, rt_delta_len, &NEEDLE_RT_DELTA, NEEDLE_RT_DELTA_LEN, 123)
+
+    rt_done_status = call @notify_rt_role_value(&state, &EV_RT_TRANSCRIPT_DONE, EV_RT_TRANSCRIPT_DONE_LEN, &RT_TEXT_BODY, RT_TEXT_BODY_LEN, &RT_TEXT_KEY, RT_TEXT_KEY_LEN, &RT_TEXT_MID, RT_TEXT_MID_LEN)
+    rt_done_ok = eq rt_done_status, 0
+    call @assert_contract(rt_done_ok, 124)
+    rt_done_frame = stack_alloc 1024
+    rt_done_len_slot = stack_alloc 8
+    rt_done_read = call @state_notify_read(&state, &cursor_slot, &rt_done_frame, 1024, &rt_done_len_slot)
+    rt_done_read_ok = eq rt_done_read, 1
+    call @assert_contract(rt_done_read_ok, 125)
+    rt_done_len = load rt_done_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_done_frame, rt_done_len, &NEEDLE_RT_TRANSCRIPT_DONE_EVENT, NEEDLE_RT_TRANSCRIPT_DONE_EVENT_LEN, 126)
+    call @assert_buffer_contains(&rt_done_frame, rt_done_len, &NEEDLE_RT_TEXT, NEEDLE_RT_TEXT_LEN, 127)
+
+    rt_sdp_status = call @notify_rt_string_value(&state, &TEST_EV_RT_SDP, TEST_EV_RT_SDP_LEN, &RT_SDP_BODY, RT_SDP_BODY_LEN, &RT_SDP_KEY, RT_SDP_KEY_LEN, &RT_SDP_FIELD, RT_SDP_FIELD_LEN)
+    rt_sdp_ok = eq rt_sdp_status, 0
+    call @assert_contract(rt_sdp_ok, 168)
+    rt_sdp_frame = stack_alloc 1024
+    rt_sdp_len_slot = stack_alloc 8
+    rt_sdp_read = call @state_notify_read(&state, &cursor_slot, &rt_sdp_frame, 1024, &rt_sdp_len_slot)
+    rt_sdp_read_ok = eq rt_sdp_read, 1
+    call @assert_contract(rt_sdp_read_ok, 169)
+    rt_sdp_len = load rt_sdp_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_sdp_frame, rt_sdp_len, &NEEDLE_RT_SDP_EVENT, NEEDLE_RT_SDP_EVENT_LEN, 170)
+    call @assert_buffer_contains(&rt_sdp_frame, rt_sdp_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 171)
+    call @assert_buffer_contains(&rt_sdp_frame, rt_sdp_len, &NEEDLE_RT_SDP, NEEDLE_RT_SDP_LEN, 172)
+
+    rt_error_status = call @notify_rt_string_value(&state, &TEST_EV_RT_ERROR, TEST_EV_RT_ERROR_LEN, &RT_ERROR_BODY, RT_ERROR_BODY_LEN, &RT_ERROR_KEY, RT_ERROR_KEY_LEN, &RT_ERROR_FIELD, RT_ERROR_FIELD_LEN)
+    rt_error_ok = eq rt_error_status, 0
+    call @assert_contract(rt_error_ok, 173)
+    rt_error_frame = stack_alloc 1024
+    rt_error_len_slot = stack_alloc 8
+    rt_error_read = call @state_notify_read(&state, &cursor_slot, &rt_error_frame, 1024, &rt_error_len_slot)
+    rt_error_read_ok = eq rt_error_read, 1
+    call @assert_contract(rt_error_read_ok, 174)
+    rt_error_len = load rt_error_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_error_frame, rt_error_len, &NEEDLE_RT_ERROR_EVENT, NEEDLE_RT_ERROR_EVENT_LEN, 175)
+    call @assert_buffer_contains(&rt_error_frame, rt_error_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 176)
+    call @assert_buffer_contains(&rt_error_frame, rt_error_len, &NEEDLE_RT_ERROR_VALUE, NEEDLE_RT_ERROR_VALUE_LEN, 177)
+
+    rt_closed_status = call @notify_thread_string(&state, &EV_RT_CLOSED, EV_RT_CLOSED_LEN, &RT_STOP_BODY, RT_STOP_BODY_LEN)
+    rt_closed_ok = eq rt_closed_status, 0
+    call @assert_contract(rt_closed_ok, 128)
+    rt_closed_frame = stack_alloc 1024
+    rt_closed_len_slot = stack_alloc 8
+    rt_closed_read = call @state_notify_read(&state, &cursor_slot, &rt_closed_frame, 1024, &rt_closed_len_slot)
+    rt_closed_read_ok = eq rt_closed_read, 1
+    call @assert_contract(rt_closed_read_ok, 129)
+    rt_closed_len = load rt_closed_len_slot+0 as u64
+    call @assert_buffer_contains(&rt_closed_frame, rt_closed_len, &NEEDLE_RT_CLOSED_EVENT, NEEDLE_RT_CLOSED_EVENT_LEN, 130)
+    call @assert_buffer_contains(&rt_closed_frame, rt_closed_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 131)
+
+    !rt_error_len
+    !rt_error_read
+    !rt_error_read_ok
+    !rt_error_status
+    !rt_error_ok
+    !rt_sdp_len
+    !rt_sdp_read
+    !rt_sdp_read_ok
+    !rt_sdp_status
+    !rt_sdp_ok
+    !rt_closed_len
+    !rt_closed_read
+    !rt_closed_read_ok
+    !rt_closed_status
+    !rt_closed_ok
+    !rt_done_len
+    !rt_done_read
+    !rt_done_read_ok
+    !rt_done_status
+    !rt_done_ok
+    !rt_delta_len
+    !rt_delta_read
+    !rt_delta_read_ok
+    !rt_delta_status
+    !rt_delta_ok
+    !rt_text_item_len
+    !rt_text_item_read
+    !rt_text_item_read_ok
+    !rt_text_item_status
+    !rt_text_item_ok
+    !rt_audio_delta_len
+    !rt_audio_delta_read
+    !rt_audio_delta_read_ok
+    !rt_audio_delta_status
+    !rt_audio_delta_ok
+    !rt_audio_item_len
+    !rt_audio_item_read
+    !rt_audio_item_read_ok
+    !rt_audio_item_status
+    !rt_audio_item_ok
+    !rt_start_len
+    !rt_start_read
+    !rt_start_read_ok
+    !rt_start_status
+    !rt_start_ok
+    !process_exit_len
+    !process_exit_read
+    !process_exit_read_ok
+    !process_exit_status
+    !process_exit_ok
+    !process_output_len
+    !process_output_read
+    !process_output_read_ok
+    !process_output_status
+    !process_output_ok
+    !fs_len
+    !fs_read
+    !fs_read_ok
+    !fs_status
+    !fs_ok
+    !cursor
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "realtime start native writers use dynamic UUIDs like Deno"():
+L_ENTRY:
+    uuid1_ptr_slot = stack_alloc 8
+    uuid1_len_slot = stack_alloc 8
+    uuid1_status = call @plugin_random_uuid(&uuid1_ptr_slot, &uuid1_len_slot)
+    uuid1_ok = eq uuid1_status, 0
+    call @assert_contract(uuid1_ok, 132)
+    uuid1_ptr = load uuid1_ptr_slot+0 as ptr
+    uuid1_len = load uuid1_len_slot+0 as u64
+    call @assert_uuid_v4_shape(&uuid1_ptr, uuid1_len, 133)
+
+    uuid2_ptr_slot = stack_alloc 8
+    uuid2_len_slot = stack_alloc 8
+    uuid2_status = call @plugin_random_uuid(&uuid2_ptr_slot, &uuid2_len_slot)
+    uuid2_ok = eq uuid2_status, 0
+    call @assert_contract(uuid2_ok, 134)
+    uuid2_ptr = load uuid2_ptr_slot+0 as ptr
+    uuid2_len = load uuid2_len_slot+0 as u64
+    call @assert_uuid_v4_shape(&uuid2_ptr, uuid2_len, 135)
+    uuid_eq_raw = call @sa_bytes_eq(&uuid1_ptr, uuid1_len, &uuid2_ptr, uuid2_len)
+    uuid_unique = eq uuid_eq_raw, 0
+    call @assert_contract(uuid_unique, 136)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED result_writer_status, result_writer
+    result_write_status = call @json_writer_write_realtime_start_result(result_writer, &uuid1_ptr, uuid1_len, 1760000000)
+    result_buffer_slot = stack_alloc 8
+    result_data_slot = stack_alloc 8
+    result_len_slot = stack_alloc 8
+    result_finish_status = call @json_writer_finish_view(result_writer, &result_buffer_slot, &result_data_slot, &result_len_slot)
+    result_buffer = load result_buffer_slot+0 as ptr
+    result_data = load result_data_slot+0 as ptr
+    result_len = load result_len_slot+0 as u64
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_TURN_ID_KEY, NEEDLE_RT_TURN_ID_KEY_LEN, 137)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_STATUS_COMPLETED, NEEDLE_RT_STATUS_COMPLETED_LEN, 138)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_ITEMS_EMPTY, NEEDLE_RT_ITEMS_EMPTY_LEN, 139)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_ITEMS_VIEW, NEEDLE_RT_ITEMS_VIEW_LEN, 140)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_CREATED_AT, NEEDLE_RT_CREATED_AT_LEN, 141)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_UPDATED_AT, NEEDLE_RT_UPDATED_AT_LEN, 142)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_STARTED_AT, NEEDLE_RT_STARTED_AT_LEN, 143)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_COMPLETED_AT, NEEDLE_RT_COMPLETED_AT_LEN, 144)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_DURATION_ZERO, NEEDLE_RT_DURATION_ZERO_LEN, 145)
+    call @assert_buffer_contains(&result_data, result_len, &NEEDLE_RT_ERROR_NULL, NEEDLE_RT_ERROR_NULL_LEN, 146)
+    call @assert_buffer_not_contains(&result_data, result_len, &NEEDLE_RT_TURN_FIXED, NEEDLE_RT_TURN_FIXED_LEN, 147)
+    result_free_status = call @json_buffer_dispose(result_buffer)
+    result_free_ok = eq result_free_status, 0
+    call @assert_contract(result_free_ok, 148)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED event_writer_status, event_writer
+    event_write_status = call @json_writer_write_realtime_started_params(event_writer, &RT_THREAD_ID, RT_THREAD_ID_LEN, &uuid2_ptr, uuid2_len)
+    event_buffer_slot = stack_alloc 8
+    event_data_slot = stack_alloc 8
+    event_len_slot = stack_alloc 8
+    event_finish_status = call @json_writer_finish_view(event_writer, &event_buffer_slot, &event_data_slot, &event_len_slot)
+    event_buffer = load event_buffer_slot+0 as ptr
+    event_data = load event_data_slot+0 as ptr
+    event_len = load event_len_slot+0 as u64
+    call @assert_buffer_contains(&event_data, event_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 149)
+    call @assert_buffer_contains(&event_data, event_len, &NEEDLE_RT_VERSION, NEEDLE_RT_VERSION_LEN, 150)
+    call @assert_buffer_contains(&event_data, event_len, &NEEDLE_RT_SESSION, NEEDLE_RT_SESSION_LEN, 151)
+    call @assert_buffer_not_contains(&event_data, event_len, &NEEDLE_RT_SESSION_FIXED, NEEDLE_RT_SESSION_FIXED_LEN, 152)
+    event_free_status = call @json_buffer_dispose(event_buffer)
+    event_free_ok = eq event_free_status, 0
+    call @assert_contract(event_free_ok, 153)
+
+    uuid1_free_status = call @plugin_free_buffer(uuid1_ptr, uuid1_len)
+    uuid1_free_ok = eq uuid1_free_status, 0
+    call @assert_contract(uuid1_free_ok, 154)
+    uuid2_free_status = call @plugin_free_buffer(uuid2_ptr, uuid2_len)
+    uuid2_free_ok = eq uuid2_free_status, 0
+    call @assert_contract(uuid2_free_ok, 155)
+
+    !uuid2_free_ok
+    !uuid2_free_status
+    !uuid1_free_ok
+    !uuid1_free_status
+    !event_free_ok
+    !event_free_status
+    !event_len
+    !event_data
+    !event_buffer
+    !event_finish_status
+    !event_write_status
+    !event_writer
+    !event_writer_status
+    !result_free_ok
+    !result_free_status
+    !result_len
+    !result_data
+    !result_buffer
+    !result_finish_status
+    !result_write_status
+    !result_writer
+    !result_writer_status
+    !uuid_unique
+    !uuid_eq_raw
+    !uuid2_len
+    !uuid2_ptr
+    !uuid2_ok
+    !uuid2_status
+    !uuid1_len
+    !uuid1_ptr
+    !uuid1_ok
+    !uuid1_status
+    return
+
+@test "realtime append and stop native writers match Deno result shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED audio_writer_status, audio_writer
+    audio_write_status = call @json_writer_write_realtime_thread_result(audio_writer, &RT_THREAD_ID, RT_THREAD_ID_LEN, 1)
+    audio_write_ok = eq audio_write_status, 0
+    call @assert_contract(audio_write_ok, 168)
+    audio_buffer_slot = stack_alloc 8
+    audio_data_slot = stack_alloc 8
+    audio_len_slot = stack_alloc 8
+    audio_finish_status = call @json_writer_finish_view(audio_writer, &audio_buffer_slot, &audio_data_slot, &audio_len_slot)
+    audio_buffer = load audio_buffer_slot+0 as ptr
+    audio_data = load audio_data_slot+0 as ptr
+    audio_len = load audio_len_slot+0 as u64
+    call @assert_buffer_contains(&audio_data, audio_len, &NEEDLE_RT_APPENDED_TRUE, NEEDLE_RT_APPENDED_TRUE_LEN, 169)
+    call @assert_buffer_contains(&audio_data, audio_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 170)
+    call @assert_buffer_contains(&audio_data, audio_len, &NEEDLE_RT_KIND_AUDIO, NEEDLE_RT_KIND_AUDIO_LEN, 171)
+    call @assert_buffer_not_contains(&audio_data, audio_len, &NEEDLE_RT_STOPPED_TRUE, NEEDLE_RT_STOPPED_TRUE_LEN, 172)
+    audio_free_status = call @json_buffer_dispose(audio_buffer)
+    audio_free_ok = eq audio_free_status, 0
+    call @assert_contract(audio_free_ok, 173)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED text_writer_status, text_writer
+    text_write_status = call @json_writer_write_realtime_thread_result(text_writer, &RT_THREAD_ID, RT_THREAD_ID_LEN, 2)
+    text_write_ok = eq text_write_status, 0
+    call @assert_contract(text_write_ok, 174)
+    text_buffer_slot = stack_alloc 8
+    text_data_slot = stack_alloc 8
+    text_len_slot = stack_alloc 8
+    text_finish_status = call @json_writer_finish_view(text_writer, &text_buffer_slot, &text_data_slot, &text_len_slot)
+    text_buffer = load text_buffer_slot+0 as ptr
+    text_data = load text_data_slot+0 as ptr
+    text_len = load text_len_slot+0 as u64
+    call @assert_buffer_contains(&text_data, text_len, &NEEDLE_RT_APPENDED_TRUE, NEEDLE_RT_APPENDED_TRUE_LEN, 175)
+    call @assert_buffer_contains(&text_data, text_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 176)
+    call @assert_buffer_contains(&text_data, text_len, &NEEDLE_RT_KIND_TEXT, NEEDLE_RT_KIND_TEXT_LEN, 177)
+    call @assert_buffer_not_contains(&text_data, text_len, &NEEDLE_RT_STOPPED_TRUE, NEEDLE_RT_STOPPED_TRUE_LEN, 178)
+    text_free_status = call @json_buffer_dispose(text_buffer)
+    text_free_ok = eq text_free_status, 0
+    call @assert_contract(text_free_ok, 179)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED stop_writer_status, stop_writer
+    stop_write_status = call @json_writer_write_realtime_thread_result(stop_writer, &RT_THREAD_ID, RT_THREAD_ID_LEN, 3)
+    stop_write_ok = eq stop_write_status, 0
+    call @assert_contract(stop_write_ok, 180)
+    stop_buffer_slot = stack_alloc 8
+    stop_data_slot = stack_alloc 8
+    stop_len_slot = stack_alloc 8
+    stop_finish_status = call @json_writer_finish_view(stop_writer, &stop_buffer_slot, &stop_data_slot, &stop_len_slot)
+    stop_buffer = load stop_buffer_slot+0 as ptr
+    stop_data = load stop_data_slot+0 as ptr
+    stop_len = load stop_len_slot+0 as u64
+    call @assert_buffer_contains(&stop_data, stop_len, &NEEDLE_RT_STOPPED_TRUE, NEEDLE_RT_STOPPED_TRUE_LEN, 181)
+    call @assert_buffer_contains(&stop_data, stop_len, &NEEDLE_RT_THREAD, NEEDLE_RT_THREAD_LEN, 182)
+    call @assert_buffer_not_contains(&stop_data, stop_len, &NEEDLE_RT_APPENDED_TRUE, NEEDLE_RT_APPENDED_TRUE_LEN, 183)
+    call @assert_buffer_not_contains(&stop_data, stop_len, &NEEDLE_RT_KIND_AUDIO, NEEDLE_RT_KIND_AUDIO_LEN, 184)
+    call @assert_buffer_not_contains(&stop_data, stop_len, &NEEDLE_RT_KIND_TEXT, NEEDLE_RT_KIND_TEXT_LEN, 185)
+    stop_free_status = call @json_buffer_dispose(stop_buffer)
+    stop_free_ok = eq stop_free_status, 0
+    call @assert_contract(stop_free_ok, 186)
+
+    !stop_free_ok
+    !stop_free_status
+    !stop_len
+    !stop_data
+    !stop_buffer
+    !stop_finish_status
+    !stop_write_ok
+    !stop_write_status
+    !stop_writer
+    !stop_writer_status
+    !text_free_ok
+    !text_free_status
+    !text_len
+    !text_data
+    !text_buffer
+    !text_finish_status
+    !text_write_ok
+    !text_write_status
+    !text_writer
+    !text_writer_status
+    !audio_free_ok
+    !audio_free_status
+    !audio_len
+    !audio_data
+    !audio_buffer
+    !audio_finish_status
+    !audio_write_ok
+    !audio_write_status
+    !audio_writer
+    !audio_writer_status
+    return
+
+@test "attestation writer emits attest uuid token like Deno"():
+L_ENTRY:
+    uuid1_ptr_slot = stack_alloc 8
+    uuid1_len_slot = stack_alloc 8
+    uuid1_status = call @plugin_random_uuid(&uuid1_ptr_slot, &uuid1_len_slot)
+    uuid1_ok = eq uuid1_status, 0
+    call @assert_contract(uuid1_ok, 156)
+    uuid1_ptr = load uuid1_ptr_slot+0 as ptr
+    uuid1_len = load uuid1_len_slot+0 as u64
+    call @assert_uuid_v4_shape(&uuid1_ptr, uuid1_len, 157)
+    token1_len_slot = stack_alloc 8
+    token1_ptr = call @prefix_with_owned(&RPC_SYS_STRING_ATTEST_PREFIX, RPC_SYS_STRING_ATTEST_PREFIX_LEN, &uuid1_ptr, uuid1_len, &token1_len_slot)
+    token1_len = load token1_len_slot+0 as u64
+    token1_len_ok = eq token1_len, 43
+    call @assert_contract(token1_len_ok, 158)
+
+    uuid2_ptr_slot = stack_alloc 8
+    uuid2_len_slot = stack_alloc 8
+    uuid2_status = call @plugin_random_uuid(&uuid2_ptr_slot, &uuid2_len_slot)
+    uuid2_ok = eq uuid2_status, 0
+    call @assert_contract(uuid2_ok, 159)
+    uuid2_ptr = load uuid2_ptr_slot+0 as ptr
+    uuid2_len = load uuid2_len_slot+0 as u64
+    call @assert_uuid_v4_shape(&uuid2_ptr, uuid2_len, 160)
+    token2_len_slot = stack_alloc 8
+    token2_ptr = call @prefix_with_owned(&RPC_SYS_STRING_ATTEST_PREFIX, RPC_SYS_STRING_ATTEST_PREFIX_LEN, &uuid2_ptr, uuid2_len, &token2_len_slot)
+    token2_len = load token2_len_slot+0 as u64
+    token2_len_ok = eq token2_len, 43
+    call @assert_contract(token2_len_ok, 161)
+    token_eq_raw = call @sa_bytes_eq(&token1_ptr, token1_len, &token2_ptr, token2_len)
+    token_unique = eq token_eq_raw, 0
+    call @assert_contract(token_unique, 162)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_attestation_result(writer, &token1_ptr, token1_len)
+    buffer_slot = stack_alloc 8
+    data_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_slot, &len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data = load data_slot+0 as ptr
+    len = load len_slot+0 as u64
+    call @assert_buffer_contains(&data, len, &NEEDLE_ATTEST_TOKEN, NEEDLE_ATTEST_TOKEN_LEN, 163)
+    call @assert_buffer_not_contains(&data, len, &NEEDLE_ATTEST_FIXED, NEEDLE_ATTEST_FIXED_LEN, 164)
+    free_status = call @json_buffer_dispose(buffer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 165)
+    uuid1_free_status = call @plugin_free_buffer(uuid1_ptr, uuid1_len)
+    uuid1_free_ok = eq uuid1_free_status, 0
+    call @assert_contract(uuid1_free_ok, 166)
+    uuid2_free_status = call @plugin_free_buffer(uuid2_ptr, uuid2_len)
+    uuid2_free_ok = eq uuid2_free_status, 0
+    call @assert_contract(uuid2_free_ok, 167)
+
+    !uuid2_free_ok
+    !uuid2_free_status
+    !uuid1_free_ok
+    !uuid1_free_status
+    !free_ok
+    !free_status
+    !len
+    !data
+    !buffer
+    !finish_status
+    !write_status
+    !writer
+    !writer_status
+    !token_unique
+    !token_eq_raw
+    !token2_len_ok
+    !token2_len
+    !token2_ptr
+    !uuid2_len
+    !uuid2_ptr
+    !uuid2_ok
+    !uuid2_status
+    !token1_len_ok
+    !token1_len
+    !token1_ptr
+    !uuid1_len
+    !uuid1_ptr
+    !uuid1_ok
+    !uuid1_status
+    return
+
+@test "mcp reload response matches Deno facade name and reloaded fields"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @write_mcp_reload_response_object(writer, &RELOAD_DEFAULT_BODY, RELOAD_DEFAULT_BODY_LEN)
+    buffer_slot = stack_alloc 8
+    data_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_slot, &len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data = load data_slot+0 as ptr
+    len = load len_slot+0 as u64
+    default_name_idx = call @sa_bytes_find(&data, len, &NEEDLE_RELOAD_DEFAULT_NAME, NEEDLE_RELOAD_DEFAULT_NAME_LEN)
+    has_default_name = sge default_name_idx, 0
+    call @assert_contract(has_default_name, 5)
+    reloaded_idx = call @sa_bytes_find(&data, len, &NEEDLE_RELOADED_TRUE, NEEDLE_RELOADED_TRUE_LEN)
+    has_reloaded = sge reloaded_idx, 0
+    call @assert_contract(has_reloaded, 6)
+
+    free_status = call @json_buffer_dispose(buffer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 7)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED writer2_status, writer2
+    write2_status = call @write_mcp_reload_response_object(writer2, &RELOAD_NAMED_BODY, RELOAD_NAMED_BODY_LEN)
+    buffer2_slot = stack_alloc 8
+    data2_slot = stack_alloc 8
+    len2_slot = stack_alloc 8
+    finish2_status = call @json_writer_finish_view(writer2, &buffer2_slot, &data2_slot, &len2_slot)
+    buffer2 = load buffer2_slot+0 as ptr
+    data2 = load data2_slot+0 as ptr
+    len2 = load len2_slot+0 as u64
+    custom_name_idx = call @sa_bytes_find(&data2, len2, &NEEDLE_RELOAD_CUSTOM_NAME, NEEDLE_RELOAD_CUSTOM_NAME_LEN)
+    has_custom_name = sge custom_name_idx, 0
+    call @assert_contract(has_custom_name, 8)
+    reloaded2_idx = call @sa_bytes_find(&data2, len2, &NEEDLE_RELOADED_TRUE, NEEDLE_RELOADED_TRUE_LEN)
+    has_reloaded2 = sge reloaded2_idx, 0
+    call @assert_contract(has_reloaded2, 9)
+
+    free2_status = call @json_buffer_dispose(buffer2)
+    free2_ok = eq free2_status, 0
+    call @assert_contract(free2_ok, 10)
+
+    !free2_status
+    !free2_ok
+    !has_reloaded2
+    !reloaded2_idx
+    !has_custom_name
+    !custom_name_idx
+    !len2
+    !data2
+    !buffer2
+    !finish2_status
+    !write2_status
+    !writer2
+    !writer2_status
+    !free_status
+    !free_ok
+    !buffer
+    !has_reloaded
+    !reloaded_idx
+    !has_default_name
+    !default_name_idx
+    !len
+    !data
+    !finish_status
+    !write_status
+    !writer
+    !writer_status
+    return
+
+@test "mcp status list reaches configured stdio server through plugin"():
+L_ENTRY:
+    out_ptr_slot = stack_alloc 8
+    out_len_slot = stack_alloc 8
+    status = call @sa_deno_plugin_mcp_server_status_list(&STATUS_TOOLS_ONLY_BODY, STATUS_TOOLS_ONLY_BODY_LEN, &out_ptr_slot, &out_len_slot)
+    status_ok = eq status, 0
+    call @assert_contract(status_ok, 30)
+
+    out_ptr = load out_ptr_slot+0 as ptr
+    out_len = load out_len_slot+0 as u64
+
+    data_idx = call @sa_bytes_find(&out_ptr, out_len, &NEEDLE_STATUS_DATA, NEEDLE_STATUS_DATA_LEN)
+    has_data = sge data_idx, 0
+    call @assert_contract(has_data, 31)
+
+    name_idx = call @sa_bytes_find(&out_ptr, out_len, &NEEDLE_STATUS_NAME, NEEDLE_STATUS_NAME_LEN)
+    has_name = sge name_idx, 0
+    call @assert_contract(has_name, 32)
+
+    tools_idx = call @sa_bytes_find(&out_ptr, out_len, &NEEDLE_STATUS_TOOLS, NEEDLE_STATUS_TOOLS_LEN)
+    has_tools = sge tools_idx, 0
+    call @assert_contract(has_tools, 33)
+
+    auth_idx = call @sa_bytes_find(&out_ptr, out_len, &NEEDLE_STATUS_AUTH, NEEDLE_STATUS_AUTH_LEN)
+    has_auth = sge auth_idx, 0
+    call @assert_contract(has_auth, 34)
+
+    free_status = call @plugin_free_buffer(out_ptr, out_len)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 35)
+
+    !free_ok
+    !free_status
+    !has_auth
+    !auth_idx
+    !has_tools
+    !tools_idx
+    !has_name
+    !name_idx
+    !has_data
+    !data_idx
+    !out_ptr
+    !out_len
+    !status_ok
+    !status
+    return

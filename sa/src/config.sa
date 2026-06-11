@@ -18,6 +18,7 @@
 @const DEFAULT_HOST = utf8:"0.0.0.0"
 
 @const KEY_PORT = utf8:"SA_PORT"
+@const KEY_DENO_PORT = utf8:"PORT"
 @const KEY_AUTH = utf8:"AUTH"
 @const KEY_CHAT = utf8:"CHAT_BASE_URL"
 @const KEY_MODEL = utf8:"DEFAULT_MODEL"
@@ -35,6 +36,7 @@
 #def DEFAULT_HOST_LEN = 7
 
 #def KEY_PORT_LEN = 7
+#def KEY_DENO_PORT_LEN = 4
 #def KEY_AUTH_LEN = 4
 #def KEY_CHAT_LEN = 13
 #def KEY_MODEL_LEN = 13
@@ -424,13 +426,33 @@ L_MATCH_PORT:
     port_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_PORT, KEY_PORT_LEN)
     port_match = eq port_match_raw, 1
     !port_match_raw
-    br port_match -> L_STORE_PORT, L_MATCH_AUTH
+    br port_match -> L_STORE_PORT_FROM_SA, L_MATCH_DENO_PORT
+
+L_STORE_PORT_FROM_SA:
+    jmp L_STORE_PORT
+
+L_MATCH_DENO_PORT:
+    deno_port_match_raw = call @sa_bytes_eq(&key_ptr, key_len, &KEY_DENO_PORT, KEY_DENO_PORT_LEN)
+    deno_port_match = eq deno_port_match_raw, 1
+    !deno_port_match_raw
+    br deno_port_match -> L_STORE_PORT_FROM_DENO, L_MATCH_AUTH_FROM_DENO
+
+L_STORE_PORT_FROM_DENO:
+    !deno_port_match
+    jmp L_STORE_PORT
+
+L_MATCH_AUTH_FROM_DENO:
+    !deno_port_match
+    jmp L_MATCH_AUTH
 
 L_STORE_PORT:
-    !port_match
     parsed_port = call @sa_bytes_to_u64(&val_ptr, val_len)
-    port_valid = sge parsed_port, 0
-    br port_valid -> L_STORE_PORT_OK, L_STORE_PORT_SKIP
+    port_ge_min = sge parsed_port, 1
+    port_le_max = sle parsed_port, 65535
+    port_valid = and port_ge_min, port_le_max
+    !port_ge_min
+    !port_le_max
+    br port_valid -> L_STORE_PORT_OK, L_STORE_PORT_INVALID
 
 L_STORE_PORT_OK:
     !port_valid
@@ -440,10 +462,17 @@ L_STORE_PORT_OK:
     !parsed_port
     jmp L_PAIR_DONE
 
-L_STORE_PORT_SKIP:
+L_STORE_PORT_INVALID:
     !port_valid
     !parsed_port
-    jmp L_PAIR_DONE
+    !key_ptr
+    !key_len
+    !val_ptr
+    !val_len
+    !cfg
+    !line
+    !line_len
+    return 1
 
 L_MATCH_AUTH:
     !port_match
@@ -610,7 +639,6 @@ L_READ_ERR:
     !read_ok
     !read_status
     !env_buf
-    call @sa_print_bytes(&ERR_READ, ERR_READ_LEN)
     !env_path
     !env_path_len
     !out_cfg
@@ -662,6 +690,11 @@ L_LINE_EOF:
 L_LINE_PARSE:
     line_len = load line_len_slot+0 as u64
     line_status = call @cfg_parse_line(&out_cfg, &line_ptr, line_len)
+    line_ok = eq line_status, 0
+    br line_ok -> L_LINE_ADVANCE, L_PARSE_ERR
+
+L_LINE_ADVANCE:
+    !line_ok
     !line_status
     next_offset = load next_off_slot+0 as u64
     store offset_slot+0, next_offset as u64
@@ -671,6 +704,21 @@ L_LINE_PARSE:
     !remaining
     !offset
     jmp L_PARSE_COND
+
+L_PARSE_ERR:
+    !line_ok
+    !line_status
+    !line_len
+    !line_ptr
+    !remaining
+    !offset
+    !file_data
+    !file_len
+    !env_buf
+    !env_path
+    !env_path_len
+    !out_cfg
+    return 1
 
 L_PARSE_DONE:
     !done

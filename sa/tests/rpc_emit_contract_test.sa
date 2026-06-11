@@ -1,0 +1,2309 @@
+// SA native @test coverage for JSON-RPC result writers that previously only had runtime-client checks.
+@import "../src/hub_modules.sa"
+
+@const THIN_KEY_DATA = utf8:"data"
+@const THIN_KEY_CONTENTS = utf8:"contents"
+@const THIN_KEY_OK = utf8:"ok"
+@const NEEDLE_DATA_EMPTY = utf8:"\"data\":[]"
+@const NEEDLE_CONTENTS_EMPTY = utf8:"\"contents\":[]"
+@const NEEDLE_APPS_AUTH_EMPTY = utf8:"\"appsNeedingAuth\":[]"
+@const NEEDLE_AUTH_POLICY_UNAVAILABLE = utf8:"\"authPolicy\":\"NOT_AVAILABLE\""
+@const NEEDLE_REQUIREMENTS = utf8:"\"requirements\":"
+@const NEEDLE_ALLOWED_APPROVAL = utf8:"\"allowedApprovalPolicies\":null"
+@const NEEDLE_ALLOWED_REVIEWERS = utf8:"\"allowedApprovalsReviewers\":null"
+@const NEEDLE_ALLOWED_SANDBOX = utf8:"\"allowedSandboxModes\":null"
+@const NEEDLE_NEXT_CURSOR_NULL = utf8:"\"nextCursor\":null"
+@const NEEDLE_FEATURED_PLUGIN_IDS_EMPTY = utf8:"\"featuredPluginIds\":[]"
+@const NEEDLE_MARKETPLACE_LOAD_ERRORS_EMPTY = utf8:"\"marketplaceLoadErrors\":[]"
+@const NEEDLE_MARKETPLACES_EMPTY = utf8:"\"marketplaces\":[]"
+@const NEEDLE_FEATURE_NAME_REASONING = utf8:"\"name\":\"reasoning\""
+@const NEEDLE_FEATURE_STAGE_STABLE = utf8:"\"stage\":\"stable\""
+@const NEEDLE_FEATURE_DISPLAY_REASONING = utf8:"\"displayName\":\"Reasoning\""
+@const NEEDLE_FEATURE_ANNOUNCEMENT_NULL = utf8:"\"announcement\":null"
+@const NEEDLE_FEATURE_ENABLED_TRUE = utf8:"\"enabled\":true"
+@const NEEDLE_FEATURE_DEFAULT_ENABLED_TRUE = utf8:"\"defaultEnabled\":true"
+@const NEEDLE_CANCELED_TRUE = utf8:"\"canceled\":true"
+@const NEEDLE_CANCELED_FALSE = utf8:"\"canceled\":false"
+@const NEEDLE_LOGGED_OUT_TRUE = utf8:"\"loggedOut\":true"
+@const NEEDLE_LOGGED_OUT_FALSE = utf8:"\"loggedOut\":false"
+@const NEEDLE_DECISION_ACCEPT = utf8:"\"decision\":\"accept\""
+@const NEEDLE_ACTION_ACCEPT = utf8:"\"action\":\"accept\""
+@const NEEDLE_CONTENT_NULL = utf8:"\"content\":null"
+@const NEEDLE_META_NULL = utf8:"\"meta\":null"
+@const NEEDLE_PERMISSIONS_EMPTY = utf8:"\"permissions\":{}"
+@const NEEDLE_SCOPE_TURN = utf8:"\"scope\":\"turn\""
+@const NEEDLE_STRICT_AUTO_REVIEW_NULL = utf8:"\"strictAutoReview\":null"
+@const NEEDLE_DEFAULT_FIELD = utf8:"\"default\":"
+@const NEEDLE_ANSWERS_CONTINUE = utf8:"\"answers\":[\"continue\"]"
+@const REMOTE_ENABLE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":101,\"method\":\"remoteControl/enable\",\"params\":{\"serverName\":\"remote-srv\",\"installationId\":\"inst-1\",\"environmentId\":\"env-1\"}}"
+@const REMOTE_EMPTY_BODY = utf8:"{}"
+@const REMOTE_STATUS_CONNECTED = utf8:"connected"
+@const REMOTE_STATUS_DISABLED = utf8:"disabled"
+@const NEEDLE_REMOTE_EVENT = utf8:"event: remoteControl/status/changed"
+@const NEEDLE_REMOTE_CONNECTED = utf8:"\"status\":\"connected\""
+@const NEEDLE_REMOTE_DISABLED = utf8:"\"status\":\"disabled\""
+@const NEEDLE_REMOTE_SERVER = utf8:"\"serverName\":\"remote-srv\""
+@const NEEDLE_REMOTE_INSTALL = utf8:"\"installationId\":\"inst-1\""
+@const NEEDLE_REMOTE_ENV = utf8:"\"environmentId\":\"env-1\""
+@const NEEDLE_REMOTE_DEFAULT_SERVER = utf8:"\"serverName\":\"local\""
+@const NEEDLE_REMOTE_DEFAULT_INSTALL = utf8:"\"installationId\":\"local-installation\""
+@const NEEDLE_REMOTE_ENV_NULL = utf8:"\"environmentId\":null"
+@const COMMAND_STDOUT = utf8:"cmd out"
+@const COMMAND_STDERR = utf8:"err out"
+@const PROCESS_HANDLE = utf8:"proc-1"
+@const HOOK_CWD = utf8:"/tmp/hubproxy-hooks"
+@const ACCOUNT_PLAN_TEAM = utf8:"team"
+@const ACCOUNT_EMAIL_DEV = utf8:"dev@example.test"
+@const TEST_ISO = utf8:"2026-06-11T00:00:00.000Z"
+@const TEST_REMOTE_PLUGIN = utf8:"remote_123"
+@const TEST_SHARE_URL = utf8:"http://127.0.0.1:28080/share"
+@const TEST_MARKET_CWD = utf8:"/tmp/hubproxy-market"
+@const PLUGIN_READ_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":73,\"method\":\"plugin/read\",\"params\":{\"pluginName\":\"codex-test-plugin\"}}"
+@const PLUGIN_UNINSTALL_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"plugin/uninstall\",\"params\":{\"pluginName\":\"codex-test-plugin\"}}"
+@const PLUGIN_SHARE_CHECKOUT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":75,\"method\":\"plugin/share/checkout\",\"params\":{\"marketplaceName\":\"market\",\"pluginName\":\"plug\"}}"
+@const PLUGIN_SHARE_DELETE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":76,\"method\":\"plugin/share/delete\",\"params\":{\"remotePluginId\":\"remote_123\"}}"
+@const PLUGIN_SHARE_DELETE_EMPTY_BODY = utf8:"{}"
+@const MARKETPLACE_ADD_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":78,\"method\":\"marketplace/add\",\"params\":{\"source\":\"src-market\"}}"
+@const MARKETPLACE_REMOVE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":85,\"method\":\"marketplace/remove\",\"params\":{\"marketplaceName\":\"market\"}}"
+@const MARKETPLACE_UPGRADE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":86,\"method\":\"marketplace/upgrade\",\"params\":{\"marketplaceName\":\"market\"}}"
+@const SEND_CREDITS_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"account/sendAddCreditsNudgeEmail\",\"params\":{\"email\":\"alice@example.com\"}}"
+@const SEND_CREDITS_EMPTY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":78,\"method\":\"account/sendAddCreditsNudgeEmail\",\"params\":{}}"
+@const INIT_VERSION = utf8:"9.8.7"
+@const INIT_CWD = utf8:"/tmp/hubproxy-init"
+@const INIT_FAMILY = utf8:"unix"
+@const INIT_OS = utf8:"linux"
+@const LOGIN_CHATGPT_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":81,\"method\":\"account/login/start\",\"params\":{\"type\":\"chatgpt\"}}"
+@const LOGIN_EMPTY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":82,\"method\":\"account/login/start\",\"params\":{}}"
+@const ENV_ADD_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":83,\"method\":\"environment/add\",\"params\":{\"name\":\"dev-env\",\"path\":\"/repo\"}}"
+@const ENV_ADD_EMPTY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":84,\"method\":\"environment/add\",\"params\":{}}"
+@const REVIEW_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":85,\"method\":\"review/start\",\"params\":{\"threadId\":\"review-thread\"}}"
+@const OAUTH_TEST_URL = utf8:"http://127.0.0.1:28080/oauth"
+@const MOCK_ECHO_JSON = utf8:"{\"nested\":true,\"count\":2}"
+@const EXTERNAL_DETECT_CWD = utf8:"/tmp/hubproxy-external"
+@const SANDBOX_SETUP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":90,\"method\":\"windowsSandbox/setupStart\",\"params\":{\"mode\":\"elevated\"}}"
+@const SANDBOX_SETUP_EMPTY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"windowsSandbox/setupStart\",\"params\":{}}"
+@const FUZZY_SEARCH_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"fuzzyFileSearch\",\"params\":{\"query\":\"main.sa\"}}"
+@const FUZZY_SEARCH_EMPTY_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"fuzzyFileSearch\",\"params\":{}}"
+@const FUZZY_SESSION_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"fuzzyFileSearch/sessionStart\",\"params\":{\"sessionId\":\"sess-1\"}}"
+@const FUZZY_SESSION_STOP_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":95,\"method\":\"fuzzyFileSearch/sessionStop\",\"params\":{\"sessionId\":\"sess-1\"}}"
+@const SERVER_RESOLVED_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":96,\"method\":\"serverRequest/resolved\",\"params\":{\"threadId\":\"thread-1\",\"requestId\":\"req-1\"}}"
+@const EXPECTED_INITIALIZE = utf8:"{\"userAgent\":\"hubproxy/9.8.7\",\"codexHome\":\"/tmp/hubproxy-init\",\"platformFamily\":\"unix\",\"platformOs\":\"linux\"}"
+@const EXPECTED_LOGIN_CHATGPT = utf8:"{\"type\":\"chatgpt\",\"started\":true}"
+@const EXPECTED_LOGIN_DEFAULT = utf8:"{\"type\":\"apiKey\",\"started\":true}"
+@const EXPECTED_ENV_ADD = utf8:"{\"added\":true,\"name\":\"dev-env\",\"path\":\"/repo\"}"
+@const EXPECTED_ENV_ADD_DEFAULT = utf8:"{\"added\":true,\"name\":\"\",\"path\":null}"
+@const EXPECTED_REVIEW_START = utf8:"{\"reviewThreadId\":\"review-thread\",\"threadId\":\"review-thread\"}"
+@const EXPECTED_OAUTH_LOGIN = utf8:"{\"authorizationUrl\":\"http://127.0.0.1:28080/oauth\"}"
+@const EXPECTED_MOCK_ECHO = utf8:"{\"echoed\":{\"nested\":true,\"count\":2}}"
+@const EXPECTED_MOCK_NULL = utf8:"{\"echoed\":null}"
+@const EXPECTED_EXTERNAL_DETECT = utf8:"{\"items\":[{\"itemType\":\"AGENTS_MD\",\"description\":\"Agents.md in repository root\",\"cwd\":\"/tmp/hubproxy-external\",\"details\":{\"path\":\"/tmp/hubproxy-external/Agents.md\",\"exists\":true}},{\"itemType\":\"CONFIG\",\"description\":\".env configuration\",\"cwd\":\"/tmp/hubproxy-external\",\"details\":{\"path\":\"/tmp/hubproxy-external/.env\",\"exists\":true}}]}"
+@const EXPECTED_SANDBOX_SETUP = utf8:"{\"started\":true,\"mode\":\"elevated\"}"
+@const EXPECTED_SANDBOX_SETUP_DEFAULT = utf8:"{\"started\":true,\"mode\":\"unelevated\"}"
+@const EXPECTED_FUZZY_SEARCH = utf8:"{\"files\":[{\"path\":\"main.sa\",\"score\":1}],\"query\":\"main.sa\"}"
+@const EXPECTED_FUZZY_SEARCH_EMPTY = utf8:"{\"files\":[],\"query\":\"\"}"
+@const EXPECTED_FUZZY_SESSION = utf8:"{\"sessionId\":\"sess-1\",\"status\":\"ok\"}"
+@const EXPECTED_FUZZY_SESSION_STOP = utf8:"{\"sessionId\":\"sess-1\",\"status\":\"stopped\"}"
+@const EXPECTED_SERVER_RESOLVED = utf8:"{\"threadId\":\"thread-1\",\"requestId\":\"req-1\",\"resolved\":true}"
+@const PRINCIPALS_JSON = utf8:"[\"user:alice\"]"
+@const NEEDLE_COMMAND_EXIT_CODE = utf8:"\"exitCode\":7"
+@const NEEDLE_COMMAND_STDOUT = utf8:"\"stdout\":\"cmd out\""
+@const NEEDLE_COMMAND_STDERR = utf8:"\"stderr\":\"err out\""
+@const NEEDLE_PROCESS_HANDLE_RESULT = utf8:"\"processHandle\":\"proc-1\""
+@const NEEDLE_OK_TRUE = utf8:"\"ok\":true"
+@const NEEDLE_OK_FALSE = utf8:"\"ok\":false"
+@const NEEDLE_IMAGE_GENERATION_FALSE = utf8:"\"imageGeneration\":false"
+@const NEEDLE_NAMESPACE_TOOLS_TRUE = utf8:"\"namespaceTools\":true"
+@const NEEDLE_WEB_SEARCH_FALSE = utf8:"\"webSearch\":false"
+@const NEEDLE_DATA_ARRAY = utf8:"\"data\":["
+@const NEEDLE_NAME_DEFAULT = utf8:"\"name\":\"default\""
+@const NEEDLE_MODE_DEFAULT = utf8:"\"mode\":\"default\""
+@const NEEDLE_NAME_PLAN = utf8:"\"name\":\"plan\""
+@const NEEDLE_MODE_PLAN = utf8:"\"mode\":\"plan\""
+@const NEEDLE_MODEL_NULL = utf8:"\"model\":null"
+@const NEEDLE_REASONING_NULL = utf8:"\"reasoning_effort\":null"
+@const NEEDLE_REASONING_MEDIUM = utf8:"\"reasoning_effort\":\"medium\""
+@const NEEDLE_HOOK_CWD = utf8:"\"cwd\":\"/tmp/hubproxy-hooks\""
+@const NEEDLE_ERRORS_EMPTY = utf8:"\"errors\":[]"
+@const NEEDLE_HOOKS_EMPTY = utf8:"\"hooks\":[]"
+@const NEEDLE_WARNINGS_EMPTY = utf8:"\"warnings\":[]"
+@const NEEDLE_ACCOUNT_FIELD = utf8:"\"account\":"
+@const NEEDLE_ACCOUNT_TYPE_CHATGPT = utf8:"\"type\":\"chatgpt\""
+@const NEEDLE_EMAIL_DEV = utf8:"\"email\":\"dev@example.test\""
+@const NEEDLE_EMAIL_DEFAULT = utf8:"\"email\":\"user@example.com\""
+@const NEEDLE_PLAN_TEAM = utf8:"\"planType\":\"team\""
+@const NEEDLE_PLAN_PLUS = utf8:"\"planType\":\"plus\""
+@const NEEDLE_REQUIRES_AUTH_FALSE = utf8:"\"requiresOpenaiAuth\":false"
+@const NEEDLE_RATE_LIMITS_FIELD = utf8:"\"rateLimits\":"
+@const NEEDLE_USED_PERCENT_ZERO = utf8:"\"usedPercent\":0"
+@const NEEDLE_CREDITS_NULL = utf8:"\"credits\":null"
+@const NEEDLE_LIMIT_ID_NULL = utf8:"\"limitId\":null"
+@const NEEDLE_LIMIT_NAME_NULL = utf8:"\"limitName\":null"
+@const NEEDLE_PRIMARY_NULL = utf8:"\"primary\":null"
+@const NEEDLE_RATE_LIMIT_REACHED_NULL = utf8:"\"rateLimitReachedType\":null"
+@const NEEDLE_SECONDARY_NULL = utf8:"\"secondary\":null"
+@const NEEDLE_RATE_LIMITS_BY_ID_NULL = utf8:"\"rateLimitsByLimitId\":null"
+@const NEEDLE_IMPORTED_TRUE = utf8:"\"imported\":true"
+@const NEEDLE_IMPORTED_AT = utf8:"\"importedAt\":\"2026-06-11T00:00:00.000Z\""
+@const NEEDLE_REFRESHED_TRUE = utf8:"\"refreshed\":true"
+@const NEEDLE_REFRESHED_AT = utf8:"\"refreshedAt\":\"2026-06-11T00:00:00.000Z\""
+@const NEEDLE_PLUGIN_FIELD = utf8:"\"plugin\":"
+@const NEEDLE_MARKETPLACE_LOCAL = utf8:"\"marketplaceName\":\"local\""
+@const NEEDLE_MARKETPLACE_PATH_NULL = utf8:"\"marketplacePath\":null"
+@const NEEDLE_PLUGIN_SUMMARY_NAME = utf8:"\"name\":\"codex-test-plugin\""
+@const NEEDLE_APPS_EMPTY = utf8:"\"apps\":[]"
+@const NEEDLE_MCP_SERVERS_EMPTY = utf8:"\"mcpServers\":[]"
+@const NEEDLE_SKILLS_EMPTY = utf8:"\"skills\":[]"
+@const NEEDLE_UNINSTALLED_TRUE = utf8:"\"uninstalled\":true"
+@const NEEDLE_PLUGIN_CODEX_NAME = utf8:"\"pluginName\":\"codex-test-plugin\""
+@const NEEDLE_SHARE_REMOTE_ID = utf8:"\"remotePluginId\":\"remote_123\""
+@const NEEDLE_SHARE_URL = utf8:"\"shareUrl\":\"http://127.0.0.1:28080/share\""
+@const NEEDLE_DISCOVERABILITY_UNLISTED = utf8:"\"discoverability\":\"UNLISTED\""
+@const NEEDLE_CHECKED_OUT_TRUE = utf8:"\"checkedOut\":true"
+@const NEEDLE_MARKETPLACE_MARKET = utf8:"\"marketplaceName\":\"market\""
+@const NEEDLE_PLUGIN_PLUG = utf8:"\"pluginName\":\"plug\""
+@const NEEDLE_DELETED_TRUE = utf8:"\"deleted\":true"
+@const NEEDLE_REMOTE_PLUGIN_NULL = utf8:"\"remotePluginId\":null"
+@const NEEDLE_PRINCIPALS_ALICE = utf8:"\"principals\":[\"user:alice\"]"
+@const NEEDLE_PRINCIPALS_EMPTY = utf8:"\"principals\":[]"
+@const NEEDLE_ALREADY_ADDED_FALSE = utf8:"\"alreadyAdded\":false"
+@const NEEDLE_INSTALLED_ROOT_MARKET = utf8:"\"installedRoot\":\"/tmp/hubproxy-market\""
+@const NEEDLE_MARKETPLACE_SRC = utf8:"\"marketplaceName\":\"src-market\""
+@const NEEDLE_SELECTED_MARKET = utf8:"\"selectedMarketplaces\":[\"market\"]"
+@const NEEDLE_SELECTED_EMPTY = utf8:"\"selectedMarketplaces\":[]"
+@const NEEDLE_ERRORS_EMPTY2 = utf8:"\"errors\":[]"
+@const NEEDLE_UPGRADED_ROOTS_EMPTY = utf8:"\"upgradedRoots\":[]"
+@const NEEDLE_SENT_STATUS = utf8:"\"status\":\"sent\""
+@const NEEDLE_EMAIL_ALICE = utf8:"\"email\":\"alice@example.com\""
+@const NEEDLE_EMAIL_NULL = utf8:"\"email\":null"
+
+#def THIN_KEY_DATA_LEN = 4
+#def THIN_KEY_CONTENTS_LEN = 8
+#def THIN_KEY_OK_LEN = 2
+#def NEEDLE_DATA_EMPTY_LEN = 9
+#def NEEDLE_CONTENTS_EMPTY_LEN = 13
+#def NEEDLE_APPS_AUTH_EMPTY_LEN = 20
+#def NEEDLE_AUTH_POLICY_UNAVAILABLE_LEN = 28
+#def NEEDLE_REQUIREMENTS_LEN = 15
+#def NEEDLE_ALLOWED_APPROVAL_LEN = 30
+#def NEEDLE_ALLOWED_REVIEWERS_LEN = 32
+#def NEEDLE_ALLOWED_SANDBOX_LEN = 26
+#def NEEDLE_NEXT_CURSOR_NULL_LEN = 17
+#def NEEDLE_FEATURED_PLUGIN_IDS_EMPTY_LEN = 22
+#def NEEDLE_MARKETPLACE_LOAD_ERRORS_EMPTY_LEN = 26
+#def NEEDLE_MARKETPLACES_EMPTY_LEN = 17
+#def NEEDLE_FEATURE_NAME_REASONING_LEN = 18
+#def NEEDLE_FEATURE_STAGE_STABLE_LEN = 16
+#def NEEDLE_FEATURE_DISPLAY_REASONING_LEN = 25
+#def NEEDLE_FEATURE_ANNOUNCEMENT_NULL_LEN = 19
+#def NEEDLE_FEATURE_ENABLED_TRUE_LEN = 14
+#def NEEDLE_FEATURE_DEFAULT_ENABLED_TRUE_LEN = 21
+#def NEEDLE_CANCELED_TRUE_LEN = 15
+#def NEEDLE_CANCELED_FALSE_LEN = 16
+#def NEEDLE_LOGGED_OUT_TRUE_LEN = 16
+#def NEEDLE_LOGGED_OUT_FALSE_LEN = 17
+#def NEEDLE_DECISION_ACCEPT_LEN = 19
+#def NEEDLE_ACTION_ACCEPT_LEN = 17
+#def NEEDLE_CONTENT_NULL_LEN = 14
+#def NEEDLE_META_NULL_LEN = 11
+#def NEEDLE_PERMISSIONS_EMPTY_LEN = 16
+#def NEEDLE_SCOPE_TURN_LEN = 14
+#def NEEDLE_STRICT_AUTO_REVIEW_NULL_LEN = 23
+#def NEEDLE_DEFAULT_FIELD_LEN = 10
+#def NEEDLE_ANSWERS_CONTINUE_LEN = 22
+#def REMOTE_ENABLE_BODY_LEN = 145
+#def REMOTE_EMPTY_BODY_LEN = 2
+#def REMOTE_STATUS_CONNECTED_LEN = 9
+#def REMOTE_STATUS_DISABLED_LEN = 8
+#def NEEDLE_REMOTE_EVENT_LEN = 35
+#def NEEDLE_REMOTE_CONNECTED_LEN = 20
+#def NEEDLE_REMOTE_DISABLED_LEN = 19
+#def NEEDLE_REMOTE_SERVER_LEN = 25
+#def NEEDLE_REMOTE_INSTALL_LEN = 25
+#def NEEDLE_REMOTE_ENV_LEN = 23
+#def NEEDLE_REMOTE_DEFAULT_SERVER_LEN = 20
+#def NEEDLE_REMOTE_DEFAULT_INSTALL_LEN = 37
+#def NEEDLE_REMOTE_ENV_NULL_LEN = 20
+#def COMMAND_STDOUT_LEN = 7
+#def COMMAND_STDERR_LEN = 7
+#def PROCESS_HANDLE_LEN = 6
+#def HOOK_CWD_LEN = 19
+#def ACCOUNT_PLAN_TEAM_LEN = 4
+#def ACCOUNT_EMAIL_DEV_LEN = 16
+#def TEST_ISO_LEN = 24
+#def TEST_REMOTE_PLUGIN_LEN = 10
+#def TEST_SHARE_URL_LEN = 28
+#def TEST_MARKET_CWD_LEN = 20
+#def PLUGIN_READ_BODY_LEN = 92
+#def PLUGIN_UNINSTALL_BODY_LEN = 97
+#def PLUGIN_SHARE_CHECKOUT_BODY_LEN = 116
+#def PLUGIN_SHARE_DELETE_BODY_LEN = 97
+#def PLUGIN_SHARE_DELETE_EMPTY_BODY_LEN = 2
+#def MARKETPLACE_ADD_BODY_LEN = 85
+#def MARKETPLACE_REMOVE_BODY_LEN = 93
+#def MARKETPLACE_UPGRADE_BODY_LEN = 94
+#def SEND_CREDITS_BODY_LEN = 108
+#def SEND_CREDITS_EMPTY_BODY_LEN = 81
+#def INIT_VERSION_LEN = 5
+#def INIT_CWD_LEN = 18
+#def INIT_FAMILY_LEN = 4
+#def INIT_OS_LEN = 5
+#def LOGIN_CHATGPT_BODY_LEN = 84
+#def LOGIN_EMPTY_BODY_LEN = 68
+#def ENV_ADD_BODY_LEN = 95
+#def ENV_ADD_EMPTY_BODY_LEN = 64
+#def REVIEW_START_BODY_LEN = 87
+#def OAUTH_TEST_URL_LEN = 28
+#def MOCK_ECHO_JSON_LEN = 25
+#def EXTERNAL_DETECT_CWD_LEN = 22
+#def SANDBOX_SETUP_BODY_LEN = 91
+#def SANDBOX_SETUP_EMPTY_BODY_LEN = 74
+#def FUZZY_SEARCH_BODY_LEN = 81
+#def FUZZY_SEARCH_EMPTY_BODY_LEN = 64
+#def FUZZY_SESSION_BODY_LEN = 97
+#def FUZZY_SESSION_STOP_BODY_LEN = 96
+#def SERVER_RESOLVED_BODY_LEN = 112
+#def EXPECTED_INITIALIZE_LEN = 108
+#def EXPECTED_LOGIN_CHATGPT_LEN = 33
+#def EXPECTED_LOGIN_DEFAULT_LEN = 32
+#def EXPECTED_ENV_ADD_LEN = 46
+#def EXPECTED_ENV_ADD_DEFAULT_LEN = 36
+#def EXPECTED_REVIEW_START_LEN = 61
+#def EXPECTED_OAUTH_LOGIN_LEN = 51
+#def EXPECTED_MOCK_ECHO_LEN = 36
+#def EXPECTED_MOCK_NULL_LEN = 15
+#def EXPECTED_EXTERNAL_DETECT_LEN = 331
+#def EXPECTED_SANDBOX_SETUP_LEN = 34
+#def EXPECTED_SANDBOX_SETUP_DEFAULT_LEN = 36
+#def EXPECTED_FUZZY_SEARCH_LEN = 58
+#def EXPECTED_FUZZY_SEARCH_EMPTY_LEN = 23
+#def EXPECTED_FUZZY_SESSION_LEN = 36
+#def EXPECTED_FUZZY_SESSION_STOP_LEN = 41
+#def EXPECTED_SERVER_RESOLVED_LEN = 59
+#def PRINCIPALS_JSON_LEN = 14
+#def NEEDLE_COMMAND_EXIT_CODE_LEN = 12
+#def NEEDLE_COMMAND_STDOUT_LEN = 18
+#def NEEDLE_COMMAND_STDERR_LEN = 18
+#def NEEDLE_PROCESS_HANDLE_RESULT_LEN = 24
+#def NEEDLE_OK_TRUE_LEN = 9
+#def NEEDLE_OK_FALSE_LEN = 10
+#def NEEDLE_IMAGE_GENERATION_FALSE_LEN = 23
+#def NEEDLE_NAMESPACE_TOOLS_TRUE_LEN = 21
+#def NEEDLE_WEB_SEARCH_FALSE_LEN = 17
+#def NEEDLE_DATA_ARRAY_LEN = 8
+#def NEEDLE_NAME_DEFAULT_LEN = 16
+#def NEEDLE_MODE_DEFAULT_LEN = 16
+#def NEEDLE_NAME_PLAN_LEN = 13
+#def NEEDLE_MODE_PLAN_LEN = 13
+#def NEEDLE_MODEL_NULL_LEN = 12
+#def NEEDLE_REASONING_NULL_LEN = 23
+#def NEEDLE_REASONING_MEDIUM_LEN = 27
+#def NEEDLE_HOOK_CWD_LEN = 27
+#def NEEDLE_ERRORS_EMPTY_LEN = 11
+#def NEEDLE_HOOKS_EMPTY_LEN = 10
+#def NEEDLE_WARNINGS_EMPTY_LEN = 13
+#def NEEDLE_ACCOUNT_FIELD_LEN = 10
+#def NEEDLE_ACCOUNT_TYPE_CHATGPT_LEN = 16
+#def NEEDLE_EMAIL_DEV_LEN = 26
+#def NEEDLE_EMAIL_DEFAULT_LEN = 26
+#def NEEDLE_PLAN_TEAM_LEN = 17
+#def NEEDLE_PLAN_PLUS_LEN = 17
+#def NEEDLE_REQUIRES_AUTH_FALSE_LEN = 26
+#def NEEDLE_RATE_LIMITS_FIELD_LEN = 13
+#def NEEDLE_USED_PERCENT_ZERO_LEN = 15
+#def NEEDLE_CREDITS_NULL_LEN = 14
+#def NEEDLE_LIMIT_ID_NULL_LEN = 14
+#def NEEDLE_LIMIT_NAME_NULL_LEN = 16
+#def NEEDLE_PRIMARY_NULL_LEN = 14
+#def NEEDLE_RATE_LIMIT_REACHED_NULL_LEN = 27
+#def NEEDLE_SECONDARY_NULL_LEN = 16
+#def NEEDLE_RATE_LIMITS_BY_ID_NULL_LEN = 26
+#def NEEDLE_IMPORTED_TRUE_LEN = 15
+#def NEEDLE_IMPORTED_AT_LEN = 39
+#def NEEDLE_REFRESHED_TRUE_LEN = 16
+#def NEEDLE_REFRESHED_AT_LEN = 40
+#def NEEDLE_PLUGIN_FIELD_LEN = 9
+#def NEEDLE_MARKETPLACE_LOCAL_LEN = 25
+#def NEEDLE_MARKETPLACE_PATH_NULL_LEN = 22
+#def NEEDLE_PLUGIN_SUMMARY_NAME_LEN = 26
+#def NEEDLE_APPS_EMPTY_LEN = 9
+#def NEEDLE_MCP_SERVERS_EMPTY_LEN = 15
+#def NEEDLE_SKILLS_EMPTY_LEN = 11
+#def NEEDLE_UNINSTALLED_TRUE_LEN = 18
+#def NEEDLE_PLUGIN_CODEX_NAME_LEN = 32
+#def NEEDLE_SHARE_REMOTE_ID_LEN = 29
+#def NEEDLE_SHARE_URL_LEN = 41
+#def NEEDLE_DISCOVERABILITY_UNLISTED_LEN = 28
+#def NEEDLE_CHECKED_OUT_TRUE_LEN = 17
+#def NEEDLE_MARKETPLACE_MARKET_LEN = 26
+#def NEEDLE_PLUGIN_PLUG_LEN = 19
+#def NEEDLE_DELETED_TRUE_LEN = 14
+#def NEEDLE_REMOTE_PLUGIN_NULL_LEN = 21
+#def NEEDLE_PRINCIPALS_ALICE_LEN = 27
+#def NEEDLE_PRINCIPALS_EMPTY_LEN = 15
+#def NEEDLE_ALREADY_ADDED_FALSE_LEN = 20
+#def NEEDLE_INSTALLED_ROOT_MARKET_LEN = 38
+#def NEEDLE_MARKETPLACE_SRC_LEN = 30
+#def NEEDLE_SELECTED_MARKET_LEN = 33
+#def NEEDLE_SELECTED_EMPTY_LEN = 25
+#def NEEDLE_ERRORS_EMPTY2_LEN = 11
+#def NEEDLE_UPGRADED_ROOTS_EMPTY_LEN = 18
+#def NEEDLE_SENT_STATUS_LEN = 15
+#def NEEDLE_EMAIL_ALICE_LEN = 27
+#def NEEDLE_EMAIL_NULL_LEN = 12
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@assert_buffer_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    ok = sge idx, 0
+    call @assert_contract(ok, code)
+    !ok
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@test "thin rpc empty array result writers cover plugin and skill list shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED data_writer_status, data_writer
+    data_write_status = call @json_writer_write_empty_array_field_result(data_writer, &THIN_KEY_DATA, THIN_KEY_DATA_LEN)
+    data_write_ok = eq data_write_status, 0
+    call @assert_contract(data_write_ok, 1030)
+    data_buffer_slot = stack_alloc 8
+    data_ptr_slot = stack_alloc 8
+    data_len_slot = stack_alloc 8
+    data_finish_status = call @json_writer_finish_view(data_writer, &data_buffer_slot, &data_ptr_slot, &data_len_slot)
+    data_finish_ok = eq data_finish_status, 0
+    call @assert_contract(data_finish_ok, 1031)
+    data_buffer = load data_buffer_slot+0 as ptr
+    data_ptr = load data_ptr_slot+0 as ptr
+    data_len = load data_len_slot+0 as u64
+    call @assert_buffer_contains(&data_ptr, data_len, &NEEDLE_DATA_EMPTY, NEEDLE_DATA_EMPTY_LEN, 1032)
+    data_free_status = call @json_writer_dispose_finished(data_buffer, data_writer)
+    data_free_ok = eq data_free_status, 0
+    call @assert_contract(data_free_ok, 1033)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED contents_writer_status, contents_writer
+    contents_write_status = call @json_writer_write_empty_array_field_result(contents_writer, &THIN_KEY_CONTENTS, THIN_KEY_CONTENTS_LEN)
+    contents_write_ok = eq contents_write_status, 0
+    call @assert_contract(contents_write_ok, 1034)
+    contents_buffer_slot = stack_alloc 8
+    contents_ptr_slot = stack_alloc 8
+    contents_len_slot = stack_alloc 8
+    contents_finish_status = call @json_writer_finish_view(contents_writer, &contents_buffer_slot, &contents_ptr_slot, &contents_len_slot)
+    contents_finish_ok = eq contents_finish_status, 0
+    call @assert_contract(contents_finish_ok, 1035)
+    contents_buffer = load contents_buffer_slot+0 as ptr
+    contents_ptr = load contents_ptr_slot+0 as ptr
+    contents_len = load contents_len_slot+0 as u64
+    call @assert_buffer_contains(&contents_ptr, contents_len, &NEEDLE_CONTENTS_EMPTY, NEEDLE_CONTENTS_EMPTY_LEN, 1036)
+    contents_free_status = call @json_writer_dispose_finished(contents_buffer, contents_writer)
+    contents_free_ok = eq contents_free_status, 0
+    call @assert_contract(contents_free_ok, 1037)
+
+    !contents_free_ok
+    !contents_free_status
+    !contents_len
+    !contents_ptr
+    !contents_buffer
+    !contents_finish_ok
+    !contents_finish_status
+    !contents_write_ok
+    !contents_write_status
+    !contents_writer
+    !contents_writer_status
+    !data_free_ok
+    !data_free_status
+    !data_len
+    !data_ptr
+    !data_buffer
+    !data_finish_ok
+    !data_finish_status
+    !data_write_ok
+    !data_write_status
+    !data_writer
+    !data_writer_status
+    return
+
+@test "thin rpc empty page writer emits empty data and null cursor"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_empty_data_page_result(writer)
+    write_ok = eq write_status, 0
+    call @assert_contract(write_ok, 1038)
+    buffer_slot = stack_alloc 8
+    ptr_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &ptr_slot, &len_slot)
+    finish_ok = eq finish_status, 0
+    call @assert_contract(finish_ok, 1039)
+    buffer = load buffer_slot+0 as ptr
+    ptr = load ptr_slot+0 as ptr
+    len = load len_slot+0 as u64
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_DATA_EMPTY, NEEDLE_DATA_EMPTY_LEN, 1040)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_NEXT_CURSOR_NULL, NEEDLE_NEXT_CURSOR_NULL_LEN, 1041)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1042)
+
+    !free_ok
+    !free_status
+    !len
+    !ptr
+    !buffer
+    !finish_ok
+    !finish_status
+    !write_ok
+    !write_status
+    !writer
+    !writer_status
+    return
+
+@test "plugin install unavailable writer emits auth policy shape"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_plugin_install_unavailable_result(writer)
+    write_ok = eq write_status, 0
+    call @assert_contract(write_ok, 1043)
+    buffer_slot = stack_alloc 8
+    ptr_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &ptr_slot, &len_slot)
+    finish_ok = eq finish_status, 0
+    call @assert_contract(finish_ok, 1044)
+    buffer = load buffer_slot+0 as ptr
+    ptr = load ptr_slot+0 as ptr
+    len = load len_slot+0 as u64
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_APPS_AUTH_EMPTY, NEEDLE_APPS_AUTH_EMPTY_LEN, 1045)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_AUTH_POLICY_UNAVAILABLE, NEEDLE_AUTH_POLICY_UNAVAILABLE_LEN, 1046)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1047)
+
+    !free_ok
+    !free_status
+    !len
+    !ptr
+    !buffer
+    !finish_ok
+    !finish_status
+    !write_ok
+    !write_status
+    !writer
+    !writer_status
+    return
+
+@test "config requirements writer emits Deno null requirements shape"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_config_requirements_result(writer)
+    write_ok = eq write_status, 0
+    call @assert_contract(write_ok, 1048)
+    buffer_slot = stack_alloc 8
+    ptr_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &ptr_slot, &len_slot)
+    finish_ok = eq finish_status, 0
+    call @assert_contract(finish_ok, 1049)
+    buffer = load buffer_slot+0 as ptr
+    ptr = load ptr_slot+0 as ptr
+    len = load len_slot+0 as u64
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_REQUIREMENTS, NEEDLE_REQUIREMENTS_LEN, 1050)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_ALLOWED_APPROVAL, NEEDLE_ALLOWED_APPROVAL_LEN, 1051)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_ALLOWED_REVIEWERS, NEEDLE_ALLOWED_REVIEWERS_LEN, 1052)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_ALLOWED_SANDBOX, NEEDLE_ALLOWED_SANDBOX_LEN, 1053)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1054)
+
+    !free_ok
+    !free_status
+    !len
+    !ptr
+    !buffer
+    !finish_ok
+    !finish_status
+    !write_ok
+    !write_status
+    !writer
+    !writer_status
+    return
+
+@test "plugin marketplaces writer emits empty marketplace arrays"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_plugin_marketplaces_result(writer)
+    write_ok = eq write_status, 0
+    call @assert_contract(write_ok, 1055)
+    buffer_slot = stack_alloc 8
+    ptr_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &ptr_slot, &len_slot)
+    finish_ok = eq finish_status, 0
+    call @assert_contract(finish_ok, 1056)
+    buffer = load buffer_slot+0 as ptr
+    ptr = load ptr_slot+0 as ptr
+    len = load len_slot+0 as u64
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_FEATURED_PLUGIN_IDS_EMPTY, NEEDLE_FEATURED_PLUGIN_IDS_EMPTY_LEN, 1057)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_MARKETPLACE_LOAD_ERRORS_EMPTY, NEEDLE_MARKETPLACE_LOAD_ERRORS_EMPTY_LEN, 1058)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_MARKETPLACES_EMPTY, NEEDLE_MARKETPLACES_EMPTY_LEN, 1059)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1060)
+
+    !free_ok
+    !free_status
+    !len
+    !ptr
+    !buffer
+    !finish_ok
+    !finish_status
+    !write_ok
+    !write_status
+    !writer
+    !writer_status
+    return
+
+@test "experimental features writer emits reasoning feature page"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_experimental_features_result(writer)
+    write_ok = eq write_status, 0
+    call @assert_contract(write_ok, 1061)
+    buffer_slot = stack_alloc 8
+    ptr_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &ptr_slot, &len_slot)
+    finish_ok = eq finish_status, 0
+    call @assert_contract(finish_ok, 1062)
+    buffer = load buffer_slot+0 as ptr
+    ptr = load ptr_slot+0 as ptr
+    len = load len_slot+0 as u64
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_FEATURE_NAME_REASONING, NEEDLE_FEATURE_NAME_REASONING_LEN, 1063)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_FEATURE_STAGE_STABLE, NEEDLE_FEATURE_STAGE_STABLE_LEN, 1064)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_FEATURE_DISPLAY_REASONING, NEEDLE_FEATURE_DISPLAY_REASONING_LEN, 1065)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_FEATURE_ANNOUNCEMENT_NULL, NEEDLE_FEATURE_ANNOUNCEMENT_NULL_LEN, 1066)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_FEATURE_ENABLED_TRUE, NEEDLE_FEATURE_ENABLED_TRUE_LEN, 1067)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_FEATURE_DEFAULT_ENABLED_TRUE, NEEDLE_FEATURE_DEFAULT_ENABLED_TRUE_LEN, 1068)
+    call @assert_buffer_contains(&ptr, len, &NEEDLE_NEXT_CURSOR_NULL, NEEDLE_NEXT_CURSOR_NULL_LEN, 1069)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1070)
+
+    !free_ok
+    !free_status
+    !len
+    !ptr
+    !buffer
+    !finish_ok
+    !finish_status
+    !write_ok
+    !write_status
+    !writer
+    !writer_status
+    return
+
+@test "account login state writer emits cancel and logout booleans"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED cancel_writer_status, cancel_writer
+    cancel_write_status = call @json_writer_write_account_login_state_result(cancel_writer, 1, 0)
+    cancel_write_ok = eq cancel_write_status, 0
+    call @assert_contract(cancel_write_ok, 1071)
+    cancel_buffer_slot = stack_alloc 8
+    cancel_ptr_slot = stack_alloc 8
+    cancel_len_slot = stack_alloc 8
+    cancel_finish_status = call @json_writer_finish_view(cancel_writer, &cancel_buffer_slot, &cancel_ptr_slot, &cancel_len_slot)
+    cancel_finish_ok = eq cancel_finish_status, 0
+    call @assert_contract(cancel_finish_ok, 1072)
+    cancel_buffer = load cancel_buffer_slot+0 as ptr
+    cancel_ptr = load cancel_ptr_slot+0 as ptr
+    cancel_len = load cancel_len_slot+0 as u64
+    call @assert_buffer_contains(&cancel_ptr, cancel_len, &NEEDLE_CANCELED_TRUE, NEEDLE_CANCELED_TRUE_LEN, 1073)
+    call @assert_buffer_contains(&cancel_ptr, cancel_len, &NEEDLE_LOGGED_OUT_FALSE, NEEDLE_LOGGED_OUT_FALSE_LEN, 1074)
+    cancel_free_status = call @json_writer_dispose_finished(cancel_buffer, cancel_writer)
+    cancel_free_ok = eq cancel_free_status, 0
+    call @assert_contract(cancel_free_ok, 1075)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED logout_writer_status, logout_writer
+    logout_write_status = call @json_writer_write_account_login_state_result(logout_writer, 0, 1)
+    logout_write_ok = eq logout_write_status, 0
+    call @assert_contract(logout_write_ok, 1076)
+    logout_buffer_slot = stack_alloc 8
+    logout_ptr_slot = stack_alloc 8
+    logout_len_slot = stack_alloc 8
+    logout_finish_status = call @json_writer_finish_view(logout_writer, &logout_buffer_slot, &logout_ptr_slot, &logout_len_slot)
+    logout_finish_ok = eq logout_finish_status, 0
+    call @assert_contract(logout_finish_ok, 1077)
+    logout_buffer = load logout_buffer_slot+0 as ptr
+    logout_ptr = load logout_ptr_slot+0 as ptr
+    logout_len = load logout_len_slot+0 as u64
+    call @assert_buffer_contains(&logout_ptr, logout_len, &NEEDLE_CANCELED_FALSE, NEEDLE_CANCELED_FALSE_LEN, 1078)
+    call @assert_buffer_contains(&logout_ptr, logout_len, &NEEDLE_LOGGED_OUT_TRUE, NEEDLE_LOGGED_OUT_TRUE_LEN, 1079)
+    logout_free_status = call @json_writer_dispose_finished(logout_buffer, logout_writer)
+    logout_free_ok = eq logout_free_status, 0
+    call @assert_contract(logout_free_ok, 1080)
+
+    !logout_free_ok
+    !logout_free_status
+    !logout_len
+    !logout_ptr
+    !logout_buffer
+    !logout_finish_ok
+    !logout_finish_status
+    !logout_write_ok
+    !logout_write_status
+    !logout_writer
+    !logout_writer_status
+    !cancel_free_ok
+    !cancel_free_status
+    !cancel_len
+    !cancel_ptr
+    !cancel_buffer
+    !cancel_finish_ok
+    !cancel_finish_status
+    !cancel_write_ok
+    !cancel_write_status
+    !cancel_writer
+    !cancel_writer_status
+    return
+
+@test "approval and elicitation writers emit accept shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED approval_writer_status, approval_writer
+    approval_write_status = call @json_writer_write_approval_accept_result(approval_writer)
+    approval_write_ok = eq approval_write_status, 0
+    call @assert_contract(approval_write_ok, 1081)
+    approval_buffer_slot = stack_alloc 8
+    approval_ptr_slot = stack_alloc 8
+    approval_len_slot = stack_alloc 8
+    approval_finish_status = call @json_writer_finish_view(approval_writer, &approval_buffer_slot, &approval_ptr_slot, &approval_len_slot)
+    approval_finish_ok = eq approval_finish_status, 0
+    call @assert_contract(approval_finish_ok, 1082)
+    approval_buffer = load approval_buffer_slot+0 as ptr
+    approval_ptr = load approval_ptr_slot+0 as ptr
+    approval_len = load approval_len_slot+0 as u64
+    call @assert_buffer_contains(&approval_ptr, approval_len, &NEEDLE_DECISION_ACCEPT, NEEDLE_DECISION_ACCEPT_LEN, 1083)
+    approval_free_status = call @json_writer_dispose_finished(approval_buffer, approval_writer)
+    approval_free_ok = eq approval_free_status, 0
+    call @assert_contract(approval_free_ok, 1084)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED elicit_writer_status, elicit_writer
+    elicit_write_status = call @json_writer_write_mcp_elicit_accept_result(elicit_writer)
+    elicit_write_ok = eq elicit_write_status, 0
+    call @assert_contract(elicit_write_ok, 1085)
+    elicit_buffer_slot = stack_alloc 8
+    elicit_ptr_slot = stack_alloc 8
+    elicit_len_slot = stack_alloc 8
+    elicit_finish_status = call @json_writer_finish_view(elicit_writer, &elicit_buffer_slot, &elicit_ptr_slot, &elicit_len_slot)
+    elicit_finish_ok = eq elicit_finish_status, 0
+    call @assert_contract(elicit_finish_ok, 1086)
+    elicit_buffer = load elicit_buffer_slot+0 as ptr
+    elicit_ptr = load elicit_ptr_slot+0 as ptr
+    elicit_len = load elicit_len_slot+0 as u64
+    call @assert_buffer_contains(&elicit_ptr, elicit_len, &NEEDLE_ACTION_ACCEPT, NEEDLE_ACTION_ACCEPT_LEN, 1087)
+    call @assert_buffer_contains(&elicit_ptr, elicit_len, &NEEDLE_CONTENT_NULL, NEEDLE_CONTENT_NULL_LEN, 1088)
+    call @assert_buffer_contains(&elicit_ptr, elicit_len, &NEEDLE_META_NULL, NEEDLE_META_NULL_LEN, 1089)
+    elicit_free_status = call @json_writer_dispose_finished(elicit_buffer, elicit_writer)
+    elicit_free_ok = eq elicit_free_status, 0
+    call @assert_contract(elicit_free_ok, 1090)
+
+    !elicit_free_ok
+    !elicit_free_status
+    !elicit_len
+    !elicit_ptr
+    !elicit_buffer
+    !elicit_finish_ok
+    !elicit_finish_status
+    !elicit_write_ok
+    !elicit_write_status
+    !elicit_writer
+    !elicit_writer_status
+    !approval_free_ok
+    !approval_free_status
+    !approval_len
+    !approval_ptr
+    !approval_buffer
+    !approval_finish_ok
+    !approval_finish_status
+    !approval_write_ok
+    !approval_write_status
+    !approval_writer
+    !approval_writer_status
+    return
+
+@test "permissions and user input writers emit default shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED permissions_writer_status, permissions_writer
+    permissions_write_status = call @json_writer_write_permissions_default_result(permissions_writer)
+    permissions_write_ok = eq permissions_write_status, 0
+    call @assert_contract(permissions_write_ok, 1091)
+    permissions_buffer_slot = stack_alloc 8
+    permissions_ptr_slot = stack_alloc 8
+    permissions_len_slot = stack_alloc 8
+    permissions_finish_status = call @json_writer_finish_view(permissions_writer, &permissions_buffer_slot, &permissions_ptr_slot, &permissions_len_slot)
+    permissions_finish_ok = eq permissions_finish_status, 0
+    call @assert_contract(permissions_finish_ok, 1092)
+    permissions_buffer = load permissions_buffer_slot+0 as ptr
+    permissions_ptr = load permissions_ptr_slot+0 as ptr
+    permissions_len = load permissions_len_slot+0 as u64
+    call @assert_buffer_contains(&permissions_ptr, permissions_len, &NEEDLE_PERMISSIONS_EMPTY, NEEDLE_PERMISSIONS_EMPTY_LEN, 1093)
+    call @assert_buffer_contains(&permissions_ptr, permissions_len, &NEEDLE_SCOPE_TURN, NEEDLE_SCOPE_TURN_LEN, 1094)
+    call @assert_buffer_contains(&permissions_ptr, permissions_len, &NEEDLE_STRICT_AUTO_REVIEW_NULL, NEEDLE_STRICT_AUTO_REVIEW_NULL_LEN, 1095)
+    permissions_free_status = call @json_writer_dispose_finished(permissions_buffer, permissions_writer)
+    permissions_free_ok = eq permissions_free_status, 0
+    call @assert_contract(permissions_free_ok, 1096)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED input_writer_status, input_writer
+    input_write_status = call @json_writer_write_user_input_continue_result(input_writer)
+    input_write_ok = eq input_write_status, 0
+    call @assert_contract(input_write_ok, 1097)
+    input_buffer_slot = stack_alloc 8
+    input_ptr_slot = stack_alloc 8
+    input_len_slot = stack_alloc 8
+    input_finish_status = call @json_writer_finish_view(input_writer, &input_buffer_slot, &input_ptr_slot, &input_len_slot)
+    input_finish_ok = eq input_finish_status, 0
+    call @assert_contract(input_finish_ok, 1098)
+    input_buffer = load input_buffer_slot+0 as ptr
+    input_ptr = load input_ptr_slot+0 as ptr
+    input_len = load input_len_slot+0 as u64
+    call @assert_buffer_contains(&input_ptr, input_len, &NEEDLE_DEFAULT_FIELD, NEEDLE_DEFAULT_FIELD_LEN, 1099)
+    call @assert_buffer_contains(&input_ptr, input_len, &NEEDLE_ANSWERS_CONTINUE, NEEDLE_ANSWERS_CONTINUE_LEN, 1100)
+    input_free_status = call @json_writer_dispose_finished(input_buffer, input_writer)
+    input_free_ok = eq input_free_status, 0
+    call @assert_contract(input_free_ok, 1101)
+
+    !input_free_ok
+    !input_free_status
+    !input_len
+    !input_ptr
+    !input_buffer
+    !input_finish_ok
+    !input_finish_status
+    !input_write_ok
+    !input_write_status
+    !input_writer
+    !input_writer_status
+    !permissions_free_ok
+    !permissions_free_status
+    !permissions_len
+    !permissions_ptr
+    !permissions_buffer
+    !permissions_finish_ok
+    !permissions_finish_status
+    !permissions_write_ok
+    !permissions_write_status
+    !permissions_writer
+    !permissions_writer_status
+    return
+
+@test "command and process thin result writers match Deno shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED command_writer_status, command_writer
+    command_write_status = call @json_writer_write_command_exec_result(command_writer, 7, &COMMAND_STDOUT, COMMAND_STDOUT_LEN, &COMMAND_STDERR, COMMAND_STDERR_LEN)
+    command_write_ok = eq command_write_status, 0
+    call @assert_contract(command_write_ok, 1124)
+    command_buffer_slot = stack_alloc 8
+    command_ptr_slot = stack_alloc 8
+    command_len_slot = stack_alloc 8
+    command_finish_status = call @json_writer_finish_view(command_writer, &command_buffer_slot, &command_ptr_slot, &command_len_slot)
+    command_finish_ok = eq command_finish_status, 0
+    call @assert_contract(command_finish_ok, 1125)
+    command_buffer = load command_buffer_slot+0 as ptr
+    command_ptr = load command_ptr_slot+0 as ptr
+    command_len = load command_len_slot+0 as u64
+    call @assert_buffer_contains(&command_ptr, command_len, &NEEDLE_COMMAND_EXIT_CODE, NEEDLE_COMMAND_EXIT_CODE_LEN, 1126)
+    call @assert_buffer_contains(&command_ptr, command_len, &NEEDLE_COMMAND_STDOUT, NEEDLE_COMMAND_STDOUT_LEN, 1127)
+    call @assert_buffer_contains(&command_ptr, command_len, &NEEDLE_COMMAND_STDERR, NEEDLE_COMMAND_STDERR_LEN, 1128)
+    command_free_status = call @json_writer_dispose_finished(command_buffer, command_writer)
+    command_free_ok = eq command_free_status, 0
+    call @assert_contract(command_free_ok, 1129)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED process_writer_status, process_writer
+    process_write_status = call @json_writer_write_process_spawn_result(process_writer, &PROCESS_HANDLE, PROCESS_HANDLE_LEN)
+    process_write_ok = eq process_write_status, 0
+    call @assert_contract(process_write_ok, 1130)
+    process_buffer_slot = stack_alloc 8
+    process_ptr_slot = stack_alloc 8
+    process_len_slot = stack_alloc 8
+    process_finish_status = call @json_writer_finish_view(process_writer, &process_buffer_slot, &process_ptr_slot, &process_len_slot)
+    process_finish_ok = eq process_finish_status, 0
+    call @assert_contract(process_finish_ok, 1131)
+    process_buffer = load process_buffer_slot+0 as ptr
+    process_ptr = load process_ptr_slot+0 as ptr
+    process_len = load process_len_slot+0 as u64
+    call @assert_buffer_contains(&process_ptr, process_len, &NEEDLE_PROCESS_HANDLE_RESULT, NEEDLE_PROCESS_HANDLE_RESULT_LEN, 1132)
+    process_free_status = call @json_writer_dispose_finished(process_buffer, process_writer)
+    process_free_ok = eq process_free_status, 0
+    call @assert_contract(process_free_ok, 1133)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED true_writer_status, true_writer
+    true_write_status = call @json_writer_write_bool_field_result(true_writer, &THIN_KEY_OK, THIN_KEY_OK_LEN, 1)
+    true_write_ok = eq true_write_status, 0
+    call @assert_contract(true_write_ok, 1134)
+    true_buffer_slot = stack_alloc 8
+    true_ptr_slot = stack_alloc 8
+    true_len_slot = stack_alloc 8
+    true_finish_status = call @json_writer_finish_view(true_writer, &true_buffer_slot, &true_ptr_slot, &true_len_slot)
+    true_finish_ok = eq true_finish_status, 0
+    call @assert_contract(true_finish_ok, 1135)
+    true_buffer = load true_buffer_slot+0 as ptr
+    true_ptr = load true_ptr_slot+0 as ptr
+    true_len = load true_len_slot+0 as u64
+    call @assert_buffer_contains(&true_ptr, true_len, &NEEDLE_OK_TRUE, NEEDLE_OK_TRUE_LEN, 1136)
+    true_free_status = call @json_writer_dispose_finished(true_buffer, true_writer)
+    true_free_ok = eq true_free_status, 0
+    call @assert_contract(true_free_ok, 1137)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED false_writer_status, false_writer
+    false_write_status = call @json_writer_write_bool_field_result(false_writer, &THIN_KEY_OK, THIN_KEY_OK_LEN, 0)
+    false_write_ok = eq false_write_status, 0
+    call @assert_contract(false_write_ok, 1138)
+    false_buffer_slot = stack_alloc 8
+    false_ptr_slot = stack_alloc 8
+    false_len_slot = stack_alloc 8
+    false_finish_status = call @json_writer_finish_view(false_writer, &false_buffer_slot, &false_ptr_slot, &false_len_slot)
+    false_finish_ok = eq false_finish_status, 0
+    call @assert_contract(false_finish_ok, 1139)
+    false_buffer = load false_buffer_slot+0 as ptr
+    false_ptr = load false_ptr_slot+0 as ptr
+    false_len = load false_len_slot+0 as u64
+    call @assert_buffer_contains(&false_ptr, false_len, &NEEDLE_OK_FALSE, NEEDLE_OK_FALSE_LEN, 1140)
+    false_free_status = call @json_writer_dispose_finished(false_buffer, false_writer)
+    false_free_ok = eq false_free_status, 0
+    call @assert_contract(false_free_ok, 1141)
+
+    !false_free_ok
+    !false_free_status
+    !false_len
+    !false_ptr
+    !false_buffer
+    !false_finish_ok
+    !false_finish_status
+    !false_write_ok
+    !false_write_status
+    !false_writer
+    !false_writer_status
+    !true_free_ok
+    !true_free_status
+    !true_len
+    !true_ptr
+    !true_buffer
+    !true_finish_ok
+    !true_finish_status
+    !true_write_ok
+    !true_write_status
+    !true_writer
+    !true_writer_status
+    !process_free_ok
+    !process_free_status
+    !process_len
+    !process_ptr
+    !process_buffer
+    !process_finish_ok
+    !process_finish_status
+    !process_write_ok
+    !process_write_status
+    !process_writer
+    !process_writer_status
+    !command_free_ok
+    !command_free_status
+    !command_len
+    !command_ptr
+    !command_buffer
+    !command_finish_ok
+    !command_finish_status
+    !command_write_ok
+    !command_write_status
+    !command_writer
+    !command_writer_status
+    return
+
+@test "model collaboration and hooks thin writers match Deno shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED model_writer_status, model_writer
+    model_write_status = call @json_writer_write_model_capabilities_result(model_writer)
+    model_write_ok = eq model_write_status, 0
+    call @assert_contract(model_write_ok, 1142)
+    model_buffer_slot = stack_alloc 8
+    model_ptr_slot = stack_alloc 8
+    model_len_slot = stack_alloc 8
+    model_finish_status = call @json_writer_finish_view(model_writer, &model_buffer_slot, &model_ptr_slot, &model_len_slot)
+    model_finish_ok = eq model_finish_status, 0
+    call @assert_contract(model_finish_ok, 1143)
+    model_buffer = load model_buffer_slot+0 as ptr
+    model_ptr = load model_ptr_slot+0 as ptr
+    model_len = load model_len_slot+0 as u64
+    call @assert_buffer_contains(&model_ptr, model_len, &NEEDLE_IMAGE_GENERATION_FALSE, NEEDLE_IMAGE_GENERATION_FALSE_LEN, 1144)
+    call @assert_buffer_contains(&model_ptr, model_len, &NEEDLE_NAMESPACE_TOOLS_TRUE, NEEDLE_NAMESPACE_TOOLS_TRUE_LEN, 1145)
+    call @assert_buffer_contains(&model_ptr, model_len, &NEEDLE_WEB_SEARCH_FALSE, NEEDLE_WEB_SEARCH_FALSE_LEN, 1146)
+    model_free_status = call @json_writer_dispose_finished(model_buffer, model_writer)
+    model_free_ok = eq model_free_status, 0
+    call @assert_contract(model_free_ok, 1147)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED collab_writer_status, collab_writer
+    collab_write_status = call @json_writer_write_collaboration_mode_list_result(collab_writer)
+    collab_write_ok = eq collab_write_status, 0
+    call @assert_contract(collab_write_ok, 1148)
+    collab_buffer_slot = stack_alloc 8
+    collab_ptr_slot = stack_alloc 8
+    collab_len_slot = stack_alloc 8
+    collab_finish_status = call @json_writer_finish_view(collab_writer, &collab_buffer_slot, &collab_ptr_slot, &collab_len_slot)
+    collab_finish_ok = eq collab_finish_status, 0
+    call @assert_contract(collab_finish_ok, 1149)
+    collab_buffer = load collab_buffer_slot+0 as ptr
+    collab_ptr = load collab_ptr_slot+0 as ptr
+    collab_len = load collab_len_slot+0 as u64
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_DATA_ARRAY, NEEDLE_DATA_ARRAY_LEN, 1150)
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_NAME_DEFAULT, NEEDLE_NAME_DEFAULT_LEN, 1151)
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_MODE_DEFAULT, NEEDLE_MODE_DEFAULT_LEN, 1152)
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_NAME_PLAN, NEEDLE_NAME_PLAN_LEN, 1153)
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_MODE_PLAN, NEEDLE_MODE_PLAN_LEN, 1154)
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_MODEL_NULL, NEEDLE_MODEL_NULL_LEN, 1155)
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_REASONING_NULL, NEEDLE_REASONING_NULL_LEN, 1156)
+    call @assert_buffer_contains(&collab_ptr, collab_len, &NEEDLE_REASONING_MEDIUM, NEEDLE_REASONING_MEDIUM_LEN, 1157)
+    collab_free_status = call @json_writer_dispose_finished(collab_buffer, collab_writer)
+    collab_free_ok = eq collab_free_status, 0
+    call @assert_contract(collab_free_ok, 1158)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED hooks_writer_status, hooks_writer
+    hooks_write_status = call @json_writer_write_hooks_list_result(hooks_writer, &HOOK_CWD, HOOK_CWD_LEN)
+    hooks_write_ok = eq hooks_write_status, 0
+    call @assert_contract(hooks_write_ok, 1159)
+    hooks_buffer_slot = stack_alloc 8
+    hooks_ptr_slot = stack_alloc 8
+    hooks_len_slot = stack_alloc 8
+    hooks_finish_status = call @json_writer_finish_view(hooks_writer, &hooks_buffer_slot, &hooks_ptr_slot, &hooks_len_slot)
+    hooks_finish_ok = eq hooks_finish_status, 0
+    call @assert_contract(hooks_finish_ok, 1160)
+    hooks_buffer = load hooks_buffer_slot+0 as ptr
+    hooks_ptr = load hooks_ptr_slot+0 as ptr
+    hooks_len = load hooks_len_slot+0 as u64
+    call @assert_buffer_contains(&hooks_ptr, hooks_len, &NEEDLE_DATA_ARRAY, NEEDLE_DATA_ARRAY_LEN, 1161)
+    call @assert_buffer_contains(&hooks_ptr, hooks_len, &NEEDLE_HOOK_CWD, NEEDLE_HOOK_CWD_LEN, 1162)
+    call @assert_buffer_contains(&hooks_ptr, hooks_len, &NEEDLE_ERRORS_EMPTY, NEEDLE_ERRORS_EMPTY_LEN, 1163)
+    call @assert_buffer_contains(&hooks_ptr, hooks_len, &NEEDLE_HOOKS_EMPTY, NEEDLE_HOOKS_EMPTY_LEN, 1164)
+    call @assert_buffer_contains(&hooks_ptr, hooks_len, &NEEDLE_WARNINGS_EMPTY, NEEDLE_WARNINGS_EMPTY_LEN, 1165)
+    hooks_free_status = call @json_writer_dispose_finished(hooks_buffer, hooks_writer)
+    hooks_free_ok = eq hooks_free_status, 0
+    call @assert_contract(hooks_free_ok, 1166)
+
+    !hooks_free_ok
+    !hooks_free_status
+    !hooks_len
+    !hooks_ptr
+    !hooks_buffer
+    !hooks_finish_ok
+    !hooks_finish_status
+    !hooks_write_ok
+    !hooks_write_status
+    !hooks_writer
+    !hooks_writer_status
+    !collab_free_ok
+    !collab_free_status
+    !collab_len
+    !collab_ptr
+    !collab_buffer
+    !collab_finish_ok
+    !collab_finish_status
+    !collab_write_ok
+    !collab_write_status
+    !collab_writer
+    !collab_writer_status
+    !model_free_ok
+    !model_free_status
+    !model_len
+    !model_ptr
+    !model_buffer
+    !model_finish_ok
+    !model_finish_status
+    !model_write_ok
+    !model_write_status
+    !model_writer
+    !model_writer_status
+    return
+
+@test "account and rate limit thin writers match Deno defaults and config values"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED account_writer_status, account_writer
+    account_write_status = call @json_writer_write_account_read_result(account_writer, &ACCOUNT_PLAN_TEAM, ACCOUNT_PLAN_TEAM_LEN, &ACCOUNT_EMAIL_DEV, ACCOUNT_EMAIL_DEV_LEN)
+    account_write_ok = eq account_write_status, 0
+    call @assert_contract(account_write_ok, 1167)
+    account_buffer_slot = stack_alloc 8
+    account_ptr_slot = stack_alloc 8
+    account_len_slot = stack_alloc 8
+    account_finish_status = call @json_writer_finish_view(account_writer, &account_buffer_slot, &account_ptr_slot, &account_len_slot)
+    account_finish_ok = eq account_finish_status, 0
+    call @assert_contract(account_finish_ok, 1168)
+    account_buffer = load account_buffer_slot+0 as ptr
+    account_ptr = load account_ptr_slot+0 as ptr
+    account_len = load account_len_slot+0 as u64
+    call @assert_buffer_contains(&account_ptr, account_len, &NEEDLE_ACCOUNT_FIELD, NEEDLE_ACCOUNT_FIELD_LEN, 1169)
+    call @assert_buffer_contains(&account_ptr, account_len, &NEEDLE_ACCOUNT_TYPE_CHATGPT, NEEDLE_ACCOUNT_TYPE_CHATGPT_LEN, 1170)
+    call @assert_buffer_contains(&account_ptr, account_len, &NEEDLE_EMAIL_DEV, NEEDLE_EMAIL_DEV_LEN, 1171)
+    call @assert_buffer_contains(&account_ptr, account_len, &NEEDLE_PLAN_TEAM, NEEDLE_PLAN_TEAM_LEN, 1172)
+    call @assert_buffer_contains(&account_ptr, account_len, &NEEDLE_REQUIRES_AUTH_FALSE, NEEDLE_REQUIRES_AUTH_FALSE_LEN, 1173)
+    account_free_status = call @json_writer_dispose_finished(account_buffer, account_writer)
+    account_free_ok = eq account_free_status, 0
+    call @assert_contract(account_free_ok, 1174)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED account_default_writer_status, account_default_writer
+    account_default_write_status = call @json_writer_write_account_read_result(account_default_writer, &ACCOUNT_PLAN_TEAM, 0, &ACCOUNT_EMAIL_DEV, 0)
+    account_default_write_ok = eq account_default_write_status, 0
+    call @assert_contract(account_default_write_ok, 1175)
+    account_default_buffer_slot = stack_alloc 8
+    account_default_ptr_slot = stack_alloc 8
+    account_default_len_slot = stack_alloc 8
+    account_default_finish_status = call @json_writer_finish_view(account_default_writer, &account_default_buffer_slot, &account_default_ptr_slot, &account_default_len_slot)
+    account_default_finish_ok = eq account_default_finish_status, 0
+    call @assert_contract(account_default_finish_ok, 1176)
+    account_default_buffer = load account_default_buffer_slot+0 as ptr
+    account_default_ptr = load account_default_ptr_slot+0 as ptr
+    account_default_len = load account_default_len_slot+0 as u64
+    call @assert_buffer_contains(&account_default_ptr, account_default_len, &NEEDLE_EMAIL_DEFAULT, NEEDLE_EMAIL_DEFAULT_LEN, 1177)
+    call @assert_buffer_contains(&account_default_ptr, account_default_len, &NEEDLE_PLAN_PLUS, NEEDLE_PLAN_PLUS_LEN, 1178)
+    account_default_free_status = call @json_writer_dispose_finished(account_default_buffer, account_default_writer)
+    account_default_free_ok = eq account_default_free_status, 0
+    call @assert_contract(account_default_free_ok, 1179)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED rate_writer_status, rate_writer
+    rate_write_status = call @json_writer_write_rate_limits_result(rate_writer, &ACCOUNT_PLAN_TEAM, ACCOUNT_PLAN_TEAM_LEN)
+    rate_write_ok = eq rate_write_status, 0
+    call @assert_contract(rate_write_ok, 1180)
+    rate_buffer_slot = stack_alloc 8
+    rate_ptr_slot = stack_alloc 8
+    rate_len_slot = stack_alloc 8
+    rate_finish_status = call @json_writer_finish_view(rate_writer, &rate_buffer_slot, &rate_ptr_slot, &rate_len_slot)
+    rate_finish_ok = eq rate_finish_status, 0
+    call @assert_contract(rate_finish_ok, 1181)
+    rate_buffer = load rate_buffer_slot+0 as ptr
+    rate_ptr = load rate_ptr_slot+0 as ptr
+    rate_len = load rate_len_slot+0 as u64
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_RATE_LIMITS_FIELD, NEEDLE_RATE_LIMITS_FIELD_LEN, 1182)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_USED_PERCENT_ZERO, NEEDLE_USED_PERCENT_ZERO_LEN, 1183)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_CREDITS_NULL, NEEDLE_CREDITS_NULL_LEN, 1184)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_LIMIT_ID_NULL, NEEDLE_LIMIT_ID_NULL_LEN, 1185)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_LIMIT_NAME_NULL, NEEDLE_LIMIT_NAME_NULL_LEN, 1186)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_PLAN_TEAM, NEEDLE_PLAN_TEAM_LEN, 1187)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_PRIMARY_NULL, NEEDLE_PRIMARY_NULL_LEN, 1188)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_RATE_LIMIT_REACHED_NULL, NEEDLE_RATE_LIMIT_REACHED_NULL_LEN, 1189)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_SECONDARY_NULL, NEEDLE_SECONDARY_NULL_LEN, 1190)
+    call @assert_buffer_contains(&rate_ptr, rate_len, &NEEDLE_RATE_LIMITS_BY_ID_NULL, NEEDLE_RATE_LIMITS_BY_ID_NULL_LEN, 1191)
+    rate_free_status = call @json_writer_dispose_finished(rate_buffer, rate_writer)
+    rate_free_ok = eq rate_free_status, 0
+    call @assert_contract(rate_free_ok, 1192)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED rate_default_writer_status, rate_default_writer
+    rate_default_write_status = call @json_writer_write_rate_limits_result(rate_default_writer, &ACCOUNT_PLAN_TEAM, 0)
+    rate_default_write_ok = eq rate_default_write_status, 0
+    call @assert_contract(rate_default_write_ok, 1193)
+    rate_default_buffer_slot = stack_alloc 8
+    rate_default_ptr_slot = stack_alloc 8
+    rate_default_len_slot = stack_alloc 8
+    rate_default_finish_status = call @json_writer_finish_view(rate_default_writer, &rate_default_buffer_slot, &rate_default_ptr_slot, &rate_default_len_slot)
+    rate_default_finish_ok = eq rate_default_finish_status, 0
+    call @assert_contract(rate_default_finish_ok, 1194)
+    rate_default_buffer = load rate_default_buffer_slot+0 as ptr
+    rate_default_ptr = load rate_default_ptr_slot+0 as ptr
+    rate_default_len = load rate_default_len_slot+0 as u64
+    call @assert_buffer_contains(&rate_default_ptr, rate_default_len, &NEEDLE_PLAN_PLUS, NEEDLE_PLAN_PLUS_LEN, 1195)
+    rate_default_free_status = call @json_writer_dispose_finished(rate_default_buffer, rate_default_writer)
+    rate_default_free_ok = eq rate_default_free_status, 0
+    call @assert_contract(rate_default_free_ok, 1196)
+
+    !rate_default_free_ok
+    !rate_default_free_status
+    !rate_default_len
+    !rate_default_ptr
+    !rate_default_buffer
+    !rate_default_finish_ok
+    !rate_default_finish_status
+    !rate_default_write_ok
+    !rate_default_write_status
+    !rate_default_writer
+    !rate_default_writer_status
+    !rate_free_ok
+    !rate_free_status
+    !rate_len
+    !rate_ptr
+    !rate_buffer
+    !rate_finish_ok
+    !rate_finish_status
+    !rate_write_ok
+    !rate_write_status
+    !rate_writer
+    !rate_writer_status
+    !account_default_free_ok
+    !account_default_free_status
+    !account_default_len
+    !account_default_ptr
+    !account_default_buffer
+    !account_default_finish_ok
+    !account_default_finish_status
+    !account_default_write_ok
+    !account_default_write_status
+    !account_default_writer
+    !account_default_writer_status
+    !account_free_ok
+    !account_free_status
+    !account_len
+    !account_ptr
+    !account_buffer
+    !account_finish_ok
+    !account_finish_status
+    !account_write_ok
+    !account_write_status
+    !account_writer
+    !account_writer_status
+    return
+
+@test "remote status writer echoes Deno params and default read status"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED connected_writer_status, connected_writer
+    connected_write_status = call @json_writer_write_remote_status_params(connected_writer, &REMOTE_ENABLE_BODY, REMOTE_ENABLE_BODY_LEN, &REMOTE_STATUS_CONNECTED, REMOTE_STATUS_CONNECTED_LEN)
+    connected_write_ok = eq connected_write_status, 0
+    call @assert_contract(connected_write_ok, 1102)
+    connected_buffer_slot = stack_alloc 8
+    connected_ptr_slot = stack_alloc 8
+    connected_len_slot = stack_alloc 8
+    connected_finish_status = call @json_writer_finish_view(connected_writer, &connected_buffer_slot, &connected_ptr_slot, &connected_len_slot)
+    connected_finish_ok = eq connected_finish_status, 0
+    call @assert_contract(connected_finish_ok, 1103)
+    connected_buffer = load connected_buffer_slot+0 as ptr
+    connected_ptr = load connected_ptr_slot+0 as ptr
+    connected_len = load connected_len_slot+0 as u64
+    call @assert_buffer_contains(&connected_ptr, connected_len, &NEEDLE_REMOTE_CONNECTED, NEEDLE_REMOTE_CONNECTED_LEN, 1104)
+    call @assert_buffer_contains(&connected_ptr, connected_len, &NEEDLE_REMOTE_SERVER, NEEDLE_REMOTE_SERVER_LEN, 1105)
+    call @assert_buffer_contains(&connected_ptr, connected_len, &NEEDLE_REMOTE_INSTALL, NEEDLE_REMOTE_INSTALL_LEN, 1106)
+    call @assert_buffer_contains(&connected_ptr, connected_len, &NEEDLE_REMOTE_ENV, NEEDLE_REMOTE_ENV_LEN, 1107)
+    connected_free_status = call @json_writer_dispose_finished(connected_buffer, connected_writer)
+    connected_free_ok = eq connected_free_status, 0
+    call @assert_contract(connected_free_ok, 1108)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED disabled_writer_status, disabled_writer
+    disabled_write_status = call @json_writer_write_remote_status_params(disabled_writer, &REMOTE_EMPTY_BODY, REMOTE_EMPTY_BODY_LEN, &REMOTE_STATUS_DISABLED, REMOTE_STATUS_DISABLED_LEN)
+    disabled_write_ok = eq disabled_write_status, 0
+    call @assert_contract(disabled_write_ok, 1109)
+    disabled_buffer_slot = stack_alloc 8
+    disabled_ptr_slot = stack_alloc 8
+    disabled_len_slot = stack_alloc 8
+    disabled_finish_status = call @json_writer_finish_view(disabled_writer, &disabled_buffer_slot, &disabled_ptr_slot, &disabled_len_slot)
+    disabled_finish_ok = eq disabled_finish_status, 0
+    call @assert_contract(disabled_finish_ok, 1110)
+    disabled_buffer = load disabled_buffer_slot+0 as ptr
+    disabled_ptr = load disabled_ptr_slot+0 as ptr
+    disabled_len = load disabled_len_slot+0 as u64
+    call @assert_buffer_contains(&disabled_ptr, disabled_len, &NEEDLE_REMOTE_DISABLED, NEEDLE_REMOTE_DISABLED_LEN, 1111)
+    call @assert_buffer_contains(&disabled_ptr, disabled_len, &NEEDLE_REMOTE_DEFAULT_SERVER, NEEDLE_REMOTE_DEFAULT_SERVER_LEN, 1112)
+    call @assert_buffer_contains(&disabled_ptr, disabled_len, &NEEDLE_REMOTE_DEFAULT_INSTALL, NEEDLE_REMOTE_DEFAULT_INSTALL_LEN, 1113)
+    call @assert_buffer_contains(&disabled_ptr, disabled_len, &NEEDLE_REMOTE_ENV_NULL, NEEDLE_REMOTE_ENV_NULL_LEN, 1114)
+    disabled_free_status = call @json_writer_dispose_finished(disabled_buffer, disabled_writer)
+    disabled_free_ok = eq disabled_free_status, 0
+    call @assert_contract(disabled_free_ok, 1115)
+
+    !disabled_free_ok
+    !disabled_free_status
+    !disabled_len
+    !disabled_ptr
+    !disabled_buffer
+    !disabled_finish_ok
+    !disabled_finish_status
+    !disabled_write_ok
+    !disabled_write_status
+    !disabled_writer
+    !disabled_writer_status
+    !connected_free_ok
+    !connected_free_status
+    !connected_len
+    !connected_ptr
+    !connected_buffer
+    !connected_finish_ok
+    !connected_finish_status
+    !connected_write_ok
+    !connected_write_status
+    !connected_writer
+    !connected_writer_status
+    return
+
+@test "remote status notification emits Deno status event frame"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 1116)
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    notify_status = call @notify_remote_status(&state, &REMOTE_ENABLE_BODY, REMOTE_ENABLE_BODY_LEN, &REMOTE_STATUS_CONNECTED, REMOTE_STATUS_CONNECTED_LEN)
+    notify_ok = eq notify_status, 0
+    call @assert_contract(notify_ok, 1117)
+
+    out_frame = stack_alloc 1024
+    out_len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &out_frame, 1024, &out_len_slot)
+    read_ok = eq read_status, 1
+    call @assert_contract(read_ok, 1118)
+    frame_len = load out_len_slot+0 as u64
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_REMOTE_EVENT, NEEDLE_REMOTE_EVENT_LEN, 1119)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_REMOTE_CONNECTED, NEEDLE_REMOTE_CONNECTED_LEN, 1120)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_REMOTE_SERVER, NEEDLE_REMOTE_SERVER_LEN, 1121)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_REMOTE_INSTALL, NEEDLE_REMOTE_INSTALL_LEN, 1122)
+    call @assert_buffer_contains(&out_frame, frame_len, &NEEDLE_REMOTE_ENV, NEEDLE_REMOTE_ENV_LEN, 1123)
+
+    !frame_len
+    !read_status
+    !read_ok
+    !notify_status
+    !notify_ok
+    !cursor
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "timestamp thin writers emit injected Deno ISO fields"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED import_writer_status, import_writer
+    import_write_status = call @json_writer_write_external_import_result(import_writer, &TEST_ISO, TEST_ISO_LEN)
+    import_write_ok = eq import_write_status, 0
+    call @assert_contract(import_write_ok, 1124)
+    import_buffer_slot = stack_alloc 8
+    import_ptr_slot = stack_alloc 8
+    import_len_slot = stack_alloc 8
+    import_finish_status = call @json_writer_finish_view(import_writer, &import_buffer_slot, &import_ptr_slot, &import_len_slot)
+    import_finish_ok = eq import_finish_status, 0
+    call @assert_contract(import_finish_ok, 1125)
+    import_buffer = load import_buffer_slot+0 as ptr
+    import_ptr = load import_ptr_slot+0 as ptr
+    import_len = load import_len_slot+0 as u64
+    call @assert_buffer_contains(&import_ptr, import_len, &NEEDLE_IMPORTED_TRUE, NEEDLE_IMPORTED_TRUE_LEN, 1126)
+    call @assert_buffer_contains(&import_ptr, import_len, &NEEDLE_IMPORTED_AT, NEEDLE_IMPORTED_AT_LEN, 1127)
+    import_free_status = call @json_writer_dispose_finished(import_buffer, import_writer)
+    import_free_ok = eq import_free_status, 0
+    call @assert_contract(import_free_ok, 1128)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED refresh_writer_status, refresh_writer
+    refresh_write_status = call @json_writer_write_chatgpt_tokens_refresh_result(refresh_writer, &TEST_ISO, TEST_ISO_LEN)
+    refresh_write_ok = eq refresh_write_status, 0
+    call @assert_contract(refresh_write_ok, 1129)
+    refresh_buffer_slot = stack_alloc 8
+    refresh_ptr_slot = stack_alloc 8
+    refresh_len_slot = stack_alloc 8
+    refresh_finish_status = call @json_writer_finish_view(refresh_writer, &refresh_buffer_slot, &refresh_ptr_slot, &refresh_len_slot)
+    refresh_finish_ok = eq refresh_finish_status, 0
+    call @assert_contract(refresh_finish_ok, 1130)
+    refresh_buffer = load refresh_buffer_slot+0 as ptr
+    refresh_ptr = load refresh_ptr_slot+0 as ptr
+    refresh_len = load refresh_len_slot+0 as u64
+    call @assert_buffer_contains(&refresh_ptr, refresh_len, &NEEDLE_REFRESHED_TRUE, NEEDLE_REFRESHED_TRUE_LEN, 1131)
+    call @assert_buffer_contains(&refresh_ptr, refresh_len, &NEEDLE_REFRESHED_AT, NEEDLE_REFRESHED_AT_LEN, 1132)
+    refresh_free_status = call @json_writer_dispose_finished(refresh_buffer, refresh_writer)
+    refresh_free_ok = eq refresh_free_status, 0
+    call @assert_contract(refresh_free_ok, 1133)
+
+    !refresh_free_ok
+    !refresh_free_status
+    !refresh_len
+    !refresh_ptr
+    !refresh_buffer
+    !refresh_finish_ok
+    !refresh_finish_status
+    !refresh_write_ok
+    !refresh_write_status
+    !refresh_writer
+    !refresh_writer_status
+    !import_free_ok
+    !import_free_status
+    !import_len
+    !import_ptr
+    !import_buffer
+    !import_finish_ok
+    !import_finish_status
+    !import_write_ok
+    !import_write_status
+    !import_writer
+    !import_writer_status
+    return
+
+@test "plugin share writers preserve Deno payload shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED save_writer_status, save_writer
+    save_write_status = call @json_writer_write_plugin_share_save_result(save_writer, &TEST_REMOTE_PLUGIN, TEST_REMOTE_PLUGIN_LEN, &TEST_SHARE_URL, TEST_SHARE_URL_LEN)
+    save_write_ok = eq save_write_status, 0
+    call @assert_contract(save_write_ok, 1134)
+    save_buffer_slot = stack_alloc 8
+    save_ptr_slot = stack_alloc 8
+    save_len_slot = stack_alloc 8
+    save_finish_status = call @json_writer_finish_view(save_writer, &save_buffer_slot, &save_ptr_slot, &save_len_slot)
+    save_finish_ok = eq save_finish_status, 0
+    call @assert_contract(save_finish_ok, 1135)
+    save_buffer = load save_buffer_slot+0 as ptr
+    save_ptr = load save_ptr_slot+0 as ptr
+    save_len = load save_len_slot+0 as u64
+    call @assert_buffer_contains(&save_ptr, save_len, &NEEDLE_SHARE_REMOTE_ID, NEEDLE_SHARE_REMOTE_ID_LEN, 1136)
+    call @assert_buffer_contains(&save_ptr, save_len, &NEEDLE_SHARE_URL, NEEDLE_SHARE_URL_LEN, 1137)
+    call @assert_buffer_contains(&save_ptr, save_len, &NEEDLE_DISCOVERABILITY_UNLISTED, NEEDLE_DISCOVERABILITY_UNLISTED_LEN, 1138)
+    save_free_status = call @json_writer_dispose_finished(save_buffer, save_writer)
+    save_free_ok = eq save_free_status, 0
+    call @assert_contract(save_free_ok, 1139)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED checkout_writer_status, checkout_writer
+    checkout_write_status = call @json_writer_write_plugin_share_checkout_result(checkout_writer, &PLUGIN_SHARE_CHECKOUT_BODY, PLUGIN_SHARE_CHECKOUT_BODY_LEN)
+    checkout_write_ok = eq checkout_write_status, 0
+    call @assert_contract(checkout_write_ok, 1140)
+    checkout_buffer_slot = stack_alloc 8
+    checkout_ptr_slot = stack_alloc 8
+    checkout_len_slot = stack_alloc 8
+    checkout_finish_status = call @json_writer_finish_view(checkout_writer, &checkout_buffer_slot, &checkout_ptr_slot, &checkout_len_slot)
+    checkout_finish_ok = eq checkout_finish_status, 0
+    call @assert_contract(checkout_finish_ok, 1141)
+    checkout_buffer = load checkout_buffer_slot+0 as ptr
+    checkout_ptr = load checkout_ptr_slot+0 as ptr
+    checkout_len = load checkout_len_slot+0 as u64
+    call @assert_buffer_contains(&checkout_ptr, checkout_len, &NEEDLE_CHECKED_OUT_TRUE, NEEDLE_CHECKED_OUT_TRUE_LEN, 1142)
+    call @assert_buffer_contains(&checkout_ptr, checkout_len, &NEEDLE_MARKETPLACE_MARKET, NEEDLE_MARKETPLACE_MARKET_LEN, 1143)
+    call @assert_buffer_contains(&checkout_ptr, checkout_len, &NEEDLE_PLUGIN_PLUG, NEEDLE_PLUGIN_PLUG_LEN, 1144)
+    checkout_free_status = call @json_writer_dispose_finished(checkout_buffer, checkout_writer)
+    checkout_free_ok = eq checkout_free_status, 0
+    call @assert_contract(checkout_free_ok, 1145)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED delete_writer_status, delete_writer
+    delete_write_status = call @json_writer_write_plugin_share_delete_result(delete_writer, &PLUGIN_SHARE_DELETE_BODY, PLUGIN_SHARE_DELETE_BODY_LEN)
+    delete_write_ok = eq delete_write_status, 0
+    call @assert_contract(delete_write_ok, 1146)
+    delete_buffer_slot = stack_alloc 8
+    delete_ptr_slot = stack_alloc 8
+    delete_len_slot = stack_alloc 8
+    delete_finish_status = call @json_writer_finish_view(delete_writer, &delete_buffer_slot, &delete_ptr_slot, &delete_len_slot)
+    delete_finish_ok = eq delete_finish_status, 0
+    call @assert_contract(delete_finish_ok, 1147)
+    delete_buffer = load delete_buffer_slot+0 as ptr
+    delete_ptr = load delete_ptr_slot+0 as ptr
+    delete_len = load delete_len_slot+0 as u64
+    call @assert_buffer_contains(&delete_ptr, delete_len, &NEEDLE_DELETED_TRUE, NEEDLE_DELETED_TRUE_LEN, 1148)
+    call @assert_buffer_contains(&delete_ptr, delete_len, &NEEDLE_SHARE_REMOTE_ID, NEEDLE_SHARE_REMOTE_ID_LEN, 1149)
+    delete_free_status = call @json_writer_dispose_finished(delete_buffer, delete_writer)
+    delete_free_ok = eq delete_free_status, 0
+    call @assert_contract(delete_free_ok, 1150)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED delete_null_writer_status, delete_null_writer
+    delete_null_write_status = call @json_writer_write_plugin_share_delete_result(delete_null_writer, &PLUGIN_SHARE_DELETE_EMPTY_BODY, PLUGIN_SHARE_DELETE_EMPTY_BODY_LEN)
+    delete_null_write_ok = eq delete_null_write_status, 0
+    call @assert_contract(delete_null_write_ok, 1151)
+    delete_null_buffer_slot = stack_alloc 8
+    delete_null_ptr_slot = stack_alloc 8
+    delete_null_len_slot = stack_alloc 8
+    delete_null_finish_status = call @json_writer_finish_view(delete_null_writer, &delete_null_buffer_slot, &delete_null_ptr_slot, &delete_null_len_slot)
+    delete_null_finish_ok = eq delete_null_finish_status, 0
+    call @assert_contract(delete_null_finish_ok, 1152)
+    delete_null_buffer = load delete_null_buffer_slot+0 as ptr
+    delete_null_ptr = load delete_null_ptr_slot+0 as ptr
+    delete_null_len = load delete_null_len_slot+0 as u64
+    call @assert_buffer_contains(&delete_null_ptr, delete_null_len, &NEEDLE_DELETED_TRUE, NEEDLE_DELETED_TRUE_LEN, 1153)
+    call @assert_buffer_contains(&delete_null_ptr, delete_null_len, &NEEDLE_REMOTE_PLUGIN_NULL, NEEDLE_REMOTE_PLUGIN_NULL_LEN, 1154)
+    delete_null_free_status = call @json_writer_dispose_finished(delete_null_buffer, delete_null_writer)
+    delete_null_free_ok = eq delete_null_free_status, 0
+    call @assert_contract(delete_null_free_ok, 1155)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED update_empty_writer_status, update_empty_writer
+    update_empty_write_status = call @json_writer_write_plugin_share_update_empty_result(update_empty_writer)
+    update_empty_write_ok = eq update_empty_write_status, 0
+    call @assert_contract(update_empty_write_ok, 1156)
+    update_empty_buffer_slot = stack_alloc 8
+    update_empty_ptr_slot = stack_alloc 8
+    update_empty_len_slot = stack_alloc 8
+    update_empty_finish_status = call @json_writer_finish_view(update_empty_writer, &update_empty_buffer_slot, &update_empty_ptr_slot, &update_empty_len_slot)
+    update_empty_finish_ok = eq update_empty_finish_status, 0
+    call @assert_contract(update_empty_finish_ok, 1157)
+    update_empty_buffer = load update_empty_buffer_slot+0 as ptr
+    update_empty_ptr = load update_empty_ptr_slot+0 as ptr
+    update_empty_len = load update_empty_len_slot+0 as u64
+    call @assert_buffer_contains(&update_empty_ptr, update_empty_len, &NEEDLE_DISCOVERABILITY_UNLISTED, NEEDLE_DISCOVERABILITY_UNLISTED_LEN, 1158)
+    call @assert_buffer_contains(&update_empty_ptr, update_empty_len, &NEEDLE_PRINCIPALS_EMPTY, NEEDLE_PRINCIPALS_EMPTY_LEN, 1159)
+    update_empty_free_status = call @json_writer_dispose_finished(update_empty_buffer, update_empty_writer)
+    update_empty_free_ok = eq update_empty_free_status, 0
+    call @assert_contract(update_empty_free_ok, 1160)
+
+    principals_node = call @sa_json_parse(&PRINCIPALS_JSON, PRINCIPALS_JSON_LEN)
+    principals_node_ok = ne principals_node, 0
+    call @assert_contract(principals_node_ok, 1161)
+    EXPAND JSON_WRITER_NEW_MINIFIED update_node_writer_status, update_node_writer
+    update_node_write_status = call @json_writer_write_plugin_share_update_node_result(update_node_writer, principals_node)
+    update_node_write_ok = eq update_node_write_status, 0
+    call @assert_contract(update_node_write_ok, 1162)
+    update_node_buffer_slot = stack_alloc 8
+    update_node_ptr_slot = stack_alloc 8
+    update_node_len_slot = stack_alloc 8
+    update_node_finish_status = call @json_writer_finish_view(update_node_writer, &update_node_buffer_slot, &update_node_ptr_slot, &update_node_len_slot)
+    update_node_finish_ok = eq update_node_finish_status, 0
+    call @assert_contract(update_node_finish_ok, 1163)
+    update_node_buffer = load update_node_buffer_slot+0 as ptr
+    update_node_ptr = load update_node_ptr_slot+0 as ptr
+    update_node_len = load update_node_len_slot+0 as u64
+    call @assert_buffer_contains(&update_node_ptr, update_node_len, &NEEDLE_DISCOVERABILITY_UNLISTED, NEEDLE_DISCOVERABILITY_UNLISTED_LEN, 1164)
+    call @assert_buffer_contains(&update_node_ptr, update_node_len, &NEEDLE_PRINCIPALS_ALICE, NEEDLE_PRINCIPALS_ALICE_LEN, 1165)
+    update_node_free_status = call @json_writer_dispose_finished(update_node_buffer, update_node_writer)
+    update_node_free_ok = eq update_node_free_status, 0
+    call @assert_contract(update_node_free_ok, 1166)
+    principals_free_status = call @sa_json_free(^principals_node)
+
+    !principals_free_status
+    !update_node_free_ok
+    !update_node_free_status
+    !update_node_len
+    !update_node_ptr
+    !update_node_buffer
+    !update_node_finish_ok
+    !update_node_finish_status
+    !update_node_write_ok
+    !update_node_write_status
+    !update_node_writer
+    !update_node_writer_status
+    !principals_node_ok
+    !update_empty_free_ok
+    !update_empty_free_status
+    !update_empty_len
+    !update_empty_ptr
+    !update_empty_buffer
+    !update_empty_finish_ok
+    !update_empty_finish_status
+    !update_empty_write_ok
+    !update_empty_write_status
+    !update_empty_writer
+    !update_empty_writer_status
+    !delete_null_free_ok
+    !delete_null_free_status
+    !delete_null_len
+    !delete_null_ptr
+    !delete_null_buffer
+    !delete_null_finish_ok
+    !delete_null_finish_status
+    !delete_null_write_ok
+    !delete_null_write_status
+    !delete_null_writer
+    !delete_null_writer_status
+    !delete_free_ok
+    !delete_free_status
+    !delete_len
+    !delete_ptr
+    !delete_buffer
+    !delete_finish_ok
+    !delete_finish_status
+    !delete_write_ok
+    !delete_write_status
+    !delete_writer
+    !delete_writer_status
+    !checkout_free_ok
+    !checkout_free_status
+    !checkout_len
+    !checkout_ptr
+    !checkout_buffer
+    !checkout_finish_ok
+    !checkout_finish_status
+    !checkout_write_ok
+    !checkout_write_status
+    !checkout_writer
+    !checkout_writer_status
+    !save_free_ok
+    !save_free_status
+    !save_len
+    !save_ptr
+    !save_buffer
+    !save_finish_ok
+    !save_finish_status
+    !save_write_ok
+    !save_write_status
+    !save_writer
+    !save_writer_status
+    return
+
+@test "plugin read and uninstall writers preserve Deno thin shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED read_writer_status, read_writer
+    read_write_status = call @json_writer_write_plugin_read_result(read_writer, &PLUGIN_READ_BODY, PLUGIN_READ_BODY_LEN)
+    read_write_ok = eq read_write_status, 0
+    call @assert_contract(read_write_ok, 1177)
+    read_buffer_slot = stack_alloc 8
+    read_ptr_slot = stack_alloc 8
+    read_len_slot = stack_alloc 8
+    read_finish_status = call @json_writer_finish_view(read_writer, &read_buffer_slot, &read_ptr_slot, &read_len_slot)
+    read_finish_ok = eq read_finish_status, 0
+    call @assert_contract(read_finish_ok, 1178)
+    read_buffer = load read_buffer_slot+0 as ptr
+    read_ptr = load read_ptr_slot+0 as ptr
+    read_len = load read_len_slot+0 as u64
+    call @assert_buffer_contains(&read_ptr, read_len, &NEEDLE_PLUGIN_FIELD, NEEDLE_PLUGIN_FIELD_LEN, 1179)
+    call @assert_buffer_contains(&read_ptr, read_len, &NEEDLE_MARKETPLACE_LOCAL, NEEDLE_MARKETPLACE_LOCAL_LEN, 1180)
+    call @assert_buffer_contains(&read_ptr, read_len, &NEEDLE_MARKETPLACE_PATH_NULL, NEEDLE_MARKETPLACE_PATH_NULL_LEN, 1181)
+    call @assert_buffer_contains(&read_ptr, read_len, &NEEDLE_PLUGIN_SUMMARY_NAME, NEEDLE_PLUGIN_SUMMARY_NAME_LEN, 1182)
+    call @assert_buffer_contains(&read_ptr, read_len, &NEEDLE_APPS_EMPTY, NEEDLE_APPS_EMPTY_LEN, 1183)
+    call @assert_buffer_contains(&read_ptr, read_len, &NEEDLE_MCP_SERVERS_EMPTY, NEEDLE_MCP_SERVERS_EMPTY_LEN, 1184)
+    call @assert_buffer_contains(&read_ptr, read_len, &NEEDLE_SKILLS_EMPTY, NEEDLE_SKILLS_EMPTY_LEN, 1185)
+    read_free_status = call @json_writer_dispose_finished(read_buffer, read_writer)
+    read_free_ok = eq read_free_status, 0
+    call @assert_contract(read_free_ok, 1186)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED uninstall_writer_status, uninstall_writer
+    uninstall_write_status = call @json_writer_write_plugin_uninstall_result(uninstall_writer, &PLUGIN_UNINSTALL_BODY, PLUGIN_UNINSTALL_BODY_LEN)
+    uninstall_write_ok = eq uninstall_write_status, 0
+    call @assert_contract(uninstall_write_ok, 1187)
+    uninstall_buffer_slot = stack_alloc 8
+    uninstall_ptr_slot = stack_alloc 8
+    uninstall_len_slot = stack_alloc 8
+    uninstall_finish_status = call @json_writer_finish_view(uninstall_writer, &uninstall_buffer_slot, &uninstall_ptr_slot, &uninstall_len_slot)
+    uninstall_finish_ok = eq uninstall_finish_status, 0
+    call @assert_contract(uninstall_finish_ok, 1188)
+    uninstall_buffer = load uninstall_buffer_slot+0 as ptr
+    uninstall_ptr = load uninstall_ptr_slot+0 as ptr
+    uninstall_len = load uninstall_len_slot+0 as u64
+    call @assert_buffer_contains(&uninstall_ptr, uninstall_len, &NEEDLE_UNINSTALLED_TRUE, NEEDLE_UNINSTALLED_TRUE_LEN, 1189)
+    call @assert_buffer_contains(&uninstall_ptr, uninstall_len, &NEEDLE_PLUGIN_CODEX_NAME, NEEDLE_PLUGIN_CODEX_NAME_LEN, 1190)
+    uninstall_free_status = call @json_writer_dispose_finished(uninstall_buffer, uninstall_writer)
+    uninstall_free_ok = eq uninstall_free_status, 0
+    call @assert_contract(uninstall_free_ok, 1191)
+
+    !uninstall_free_ok
+    !uninstall_free_status
+    !uninstall_len
+    !uninstall_ptr
+    !uninstall_buffer
+    !uninstall_finish_ok
+    !uninstall_finish_status
+    !uninstall_write_ok
+    !uninstall_write_status
+    !uninstall_writer
+    !uninstall_writer_status
+    !read_free_ok
+    !read_free_status
+    !read_len
+    !read_ptr
+    !read_buffer
+    !read_finish_ok
+    !read_finish_status
+    !read_write_ok
+    !read_write_status
+    !read_writer
+    !read_writer_status
+    return
+
+@test "marketplace writers preserve Deno thin shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED add_writer_status, add_writer
+    add_write_status = call @json_writer_write_marketplace_add_result(add_writer, &MARKETPLACE_ADD_BODY, MARKETPLACE_ADD_BODY_LEN, &TEST_MARKET_CWD, TEST_MARKET_CWD_LEN)
+    add_write_ok = eq add_write_status, 0
+    call @assert_contract(add_write_ok, 1192)
+    add_buffer_slot = stack_alloc 8
+    add_ptr_slot = stack_alloc 8
+    add_len_slot = stack_alloc 8
+    add_finish_status = call @json_writer_finish_view(add_writer, &add_buffer_slot, &add_ptr_slot, &add_len_slot)
+    add_finish_ok = eq add_finish_status, 0
+    call @assert_contract(add_finish_ok, 1193)
+    add_buffer = load add_buffer_slot+0 as ptr
+    add_ptr = load add_ptr_slot+0 as ptr
+    add_len = load add_len_slot+0 as u64
+    call @assert_buffer_contains(&add_ptr, add_len, &NEEDLE_ALREADY_ADDED_FALSE, NEEDLE_ALREADY_ADDED_FALSE_LEN, 1194)
+    call @assert_buffer_contains(&add_ptr, add_len, &NEEDLE_INSTALLED_ROOT_MARKET, NEEDLE_INSTALLED_ROOT_MARKET_LEN, 1195)
+    call @assert_buffer_contains(&add_ptr, add_len, &NEEDLE_MARKETPLACE_SRC, NEEDLE_MARKETPLACE_SRC_LEN, 1196)
+    add_free_status = call @json_writer_dispose_finished(add_buffer, add_writer)
+    add_free_ok = eq add_free_status, 0
+    call @assert_contract(add_free_ok, 1197)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED remove_writer_status, remove_writer
+    remove_write_status = call @json_writer_write_marketplace_remove_result(remove_writer, &MARKETPLACE_REMOVE_BODY, MARKETPLACE_REMOVE_BODY_LEN, &TEST_MARKET_CWD, TEST_MARKET_CWD_LEN)
+    remove_write_ok = eq remove_write_status, 0
+    call @assert_contract(remove_write_ok, 1198)
+    remove_buffer_slot = stack_alloc 8
+    remove_ptr_slot = stack_alloc 8
+    remove_len_slot = stack_alloc 8
+    remove_finish_status = call @json_writer_finish_view(remove_writer, &remove_buffer_slot, &remove_ptr_slot, &remove_len_slot)
+    remove_finish_ok = eq remove_finish_status, 0
+    call @assert_contract(remove_finish_ok, 1199)
+    remove_buffer = load remove_buffer_slot+0 as ptr
+    remove_ptr = load remove_ptr_slot+0 as ptr
+    remove_len = load remove_len_slot+0 as u64
+    call @assert_buffer_contains(&remove_ptr, remove_len, &NEEDLE_INSTALLED_ROOT_MARKET, NEEDLE_INSTALLED_ROOT_MARKET_LEN, 1200)
+    call @assert_buffer_contains(&remove_ptr, remove_len, &NEEDLE_MARKETPLACE_MARKET, NEEDLE_MARKETPLACE_MARKET_LEN, 1201)
+    remove_free_status = call @json_writer_dispose_finished(remove_buffer, remove_writer)
+    remove_free_ok = eq remove_free_status, 0
+    call @assert_contract(remove_free_ok, 1202)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED upgrade_writer_status, upgrade_writer
+    upgrade_write_status = call @json_writer_write_marketplace_upgrade_result(upgrade_writer, &MARKETPLACE_UPGRADE_BODY, MARKETPLACE_UPGRADE_BODY_LEN)
+    upgrade_write_ok = eq upgrade_write_status, 0
+    call @assert_contract(upgrade_write_ok, 1203)
+    upgrade_buffer_slot = stack_alloc 8
+    upgrade_ptr_slot = stack_alloc 8
+    upgrade_len_slot = stack_alloc 8
+    upgrade_finish_status = call @json_writer_finish_view(upgrade_writer, &upgrade_buffer_slot, &upgrade_ptr_slot, &upgrade_len_slot)
+    upgrade_finish_ok = eq upgrade_finish_status, 0
+    call @assert_contract(upgrade_finish_ok, 1204)
+    upgrade_buffer = load upgrade_buffer_slot+0 as ptr
+    upgrade_ptr = load upgrade_ptr_slot+0 as ptr
+    upgrade_len = load upgrade_len_slot+0 as u64
+    call @assert_buffer_contains(&upgrade_ptr, upgrade_len, &NEEDLE_ERRORS_EMPTY2, NEEDLE_ERRORS_EMPTY2_LEN, 1205)
+    call @assert_buffer_contains(&upgrade_ptr, upgrade_len, &NEEDLE_SELECTED_MARKET, NEEDLE_SELECTED_MARKET_LEN, 1206)
+    call @assert_buffer_contains(&upgrade_ptr, upgrade_len, &NEEDLE_UPGRADED_ROOTS_EMPTY, NEEDLE_UPGRADED_ROOTS_EMPTY_LEN, 1207)
+    upgrade_free_status = call @json_writer_dispose_finished(upgrade_buffer, upgrade_writer)
+    upgrade_free_ok = eq upgrade_free_status, 0
+    call @assert_contract(upgrade_free_ok, 1208)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED upgrade_empty_writer_status, upgrade_empty_writer
+    upgrade_empty_write_status = call @json_writer_write_marketplace_upgrade_result(upgrade_empty_writer, &REMOTE_EMPTY_BODY, REMOTE_EMPTY_BODY_LEN)
+    upgrade_empty_write_ok = eq upgrade_empty_write_status, 0
+    call @assert_contract(upgrade_empty_write_ok, 1209)
+    upgrade_empty_buffer_slot = stack_alloc 8
+    upgrade_empty_ptr_slot = stack_alloc 8
+    upgrade_empty_len_slot = stack_alloc 8
+    upgrade_empty_finish_status = call @json_writer_finish_view(upgrade_empty_writer, &upgrade_empty_buffer_slot, &upgrade_empty_ptr_slot, &upgrade_empty_len_slot)
+    upgrade_empty_finish_ok = eq upgrade_empty_finish_status, 0
+    call @assert_contract(upgrade_empty_finish_ok, 1210)
+    upgrade_empty_buffer = load upgrade_empty_buffer_slot+0 as ptr
+    upgrade_empty_ptr = load upgrade_empty_ptr_slot+0 as ptr
+    upgrade_empty_len = load upgrade_empty_len_slot+0 as u64
+    call @assert_buffer_contains(&upgrade_empty_ptr, upgrade_empty_len, &NEEDLE_ERRORS_EMPTY2, NEEDLE_ERRORS_EMPTY2_LEN, 1211)
+    call @assert_buffer_contains(&upgrade_empty_ptr, upgrade_empty_len, &NEEDLE_SELECTED_EMPTY, NEEDLE_SELECTED_EMPTY_LEN, 1212)
+    call @assert_buffer_contains(&upgrade_empty_ptr, upgrade_empty_len, &NEEDLE_UPGRADED_ROOTS_EMPTY, NEEDLE_UPGRADED_ROOTS_EMPTY_LEN, 1213)
+    upgrade_empty_free_status = call @json_writer_dispose_finished(upgrade_empty_buffer, upgrade_empty_writer)
+    upgrade_empty_free_ok = eq upgrade_empty_free_status, 0
+    call @assert_contract(upgrade_empty_free_ok, 1214)
+
+    !upgrade_empty_free_ok
+    !upgrade_empty_free_status
+    !upgrade_empty_len
+    !upgrade_empty_ptr
+    !upgrade_empty_buffer
+    !upgrade_empty_finish_ok
+    !upgrade_empty_finish_status
+    !upgrade_empty_write_ok
+    !upgrade_empty_write_status
+    !upgrade_empty_writer
+    !upgrade_empty_writer_status
+    !upgrade_free_ok
+    !upgrade_free_status
+    !upgrade_len
+    !upgrade_ptr
+    !upgrade_buffer
+    !upgrade_finish_ok
+    !upgrade_finish_status
+    !upgrade_write_ok
+    !upgrade_write_status
+    !upgrade_writer
+    !upgrade_writer_status
+    !remove_free_ok
+    !remove_free_status
+    !remove_len
+    !remove_ptr
+    !remove_buffer
+    !remove_finish_ok
+    !remove_finish_status
+    !remove_write_ok
+    !remove_write_status
+    !remove_writer
+    !remove_writer_status
+    !add_free_ok
+    !add_free_status
+    !add_len
+    !add_ptr
+    !add_buffer
+    !add_finish_ok
+    !add_finish_status
+    !add_write_ok
+    !add_write_status
+    !add_writer
+    !add_writer_status
+    return
+
+@test "send credits writer preserves Deno email and null fallback"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED email_writer_status, email_writer
+    email_write_status = call @json_writer_write_send_credits_result(email_writer, &SEND_CREDITS_BODY, SEND_CREDITS_BODY_LEN)
+    email_write_ok = eq email_write_status, 0
+    call @assert_contract(email_write_ok, 1167)
+    email_buffer_slot = stack_alloc 8
+    email_ptr_slot = stack_alloc 8
+    email_len_slot = stack_alloc 8
+    email_finish_status = call @json_writer_finish_view(email_writer, &email_buffer_slot, &email_ptr_slot, &email_len_slot)
+    email_finish_ok = eq email_finish_status, 0
+    call @assert_contract(email_finish_ok, 1168)
+    email_buffer = load email_buffer_slot+0 as ptr
+    email_ptr = load email_ptr_slot+0 as ptr
+    email_len = load email_len_slot+0 as u64
+    call @assert_buffer_contains(&email_ptr, email_len, &NEEDLE_SENT_STATUS, NEEDLE_SENT_STATUS_LEN, 1169)
+    call @assert_buffer_contains(&email_ptr, email_len, &NEEDLE_EMAIL_ALICE, NEEDLE_EMAIL_ALICE_LEN, 1170)
+    email_free_status = call @json_writer_dispose_finished(email_buffer, email_writer)
+    email_free_ok = eq email_free_status, 0
+    call @assert_contract(email_free_ok, 1171)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED null_writer_status, null_writer
+    null_write_status = call @json_writer_write_send_credits_result(null_writer, &SEND_CREDITS_EMPTY_BODY, SEND_CREDITS_EMPTY_BODY_LEN)
+    null_write_ok = eq null_write_status, 0
+    call @assert_contract(null_write_ok, 1172)
+    null_buffer_slot = stack_alloc 8
+    null_ptr_slot = stack_alloc 8
+    null_len_slot = stack_alloc 8
+    null_finish_status = call @json_writer_finish_view(null_writer, &null_buffer_slot, &null_ptr_slot, &null_len_slot)
+    null_finish_ok = eq null_finish_status, 0
+    call @assert_contract(null_finish_ok, 1173)
+    null_buffer = load null_buffer_slot+0 as ptr
+    null_ptr = load null_ptr_slot+0 as ptr
+    null_len = load null_len_slot+0 as u64
+    call @assert_buffer_contains(&null_ptr, null_len, &NEEDLE_SENT_STATUS, NEEDLE_SENT_STATUS_LEN, 1174)
+    call @assert_buffer_contains(&null_ptr, null_len, &NEEDLE_EMAIL_NULL, NEEDLE_EMAIL_NULL_LEN, 1175)
+    null_free_status = call @json_writer_dispose_finished(null_buffer, null_writer)
+    null_free_ok = eq null_free_status, 0
+    call @assert_contract(null_free_ok, 1176)
+
+    !null_free_ok
+    !null_free_status
+    !null_len
+    !null_ptr
+    !null_buffer
+    !null_finish_ok
+    !null_finish_status
+    !null_write_ok
+    !null_write_status
+    !null_writer
+    !null_writer_status
+    !email_free_ok
+    !email_free_status
+    !email_len
+    !email_ptr
+    !email_buffer
+    !email_finish_ok
+    !email_finish_status
+    !email_write_ok
+    !email_write_status
+    !email_writer
+    !email_writer_status
+    return
+
+@test "initialize and account login writers preserve Deno thin shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED init_writer_status, init_writer
+    init_write_status = call @json_writer_write_initialize_result(init_writer, &INIT_VERSION, INIT_VERSION_LEN, &INIT_CWD, INIT_CWD_LEN, &INIT_FAMILY, INIT_FAMILY_LEN, &INIT_OS, INIT_OS_LEN)
+    init_write_ok = eq init_write_status, 0
+    call @assert_contract(init_write_ok, 1177)
+    init_buffer_slot = stack_alloc 8
+    init_ptr_slot = stack_alloc 8
+    init_len_slot = stack_alloc 8
+    init_finish_status = call @json_writer_finish_view(init_writer, &init_buffer_slot, &init_ptr_slot, &init_len_slot)
+    init_finish_ok = eq init_finish_status, 0
+    call @assert_contract(init_finish_ok, 1178)
+    init_buffer = load init_buffer_slot+0 as ptr
+    init_ptr = load init_ptr_slot+0 as ptr
+    init_len = load init_len_slot+0 as u64
+    call @assert_buffer_contains(&init_ptr, init_len, &EXPECTED_INITIALIZE, EXPECTED_INITIALIZE_LEN, 1179)
+    init_free_status = call @json_writer_dispose_finished(init_buffer, init_writer)
+    init_free_ok = eq init_free_status, 0
+    call @assert_contract(init_free_ok, 1180)
+    !init_free_ok
+    !init_free_status
+    !init_len
+    !init_ptr
+    !init_buffer
+    !init_finish_ok
+    !init_finish_status
+    !init_write_ok
+    !init_write_status
+    !init_writer
+    !init_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED login_writer_status, login_writer
+    login_write_status = call @json_writer_write_account_login_start_result(login_writer, &LOGIN_CHATGPT_BODY, LOGIN_CHATGPT_BODY_LEN)
+    login_write_ok = eq login_write_status, 0
+    call @assert_contract(login_write_ok, 1181)
+    login_buffer_slot = stack_alloc 8
+    login_ptr_slot = stack_alloc 8
+    login_len_slot = stack_alloc 8
+    login_finish_status = call @json_writer_finish_view(login_writer, &login_buffer_slot, &login_ptr_slot, &login_len_slot)
+    login_finish_ok = eq login_finish_status, 0
+    call @assert_contract(login_finish_ok, 1182)
+    login_buffer = load login_buffer_slot+0 as ptr
+    login_ptr = load login_ptr_slot+0 as ptr
+    login_len = load login_len_slot+0 as u64
+    call @assert_buffer_contains(&login_ptr, login_len, &EXPECTED_LOGIN_CHATGPT, EXPECTED_LOGIN_CHATGPT_LEN, 1183)
+    login_free_status = call @json_writer_dispose_finished(login_buffer, login_writer)
+    login_free_ok = eq login_free_status, 0
+    call @assert_contract(login_free_ok, 1184)
+    !login_free_ok
+    !login_free_status
+    !login_len
+    !login_ptr
+    !login_buffer
+    !login_finish_ok
+    !login_finish_status
+    !login_write_ok
+    !login_write_status
+    !login_writer
+    !login_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED default_login_writer_status, default_login_writer
+    default_login_write_status = call @json_writer_write_account_login_start_result(default_login_writer, &LOGIN_EMPTY_BODY, LOGIN_EMPTY_BODY_LEN)
+    default_login_write_ok = eq default_login_write_status, 0
+    call @assert_contract(default_login_write_ok, 1185)
+    default_login_buffer_slot = stack_alloc 8
+    default_login_ptr_slot = stack_alloc 8
+    default_login_len_slot = stack_alloc 8
+    default_login_finish_status = call @json_writer_finish_view(default_login_writer, &default_login_buffer_slot, &default_login_ptr_slot, &default_login_len_slot)
+    default_login_finish_ok = eq default_login_finish_status, 0
+    call @assert_contract(default_login_finish_ok, 1186)
+    default_login_buffer = load default_login_buffer_slot+0 as ptr
+    default_login_ptr = load default_login_ptr_slot+0 as ptr
+    default_login_len = load default_login_len_slot+0 as u64
+    call @assert_buffer_contains(&default_login_ptr, default_login_len, &EXPECTED_LOGIN_DEFAULT, EXPECTED_LOGIN_DEFAULT_LEN, 1187)
+    default_login_free_status = call @json_writer_dispose_finished(default_login_buffer, default_login_writer)
+    default_login_free_ok = eq default_login_free_status, 0
+    call @assert_contract(default_login_free_ok, 1188)
+    !default_login_free_ok
+    !default_login_free_status
+    !default_login_len
+    !default_login_ptr
+    !default_login_buffer
+    !default_login_finish_ok
+    !default_login_finish_status
+    !default_login_write_ok
+    !default_login_write_status
+    !default_login_writer
+    !default_login_writer_status
+    return
+
+@test "environment review and oauth writers preserve Deno thin shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED env_writer_status, env_writer
+    env_write_status = call @json_writer_write_environment_add_result(env_writer, &ENV_ADD_BODY, ENV_ADD_BODY_LEN)
+    env_write_ok = eq env_write_status, 0
+    call @assert_contract(env_write_ok, 1189)
+    env_buffer_slot = stack_alloc 8
+    env_ptr_slot = stack_alloc 8
+    env_len_slot = stack_alloc 8
+    env_finish_status = call @json_writer_finish_view(env_writer, &env_buffer_slot, &env_ptr_slot, &env_len_slot)
+    env_finish_ok = eq env_finish_status, 0
+    call @assert_contract(env_finish_ok, 1190)
+    env_buffer = load env_buffer_slot+0 as ptr
+    env_ptr = load env_ptr_slot+0 as ptr
+    env_len = load env_len_slot+0 as u64
+    call @assert_buffer_contains(&env_ptr, env_len, &EXPECTED_ENV_ADD, EXPECTED_ENV_ADD_LEN, 1191)
+    env_free_status = call @json_writer_dispose_finished(env_buffer, env_writer)
+    env_free_ok = eq env_free_status, 0
+    call @assert_contract(env_free_ok, 1192)
+    !env_free_ok
+    !env_free_status
+    !env_len
+    !env_ptr
+    !env_buffer
+    !env_finish_ok
+    !env_finish_status
+    !env_write_ok
+    !env_write_status
+    !env_writer
+    !env_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED env_default_writer_status, env_default_writer
+    env_default_write_status = call @json_writer_write_environment_add_result(env_default_writer, &ENV_ADD_EMPTY_BODY, ENV_ADD_EMPTY_BODY_LEN)
+    env_default_write_ok = eq env_default_write_status, 0
+    call @assert_contract(env_default_write_ok, 1193)
+    env_default_buffer_slot = stack_alloc 8
+    env_default_ptr_slot = stack_alloc 8
+    env_default_len_slot = stack_alloc 8
+    env_default_finish_status = call @json_writer_finish_view(env_default_writer, &env_default_buffer_slot, &env_default_ptr_slot, &env_default_len_slot)
+    env_default_finish_ok = eq env_default_finish_status, 0
+    call @assert_contract(env_default_finish_ok, 1194)
+    env_default_buffer = load env_default_buffer_slot+0 as ptr
+    env_default_ptr = load env_default_ptr_slot+0 as ptr
+    env_default_len = load env_default_len_slot+0 as u64
+    call @assert_buffer_contains(&env_default_ptr, env_default_len, &EXPECTED_ENV_ADD_DEFAULT, EXPECTED_ENV_ADD_DEFAULT_LEN, 1195)
+    env_default_free_status = call @json_writer_dispose_finished(env_default_buffer, env_default_writer)
+    env_default_free_ok = eq env_default_free_status, 0
+    call @assert_contract(env_default_free_ok, 1196)
+    !env_default_free_ok
+    !env_default_free_status
+    !env_default_len
+    !env_default_ptr
+    !env_default_buffer
+    !env_default_finish_ok
+    !env_default_finish_status
+    !env_default_write_ok
+    !env_default_write_status
+    !env_default_writer
+    !env_default_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED review_writer_status, review_writer
+    review_write_status = call @json_writer_write_review_start_result(review_writer, &REVIEW_START_BODY, REVIEW_START_BODY_LEN)
+    review_write_ok = eq review_write_status, 0
+    call @assert_contract(review_write_ok, 1197)
+    review_buffer_slot = stack_alloc 8
+    review_ptr_slot = stack_alloc 8
+    review_len_slot = stack_alloc 8
+    review_finish_status = call @json_writer_finish_view(review_writer, &review_buffer_slot, &review_ptr_slot, &review_len_slot)
+    review_finish_ok = eq review_finish_status, 0
+    call @assert_contract(review_finish_ok, 1198)
+    review_buffer = load review_buffer_slot+0 as ptr
+    review_ptr = load review_ptr_slot+0 as ptr
+    review_len = load review_len_slot+0 as u64
+    call @assert_buffer_contains(&review_ptr, review_len, &EXPECTED_REVIEW_START, EXPECTED_REVIEW_START_LEN, 1199)
+    review_free_status = call @json_writer_dispose_finished(review_buffer, review_writer)
+    review_free_ok = eq review_free_status, 0
+    call @assert_contract(review_free_ok, 1200)
+    !review_free_ok
+    !review_free_status
+    !review_len
+    !review_ptr
+    !review_buffer
+    !review_finish_ok
+    !review_finish_status
+    !review_write_ok
+    !review_write_status
+    !review_writer
+    !review_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED oauth_writer_status, oauth_writer
+    oauth_write_status = call @json_writer_write_oauth_login_result(oauth_writer, &OAUTH_TEST_URL, OAUTH_TEST_URL_LEN)
+    oauth_write_ok = eq oauth_write_status, 0
+    call @assert_contract(oauth_write_ok, 1201)
+    oauth_buffer_slot = stack_alloc 8
+    oauth_ptr_slot = stack_alloc 8
+    oauth_len_slot = stack_alloc 8
+    oauth_finish_status = call @json_writer_finish_view(oauth_writer, &oauth_buffer_slot, &oauth_ptr_slot, &oauth_len_slot)
+    oauth_finish_ok = eq oauth_finish_status, 0
+    call @assert_contract(oauth_finish_ok, 1202)
+    oauth_buffer = load oauth_buffer_slot+0 as ptr
+    oauth_ptr = load oauth_ptr_slot+0 as ptr
+    oauth_len = load oauth_len_slot+0 as u64
+    call @assert_buffer_contains(&oauth_ptr, oauth_len, &EXPECTED_OAUTH_LOGIN, EXPECTED_OAUTH_LOGIN_LEN, 1203)
+    oauth_free_status = call @json_writer_dispose_finished(oauth_buffer, oauth_writer)
+    oauth_free_ok = eq oauth_free_status, 0
+    call @assert_contract(oauth_free_ok, 1204)
+    !oauth_free_ok
+    !oauth_free_status
+    !oauth_len
+    !oauth_ptr
+    !oauth_buffer
+    !oauth_finish_ok
+    !oauth_finish_status
+    !oauth_write_ok
+    !oauth_write_status
+    !oauth_writer
+    !oauth_writer_status
+    return
+
+@test "mock experimental and external detect writers preserve Deno thin shapes"():
+L_ENTRY:
+    mock_node = call @sa_json_parse(&MOCK_ECHO_JSON, MOCK_ECHO_JSON_LEN)
+    mock_node_ok = ne mock_node, 0
+    call @assert_contract(mock_node_ok, 1205)
+    EXPAND JSON_WRITER_NEW_MINIFIED mock_writer_status, mock_writer
+    mock_write_status = call @json_writer_write_mock_experimental_result(mock_writer, mock_node)
+    mock_write_ok = eq mock_write_status, 0
+    call @assert_contract(mock_write_ok, 1206)
+    mock_buffer_slot = stack_alloc 8
+    mock_ptr_slot = stack_alloc 8
+    mock_len_slot = stack_alloc 8
+    mock_finish_status = call @json_writer_finish_view(mock_writer, &mock_buffer_slot, &mock_ptr_slot, &mock_len_slot)
+    mock_finish_ok = eq mock_finish_status, 0
+    call @assert_contract(mock_finish_ok, 1207)
+    mock_buffer = load mock_buffer_slot+0 as ptr
+    mock_ptr = load mock_ptr_slot+0 as ptr
+    mock_len = load mock_len_slot+0 as u64
+    call @assert_buffer_contains(&mock_ptr, mock_len, &EXPECTED_MOCK_ECHO, EXPECTED_MOCK_ECHO_LEN, 1208)
+    mock_writer_free_status = call @json_writer_dispose_finished(mock_buffer, mock_writer)
+    mock_writer_free_ok = eq mock_writer_free_status, 0
+    call @assert_contract(mock_writer_free_ok, 1209)
+    mock_free_status = call @sa_json_free(^mock_node)
+    !mock_free_status
+    !mock_writer_free_ok
+    !mock_writer_free_status
+    !mock_len
+    !mock_ptr
+    !mock_buffer
+    !mock_finish_ok
+    !mock_finish_status
+    !mock_write_ok
+    !mock_write_status
+    !mock_writer
+    !mock_writer_status
+    !mock_node_ok
+
+    EXPAND JSON_WRITER_NEW_MINIFIED mock_null_writer_status, mock_null_writer
+    mock_null_write_status = call @json_writer_write_mock_experimental_result(mock_null_writer, 0)
+    mock_null_write_ok = eq mock_null_write_status, 0
+    call @assert_contract(mock_null_write_ok, 1211)
+    mock_null_buffer_slot = stack_alloc 8
+    mock_null_ptr_slot = stack_alloc 8
+    mock_null_len_slot = stack_alloc 8
+    mock_null_finish_status = call @json_writer_finish_view(mock_null_writer, &mock_null_buffer_slot, &mock_null_ptr_slot, &mock_null_len_slot)
+    mock_null_finish_ok = eq mock_null_finish_status, 0
+    call @assert_contract(mock_null_finish_ok, 1212)
+    mock_null_buffer = load mock_null_buffer_slot+0 as ptr
+    mock_null_ptr = load mock_null_ptr_slot+0 as ptr
+    mock_null_len = load mock_null_len_slot+0 as u64
+    call @assert_buffer_contains(&mock_null_ptr, mock_null_len, &EXPECTED_MOCK_NULL, EXPECTED_MOCK_NULL_LEN, 1213)
+    mock_null_free_status = call @json_writer_dispose_finished(mock_null_buffer, mock_null_writer)
+    mock_null_free_ok = eq mock_null_free_status, 0
+    call @assert_contract(mock_null_free_ok, 1214)
+    !mock_null_free_ok
+    !mock_null_free_status
+    !mock_null_len
+    !mock_null_ptr
+    !mock_null_buffer
+    !mock_null_finish_ok
+    !mock_null_finish_status
+    !mock_null_write_ok
+    !mock_null_write_status
+    !mock_null_writer
+    !mock_null_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED external_writer_status, external_writer
+    external_write_status = call @json_writer_write_external_detect_result(external_writer, &EXTERNAL_DETECT_CWD, EXTERNAL_DETECT_CWD_LEN)
+    external_write_ok = eq external_write_status, 0
+    call @assert_contract(external_write_ok, 1215)
+    external_buffer_slot = stack_alloc 8
+    external_ptr_slot = stack_alloc 8
+    external_len_slot = stack_alloc 8
+    external_finish_status = call @json_writer_finish_view(external_writer, &external_buffer_slot, &external_ptr_slot, &external_len_slot)
+    external_finish_ok = eq external_finish_status, 0
+    call @assert_contract(external_finish_ok, 1216)
+    external_buffer = load external_buffer_slot+0 as ptr
+    external_ptr = load external_ptr_slot+0 as ptr
+    external_len = load external_len_slot+0 as u64
+    call @assert_buffer_contains(&external_ptr, external_len, &EXPECTED_EXTERNAL_DETECT, EXPECTED_EXTERNAL_DETECT_LEN, 1217)
+    external_free_status = call @json_writer_dispose_finished(external_buffer, external_writer)
+    external_free_ok = eq external_free_status, 0
+    call @assert_contract(external_free_ok, 1218)
+    !external_free_ok
+    !external_free_status
+    !external_len
+    !external_ptr
+    !external_buffer
+    !external_finish_ok
+    !external_finish_status
+    !external_write_ok
+    !external_write_status
+    !external_writer
+    !external_writer_status
+    return
+
+@test "sandbox setup writer preserves Deno explicit and default modes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED sandbox_writer_status, sandbox_writer
+    sandbox_write_status = call @json_writer_write_sandbox_setup_result(sandbox_writer, &SANDBOX_SETUP_BODY, SANDBOX_SETUP_BODY_LEN)
+    sandbox_write_ok = eq sandbox_write_status, 0
+    call @assert_contract(sandbox_write_ok, 1219)
+    sandbox_buffer_slot = stack_alloc 8
+    sandbox_ptr_slot = stack_alloc 8
+    sandbox_len_slot = stack_alloc 8
+    sandbox_finish_status = call @json_writer_finish_view(sandbox_writer, &sandbox_buffer_slot, &sandbox_ptr_slot, &sandbox_len_slot)
+    sandbox_finish_ok = eq sandbox_finish_status, 0
+    call @assert_contract(sandbox_finish_ok, 1220)
+    sandbox_buffer = load sandbox_buffer_slot+0 as ptr
+    sandbox_ptr = load sandbox_ptr_slot+0 as ptr
+    sandbox_len = load sandbox_len_slot+0 as u64
+    call @assert_buffer_contains(&sandbox_ptr, sandbox_len, &EXPECTED_SANDBOX_SETUP, EXPECTED_SANDBOX_SETUP_LEN, 1221)
+    sandbox_free_status = call @json_writer_dispose_finished(sandbox_buffer, sandbox_writer)
+    sandbox_free_ok = eq sandbox_free_status, 0
+    call @assert_contract(sandbox_free_ok, 1222)
+    !sandbox_free_ok
+    !sandbox_free_status
+    !sandbox_len
+    !sandbox_ptr
+    !sandbox_buffer
+    !sandbox_finish_ok
+    !sandbox_finish_status
+    !sandbox_write_ok
+    !sandbox_write_status
+    !sandbox_writer
+    !sandbox_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED sandbox_default_writer_status, sandbox_default_writer
+    sandbox_default_write_status = call @json_writer_write_sandbox_setup_result(sandbox_default_writer, &SANDBOX_SETUP_EMPTY_BODY, SANDBOX_SETUP_EMPTY_BODY_LEN)
+    sandbox_default_write_ok = eq sandbox_default_write_status, 0
+    call @assert_contract(sandbox_default_write_ok, 1223)
+    sandbox_default_buffer_slot = stack_alloc 8
+    sandbox_default_ptr_slot = stack_alloc 8
+    sandbox_default_len_slot = stack_alloc 8
+    sandbox_default_finish_status = call @json_writer_finish_view(sandbox_default_writer, &sandbox_default_buffer_slot, &sandbox_default_ptr_slot, &sandbox_default_len_slot)
+    sandbox_default_finish_ok = eq sandbox_default_finish_status, 0
+    call @assert_contract(sandbox_default_finish_ok, 1224)
+    sandbox_default_buffer = load sandbox_default_buffer_slot+0 as ptr
+    sandbox_default_ptr = load sandbox_default_ptr_slot+0 as ptr
+    sandbox_default_len = load sandbox_default_len_slot+0 as u64
+    call @assert_buffer_contains(&sandbox_default_ptr, sandbox_default_len, &EXPECTED_SANDBOX_SETUP_DEFAULT, EXPECTED_SANDBOX_SETUP_DEFAULT_LEN, 1225)
+    sandbox_default_free_status = call @json_writer_dispose_finished(sandbox_default_buffer, sandbox_default_writer)
+    sandbox_default_free_ok = eq sandbox_default_free_status, 0
+    call @assert_contract(sandbox_default_free_ok, 1226)
+    !sandbox_default_free_ok
+    !sandbox_default_free_status
+    !sandbox_default_len
+    !sandbox_default_ptr
+    !sandbox_default_buffer
+    !sandbox_default_finish_ok
+    !sandbox_default_finish_status
+    !sandbox_default_write_ok
+    !sandbox_default_write_status
+    !sandbox_default_writer
+    !sandbox_default_writer_status
+    return
+
+@test "fuzzy search and session writers preserve Deno thin shapes"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED fuzzy_writer_status, fuzzy_writer
+    fuzzy_write_status = call @json_writer_write_fuzzy_search_result(fuzzy_writer, &FUZZY_SEARCH_BODY, FUZZY_SEARCH_BODY_LEN)
+    fuzzy_write_ok = eq fuzzy_write_status, 0
+    call @assert_contract(fuzzy_write_ok, 1227)
+    fuzzy_buffer_slot = stack_alloc 8
+    fuzzy_ptr_slot = stack_alloc 8
+    fuzzy_len_slot = stack_alloc 8
+    fuzzy_finish_status = call @json_writer_finish_view(fuzzy_writer, &fuzzy_buffer_slot, &fuzzy_ptr_slot, &fuzzy_len_slot)
+    fuzzy_finish_ok = eq fuzzy_finish_status, 0
+    call @assert_contract(fuzzy_finish_ok, 1228)
+    fuzzy_buffer = load fuzzy_buffer_slot+0 as ptr
+    fuzzy_ptr = load fuzzy_ptr_slot+0 as ptr
+    fuzzy_len = load fuzzy_len_slot+0 as u64
+    call @assert_buffer_contains(&fuzzy_ptr, fuzzy_len, &EXPECTED_FUZZY_SEARCH, EXPECTED_FUZZY_SEARCH_LEN, 1229)
+    fuzzy_free_status = call @json_writer_dispose_finished(fuzzy_buffer, fuzzy_writer)
+    fuzzy_free_ok = eq fuzzy_free_status, 0
+    call @assert_contract(fuzzy_free_ok, 1230)
+    !fuzzy_free_ok
+    !fuzzy_free_status
+    !fuzzy_len
+    !fuzzy_ptr
+    !fuzzy_buffer
+    !fuzzy_finish_ok
+    !fuzzy_finish_status
+    !fuzzy_write_ok
+    !fuzzy_write_status
+    !fuzzy_writer
+    !fuzzy_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED fuzzy_empty_writer_status, fuzzy_empty_writer
+    fuzzy_empty_write_status = call @json_writer_write_fuzzy_search_result(fuzzy_empty_writer, &FUZZY_SEARCH_EMPTY_BODY, FUZZY_SEARCH_EMPTY_BODY_LEN)
+    fuzzy_empty_write_ok = eq fuzzy_empty_write_status, 0
+    call @assert_contract(fuzzy_empty_write_ok, 1231)
+    fuzzy_empty_buffer_slot = stack_alloc 8
+    fuzzy_empty_ptr_slot = stack_alloc 8
+    fuzzy_empty_len_slot = stack_alloc 8
+    fuzzy_empty_finish_status = call @json_writer_finish_view(fuzzy_empty_writer, &fuzzy_empty_buffer_slot, &fuzzy_empty_ptr_slot, &fuzzy_empty_len_slot)
+    fuzzy_empty_finish_ok = eq fuzzy_empty_finish_status, 0
+    call @assert_contract(fuzzy_empty_finish_ok, 1232)
+    fuzzy_empty_buffer = load fuzzy_empty_buffer_slot+0 as ptr
+    fuzzy_empty_ptr = load fuzzy_empty_ptr_slot+0 as ptr
+    fuzzy_empty_len = load fuzzy_empty_len_slot+0 as u64
+    call @assert_buffer_contains(&fuzzy_empty_ptr, fuzzy_empty_len, &EXPECTED_FUZZY_SEARCH_EMPTY, EXPECTED_FUZZY_SEARCH_EMPTY_LEN, 1233)
+    fuzzy_empty_free_status = call @json_writer_dispose_finished(fuzzy_empty_buffer, fuzzy_empty_writer)
+    fuzzy_empty_free_ok = eq fuzzy_empty_free_status, 0
+    call @assert_contract(fuzzy_empty_free_ok, 1234)
+    !fuzzy_empty_free_ok
+    !fuzzy_empty_free_status
+    !fuzzy_empty_len
+    !fuzzy_empty_ptr
+    !fuzzy_empty_buffer
+    !fuzzy_empty_finish_ok
+    !fuzzy_empty_finish_status
+    !fuzzy_empty_write_ok
+    !fuzzy_empty_write_status
+    !fuzzy_empty_writer
+    !fuzzy_empty_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED fuzzy_session_writer_status, fuzzy_session_writer
+    fuzzy_session_write_status = call @json_writer_write_fuzzy_session_result(fuzzy_session_writer, &FUZZY_SESSION_BODY, FUZZY_SESSION_BODY_LEN, 0)
+    fuzzy_session_write_ok = eq fuzzy_session_write_status, 0
+    call @assert_contract(fuzzy_session_write_ok, 1235)
+    fuzzy_session_buffer_slot = stack_alloc 8
+    fuzzy_session_ptr_slot = stack_alloc 8
+    fuzzy_session_len_slot = stack_alloc 8
+    fuzzy_session_finish_status = call @json_writer_finish_view(fuzzy_session_writer, &fuzzy_session_buffer_slot, &fuzzy_session_ptr_slot, &fuzzy_session_len_slot)
+    fuzzy_session_finish_ok = eq fuzzy_session_finish_status, 0
+    call @assert_contract(fuzzy_session_finish_ok, 1236)
+    fuzzy_session_buffer = load fuzzy_session_buffer_slot+0 as ptr
+    fuzzy_session_ptr = load fuzzy_session_ptr_slot+0 as ptr
+    fuzzy_session_len = load fuzzy_session_len_slot+0 as u64
+    call @assert_buffer_contains(&fuzzy_session_ptr, fuzzy_session_len, &EXPECTED_FUZZY_SESSION, EXPECTED_FUZZY_SESSION_LEN, 1237)
+    fuzzy_session_free_status = call @json_writer_dispose_finished(fuzzy_session_buffer, fuzzy_session_writer)
+    fuzzy_session_free_ok = eq fuzzy_session_free_status, 0
+    call @assert_contract(fuzzy_session_free_ok, 1238)
+    !fuzzy_session_free_ok
+    !fuzzy_session_free_status
+    !fuzzy_session_len
+    !fuzzy_session_ptr
+    !fuzzy_session_buffer
+    !fuzzy_session_finish_ok
+    !fuzzy_session_finish_status
+    !fuzzy_session_write_ok
+    !fuzzy_session_write_status
+    !fuzzy_session_writer
+    !fuzzy_session_writer_status
+
+    EXPAND JSON_WRITER_NEW_MINIFIED fuzzy_stop_writer_status, fuzzy_stop_writer
+    fuzzy_stop_write_status = call @json_writer_write_fuzzy_session_result(fuzzy_stop_writer, &FUZZY_SESSION_STOP_BODY, FUZZY_SESSION_STOP_BODY_LEN, 1)
+    fuzzy_stop_write_ok = eq fuzzy_stop_write_status, 0
+    call @assert_contract(fuzzy_stop_write_ok, 1239)
+    fuzzy_stop_buffer_slot = stack_alloc 8
+    fuzzy_stop_ptr_slot = stack_alloc 8
+    fuzzy_stop_len_slot = stack_alloc 8
+    fuzzy_stop_finish_status = call @json_writer_finish_view(fuzzy_stop_writer, &fuzzy_stop_buffer_slot, &fuzzy_stop_ptr_slot, &fuzzy_stop_len_slot)
+    fuzzy_stop_finish_ok = eq fuzzy_stop_finish_status, 0
+    call @assert_contract(fuzzy_stop_finish_ok, 1240)
+    fuzzy_stop_buffer = load fuzzy_stop_buffer_slot+0 as ptr
+    fuzzy_stop_ptr = load fuzzy_stop_ptr_slot+0 as ptr
+    fuzzy_stop_len = load fuzzy_stop_len_slot+0 as u64
+    call @assert_buffer_contains(&fuzzy_stop_ptr, fuzzy_stop_len, &EXPECTED_FUZZY_SESSION_STOP, EXPECTED_FUZZY_SESSION_STOP_LEN, 1241)
+    fuzzy_stop_free_status = call @json_writer_dispose_finished(fuzzy_stop_buffer, fuzzy_stop_writer)
+    fuzzy_stop_free_ok = eq fuzzy_stop_free_status, 0
+    call @assert_contract(fuzzy_stop_free_ok, 1242)
+    !fuzzy_stop_free_ok
+    !fuzzy_stop_free_status
+    !fuzzy_stop_len
+    !fuzzy_stop_ptr
+    !fuzzy_stop_buffer
+    !fuzzy_stop_finish_ok
+    !fuzzy_stop_finish_status
+    !fuzzy_stop_write_ok
+    !fuzzy_stop_write_status
+    !fuzzy_stop_writer
+    !fuzzy_stop_writer_status
+    return
+
+@test "server resolved writer preserves Deno request resolution shape"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED server_writer_status, server_writer
+    server_write_status = call @json_writer_write_server_resolved_result(server_writer, &SERVER_RESOLVED_BODY, SERVER_RESOLVED_BODY_LEN)
+    server_write_ok = eq server_write_status, 0
+    call @assert_contract(server_write_ok, 1243)
+    server_buffer_slot = stack_alloc 8
+    server_ptr_slot = stack_alloc 8
+    server_len_slot = stack_alloc 8
+    server_finish_status = call @json_writer_finish_view(server_writer, &server_buffer_slot, &server_ptr_slot, &server_len_slot)
+    server_finish_ok = eq server_finish_status, 0
+    call @assert_contract(server_finish_ok, 1244)
+    server_buffer = load server_buffer_slot+0 as ptr
+    server_ptr = load server_ptr_slot+0 as ptr
+    server_len = load server_len_slot+0 as u64
+    call @assert_buffer_contains(&server_ptr, server_len, &EXPECTED_SERVER_RESOLVED, EXPECTED_SERVER_RESOLVED_LEN, 1245)
+    server_free_status = call @json_writer_dispose_finished(server_buffer, server_writer)
+    server_free_ok = eq server_free_status, 0
+    call @assert_contract(server_free_ok, 1246)
+    !server_free_ok
+    !server_free_status
+    !server_len
+    !server_ptr
+    !server_buffer
+    !server_finish_ok
+    !server_finish_status
+    !server_write_ok
+    !server_write_status
+    !server_writer
+    !server_writer_status
+    return

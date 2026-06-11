@@ -1,0 +1,601 @@
+// SA native @test coverage for HTTP dispatch helper contracts.
+@import "sa_std/fs.sai"
+@import "../src/hub_modules.sa"
+
+@const HTTPD_EMPTY = utf8:""
+@const HTTPD_ASCII_WS = utf8:" \t\n\r"
+@const HTTPD_JSON_OBJECT = utf8:"{}"
+@const HTTPD_WS_JSON_OBJECT = utf8:" \n{}"
+@const HTTPD_TOKEN_LONG = utf8:"abcdef123456789"
+@const HTTPD_TOKEN_SHORT = utf8:"abc"
+@const HTTPD_UPSTREAM_API_KEY = utf8:"sk-upstream"
+@const HTTPD_CALLER_AUTH_TOKEN = utf8:"client-secret"
+@const HTTPD_PREVIEW_NONE = utf8:"none"
+@const HTTPD_PREVIEW_LONG = utf8:"abc...789 (len=15)"
+@const HTTPD_PREVIEW_SHORT = utf8:"abc...abc (len=3)"
+@const HTTPD_UPSTREAM_AUTH_EXPECTED = utf8:"Bearer sk-upstream"
+@const HTTPD_UPSTREAM_BASE = utf8:"https://upstream.test/v1"
+@const HTTPD_UPSTREAM_MODELS_EXPECTED = utf8:"https://upstream.test/v1/models"
+@const HTTPD_UPSTREAM_CHAT_EXPECTED = utf8:"https://upstream.test/v1/chat/completions"
+@const HTTPD_UPSTREAM_RESPONSES_EXPECTED = utf8:"https://upstream.test/v1/responses"
+@const HTTPD_LOCAL_AUTH_TOKEN = utf8:"local-secret"
+@const HTTPD_AUTH_BEARER_LOCAL = utf8:"Bearer local-secret"
+@const HTTPD_AUTH_RAW_LOCAL = utf8:"local-secret"
+@const HTTPD_AUTH_EMBEDDED_BEARER = utf8:"Token Bearer local-secret"
+@const HTTPD_AUTH_BAD_BEARER = utf8:"Bearer wrong-secret"
+@const HTTPD_AUTH_LOG_BEARER_LONG = utf8:"Bearer abcdef123456789"
+@const HTTPD_AUTH_LOG_XKEY = utf8:"xkey987654321"
+@const HTTPD_AUTH_LOG_EXPECTED = utf8:"zzz111222333444"
+@const HTTPD_REQ_LOG_BODY = utf8:"payload"
+@const HTTPD_REQ_LOG_RAW_BODY = utf8:"raw"
+@const HTTPD_REQ_LOG_CONTENT_TYPE = utf8:"application/json"
+@const HTTPD_LOG_DIR = utf8:"/tmp/hubproxy-native-log"
+@const HTTPD_LOG_PATH_NEEDLE = utf8:"/request-"
+@const HTTPD_LOG_SUFFIX_NEEDLE = utf8:".json"
+@const HTTPD_ROUTE_MODELS_TEST = utf8:"/v1/models"
+@const HTTPD_ROUTE_RPC_TEST = utf8:"/rpc"
+@const HTTPD_METHOD_POST_TEST = utf8:"POST"
+@const HTTPD_NEEDLE_AUTH_LOG_KIND = utf8:"\"kind\":\"auth_failure\""
+@const HTTPD_NEEDLE_AUTH_LOG_PATH = utf8:"\"path\":\"/rpc\""
+@const HTTPD_NEEDLE_AUTH_LOG_AUTH = utf8:"\"authorization\":\"abc...789 (len=15)\""
+@const HTTPD_NEEDLE_AUTH_LOG_XAPIKEY = utf8:"\"xApiKey\":\"xke...321 (len=13)\""
+@const HTTPD_NEEDLE_AUTH_LOG_EXPECTED = utf8:"\"expectedAuth\":\"zzz...444 (len=15)\""
+@const HTTPD_NEEDLE_AUTH_LOG_DASH_XKEY = utf8:"\"x-api-key\""
+@const HTTPD_NEEDLE_REQ_LOG_KIND = utf8:"\"kind\":\"request-log\""
+@const HTTPD_NEEDLE_REQ_LOG_HEADERS = utf8:"\"headers\":{"
+@const HTTPD_NEEDLE_REQ_LOG_METHOD = utf8:"\"method\":\"POST\""
+@const HTTPD_NEEDLE_REQ_LOG_XKEY = utf8:"\"x-api-key\":\"xke...321 (len=13)\""
+@const HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE = utf8:"\"content-type\":\"application/json\""
+@const HTTPD_NEEDLE_REQ_LOG_BODY_BYTES = utf8:"\"bodyBytes\":7"
+@const HTTPD_NEEDLE_REQ_LOG_BODY = utf8:"\"body\":\"payload\""
+@const HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES = utf8:"\"rawBodyBytes\":3"
+@const HTTPD_NEEDLE_REQ_LOG_RAW_BODY = utf8:"\"rawBody\":\"raw\""
+@const HTTPD_NEEDLE_REQ_LOG_BODY_BYTES_ZERO = utf8:"\"bodyBytes\":0"
+@const HTTPD_NEEDLE_REQ_LOG_BODY_NULL = utf8:"\"body\":null"
+@const HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES_ZERO = utf8:"\"rawBodyBytes\":0"
+@const HTTPD_NEEDLE_REQ_LOG_RAW_BODY_NULL = utf8:"\"rawBody\":null"
+@const HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE_NONE = utf8:"\"content-type\":\"none\""
+@const HTTPD_NEEDLE_REQ_LOG_EMBEDDED_AUTH = utf8:"\"authorization\":\"Tok...ret (len=25)\""
+@const HTTPD_NEEDLE_REQ_LOG_CAMEL_XKEY = utf8:"\"xApiKey\""
+@const HTTPD_NEEDLE_HEADER_PLAN_FORWARDED = utf8:"\"forwarded\":{"
+@const HTTPD_NEEDLE_HEADER_PLAN_AUTH = utf8:"\"authorization\":\"Bearer sk-upstream\""
+@const HTTPD_NEEDLE_HEADER_PLAN_XKEY = utf8:"\"x-api-key\":\"sk-upstream\""
+@const HTTPD_NEEDLE_HEADER_PLAN_CONTENT_TYPE = utf8:"\"content-type\":\"application/json\""
+@const HTTPD_NEEDLE_HEADER_PLAN_DROPPED = utf8:"\"dropped\":[\"authorization\",\"x-api-key\",\"api-key\",\"content-length\",\"connection\",\"host\"]"
+@const HTTPD_NEEDLE_HEADER_PLAN_CLIENT_SECRET = utf8:"client-secret"
+@const HTTPD_NEEDLE_HEADER_PLAN_API_KEY_FIELD = utf8:"\"api-key\":\""
+@const HTTPD_NEEDLE_HEADER_PLAN_AUTH_FIELD = utf8:"\"authorization\":\""
+@const HTTPD_NEEDLE_HEADER_PLAN_XKEY_FIELD = utf8:"\"x-api-key\":\""
+
+#def HTTPD_EMPTY_LEN = 0
+#def HTTPD_ASCII_WS_LEN = 4
+#def HTTPD_JSON_OBJECT_LEN = 2
+#def HTTPD_WS_JSON_OBJECT_LEN = 4
+#def HTTPD_TOKEN_LONG_LEN = 15
+#def HTTPD_TOKEN_SHORT_LEN = 3
+#def HTTPD_UPSTREAM_API_KEY_LEN = 11
+#def HTTPD_CALLER_AUTH_TOKEN_LEN = 13
+#def HTTPD_PREVIEW_NONE_LEN = 4
+#def HTTPD_PREVIEW_LONG_LEN = 18
+#def HTTPD_PREVIEW_SHORT_LEN = 17
+#def HTTPD_UPSTREAM_AUTH_EXPECTED_LEN = 18
+#def HTTPD_UPSTREAM_BASE_LEN = 24
+#def HTTPD_UPSTREAM_MODELS_EXPECTED_LEN = 31
+#def HTTPD_UPSTREAM_CHAT_EXPECTED_LEN = 41
+#def HTTPD_UPSTREAM_RESPONSES_EXPECTED_LEN = 34
+#def HTTPD_LOCAL_AUTH_TOKEN_LEN = 12
+#def HTTPD_AUTH_BEARER_LOCAL_LEN = 19
+#def HTTPD_AUTH_RAW_LOCAL_LEN = 12
+#def HTTPD_AUTH_EMBEDDED_BEARER_LEN = 25
+#def HTTPD_AUTH_BAD_BEARER_LEN = 19
+#def HTTPD_AUTH_LOG_BEARER_LONG_LEN = 22
+#def HTTPD_AUTH_LOG_XKEY_LEN = 13
+#def HTTPD_AUTH_LOG_EXPECTED_LEN = 15
+#def HTTPD_REQ_LOG_BODY_LEN = 7
+#def HTTPD_REQ_LOG_RAW_BODY_LEN = 3
+#def HTTPD_REQ_LOG_CONTENT_TYPE_LEN = 16
+#def HTTPD_LOG_DIR_LEN = 24
+#def HTTPD_LOG_PATH_NEEDLE_LEN = 9
+#def HTTPD_LOG_SUFFIX_NEEDLE_LEN = 5
+#def HTTPD_ROUTE_MODELS_TEST_LEN = 10
+#def HTTPD_ROUTE_RPC_TEST_LEN = 4
+#def HTTPD_METHOD_POST_TEST_LEN = 4
+#def HTTPD_NEEDLE_AUTH_LOG_KIND_LEN = 21
+#def HTTPD_NEEDLE_AUTH_LOG_PATH_LEN = 13
+#def HTTPD_NEEDLE_AUTH_LOG_AUTH_LEN = 36
+#def HTTPD_NEEDLE_AUTH_LOG_XAPIKEY_LEN = 30
+#def HTTPD_NEEDLE_AUTH_LOG_EXPECTED_LEN = 35
+#def HTTPD_NEEDLE_AUTH_LOG_DASH_XKEY_LEN = 11
+#def HTTPD_NEEDLE_REQ_LOG_KIND_LEN = 20
+#def HTTPD_NEEDLE_REQ_LOG_HEADERS_LEN = 11
+#def HTTPD_NEEDLE_REQ_LOG_METHOD_LEN = 15
+#def HTTPD_NEEDLE_REQ_LOG_XKEY_LEN = 32
+#def HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE_LEN = 33
+#def HTTPD_NEEDLE_REQ_LOG_BODY_BYTES_LEN = 13
+#def HTTPD_NEEDLE_REQ_LOG_BODY_LEN = 16
+#def HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES_LEN = 16
+#def HTTPD_NEEDLE_REQ_LOG_RAW_BODY_LEN = 15
+#def HTTPD_NEEDLE_REQ_LOG_BODY_BYTES_ZERO_LEN = 13
+#def HTTPD_NEEDLE_REQ_LOG_BODY_NULL_LEN = 11
+#def HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES_ZERO_LEN = 16
+#def HTTPD_NEEDLE_REQ_LOG_RAW_BODY_NULL_LEN = 14
+#def HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE_NONE_LEN = 21
+#def HTTPD_NEEDLE_REQ_LOG_EMBEDDED_AUTH_LEN = 36
+#def HTTPD_NEEDLE_REQ_LOG_CAMEL_XKEY_LEN = 9
+#def HTTPD_NEEDLE_HEADER_PLAN_FORWARDED_LEN = 13
+#def HTTPD_NEEDLE_HEADER_PLAN_AUTH_LEN = 36
+#def HTTPD_NEEDLE_HEADER_PLAN_XKEY_LEN = 25
+#def HTTPD_NEEDLE_HEADER_PLAN_CONTENT_TYPE_LEN = 33
+#def HTTPD_NEEDLE_HEADER_PLAN_DROPPED_LEN = 86
+#def HTTPD_NEEDLE_HEADER_PLAN_CLIENT_SECRET_LEN = 13
+#def HTTPD_NEEDLE_HEADER_PLAN_API_KEY_FIELD_LEN = 11
+#def HTTPD_NEEDLE_HEADER_PLAN_AUTH_FIELD_LEN = 17
+#def HTTPD_NEEDLE_HEADER_PLAN_XKEY_FIELD_LEN = 13
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@assert_buffer_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    found = sge idx, 0
+    call @assert_contract(found, code)
+    !found
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@assert_buffer_not_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    absent = slt idx, 0
+    call @assert_contract(absent, code)
+    !absent
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@test "body_is_blank follows Deno trim semantics for empty JSON proxy bodies"():
+L_ENTRY:
+    empty_blank = call @body_is_blank(&HTTPD_EMPTY, HTTPD_EMPTY_LEN)
+    empty_ok = eq empty_blank, 1
+    call @assert_contract(empty_ok, 900)
+
+    ws_blank = call @body_is_blank(&HTTPD_ASCII_WS, HTTPD_ASCII_WS_LEN)
+    ws_ok = eq ws_blank, 1
+    call @assert_contract(ws_ok, 901)
+
+    extra_ws = stack_alloc 2
+    store extra_ws+0, 11 as u8
+    store extra_ws+1, 12 as u8
+    extra_ws_blank = call @body_is_blank(&extra_ws, 2)
+    extra_ws_ok = eq extra_ws_blank, 1
+    call @assert_contract(extra_ws_ok, 904)
+
+    object_blank = call @body_is_blank(&HTTPD_JSON_OBJECT, HTTPD_JSON_OBJECT_LEN)
+    object_ok = eq object_blank, 0
+    call @assert_contract(object_ok, 902)
+
+    ws_object_blank = call @body_is_blank(&HTTPD_WS_JSON_OBJECT, HTTPD_WS_JSON_OBJECT_LEN)
+    ws_object_ok = eq ws_object_blank, 0
+    call @assert_contract(ws_object_ok, 903)
+
+    !ws_object_blank
+    !ws_object_ok
+    !object_blank
+    !object_ok
+    !ws_blank
+    !ws_ok
+    !extra_ws_blank
+    !extra_ws_ok
+    !empty_blank
+    !empty_ok
+    return
+
+@test "token preview redacts auth values like Deno request logs"():
+L_ENTRY:
+    none_len_slot = stack_alloc 8
+    none_ptr = call @token_preview_value_owned(&HTTPD_EMPTY, HTTPD_EMPTY_LEN, &none_len_slot)
+    none_len = load none_len_slot+0 as u64
+    none_len_ok = eq none_len, HTTPD_PREVIEW_NONE_LEN
+    call @assert_contract(none_len_ok, 910)
+    none_eq_raw = call @sa_bytes_eq(&none_ptr, none_len, &HTTPD_PREVIEW_NONE, HTTPD_PREVIEW_NONE_LEN)
+    none_eq = eq none_eq_raw, 1
+    call @assert_contract(none_eq, 911)
+
+    long_len_slot = stack_alloc 8
+    long_ptr = call @token_preview_value_owned(&HTTPD_TOKEN_LONG, HTTPD_TOKEN_LONG_LEN, &long_len_slot)
+    long_len = load long_len_slot+0 as u64
+    long_len_ok = eq long_len, HTTPD_PREVIEW_LONG_LEN
+    call @assert_contract(long_len_ok, 912)
+    long_eq_raw = call @sa_bytes_eq(&long_ptr, long_len, &HTTPD_PREVIEW_LONG, HTTPD_PREVIEW_LONG_LEN)
+    long_eq = eq long_eq_raw, 1
+    call @assert_contract(long_eq, 913)
+
+    short_len_slot = stack_alloc 8
+    short_ptr = call @token_preview_value_owned(&HTTPD_TOKEN_SHORT, HTTPD_TOKEN_SHORT_LEN, &short_len_slot)
+    short_len = load short_len_slot+0 as u64
+    short_len_ok = eq short_len, HTTPD_PREVIEW_SHORT_LEN
+    call @assert_contract(short_len_ok, 914)
+    short_eq_raw = call @sa_bytes_eq(&short_ptr, short_len, &HTTPD_PREVIEW_SHORT, HTTPD_PREVIEW_SHORT_LEN)
+    short_eq = eq short_eq_raw, 1
+    call @assert_contract(short_eq, 915)
+
+    !short_eq_raw
+    !short_eq
+    !short_len
+    !short_len_ok
+    !short_ptr
+    !long_eq_raw
+    !long_eq
+    !long_len
+    !long_len_ok
+    !long_ptr
+    !none_eq_raw
+    !none_eq
+    !none_len
+    !none_len_ok
+    !none_ptr
+    return
+
+@test "auth failure log body preserves Deno route previews and xApiKey field"():
+L_ENTRY:
+    body_len_slot = stack_alloc 8
+    body_ptr = call @build_auth_failure_log_body_owned(&HTTPD_ROUTE_RPC_TEST, HTTPD_ROUTE_RPC_TEST_LEN, &HTTPD_AUTH_LOG_BEARER_LONG, HTTPD_AUTH_LOG_BEARER_LONG_LEN, &HTTPD_AUTH_LOG_XKEY, HTTPD_AUTH_LOG_XKEY_LEN, &HTTPD_AUTH_LOG_EXPECTED, HTTPD_AUTH_LOG_EXPECTED_LEN, &body_len_slot)
+    body_len = load body_len_slot+0 as u64
+
+    nonempty = ugt body_len, 0
+    call @assert_contract(nonempty, 934)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_KIND, HTTPD_NEEDLE_AUTH_LOG_KIND_LEN, 935)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_PATH, HTTPD_NEEDLE_AUTH_LOG_PATH_LEN, 936)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_AUTH, HTTPD_NEEDLE_AUTH_LOG_AUTH_LEN, 937)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_XAPIKEY, HTTPD_NEEDLE_AUTH_LOG_XAPIKEY_LEN, 938)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_EXPECTED, HTTPD_NEEDLE_AUTH_LOG_EXPECTED_LEN, 939)
+    call @assert_buffer_not_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_DASH_XKEY, HTTPD_NEEDLE_AUTH_LOG_DASH_XKEY_LEN, 940)
+
+    !nonempty
+    !body_len
+    !body_ptr
+    return
+
+@test "request log body preserves Deno header redaction and body fields"():
+L_ENTRY:
+    body_len_slot = stack_alloc 8
+    body_ptr = call @build_api_request_log_body_owned(&HTTPD_ROUTE_RPC_TEST, HTTPD_ROUTE_RPC_TEST_LEN, &HTTPD_METHOD_POST_TEST, HTTPD_METHOD_POST_TEST_LEN, &HTTPD_AUTH_LOG_BEARER_LONG, HTTPD_AUTH_LOG_BEARER_LONG_LEN, &HTTPD_AUTH_LOG_XKEY, HTTPD_AUTH_LOG_XKEY_LEN, &HTTPD_REQ_LOG_CONTENT_TYPE, HTTPD_REQ_LOG_CONTENT_TYPE_LEN, &HTTPD_REQ_LOG_BODY, HTTPD_REQ_LOG_BODY_LEN, &HTTPD_REQ_LOG_RAW_BODY, HTTPD_REQ_LOG_RAW_BODY_LEN, &body_len_slot)
+    body_len = load body_len_slot+0 as u64
+
+    nonempty = ugt body_len, 0
+    call @assert_contract(nonempty, 941)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_KIND, HTTPD_NEEDLE_REQ_LOG_KIND_LEN, 942)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_PATH, HTTPD_NEEDLE_AUTH_LOG_PATH_LEN, 943)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_METHOD, HTTPD_NEEDLE_REQ_LOG_METHOD_LEN, 944)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_HEADERS, HTTPD_NEEDLE_REQ_LOG_HEADERS_LEN, 945)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_AUTH_LOG_AUTH, HTTPD_NEEDLE_AUTH_LOG_AUTH_LEN, 946)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_XKEY, HTTPD_NEEDLE_REQ_LOG_XKEY_LEN, 947)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE, HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE_LEN, 948)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_BODY_BYTES, HTTPD_NEEDLE_REQ_LOG_BODY_BYTES_LEN, 949)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_BODY, HTTPD_NEEDLE_REQ_LOG_BODY_LEN, 950)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES, HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES_LEN, 951)
+    call @assert_buffer_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_RAW_BODY, HTTPD_NEEDLE_REQ_LOG_RAW_BODY_LEN, 952)
+    call @assert_buffer_not_contains(&body_ptr, body_len, &HTTPD_NEEDLE_REQ_LOG_CAMEL_XKEY, HTTPD_NEEDLE_REQ_LOG_CAMEL_XKEY_LEN, 953)
+
+    embedded_len_slot = stack_alloc 8
+    embedded_ptr = call @build_api_request_log_body_owned(&HTTPD_ROUTE_RPC_TEST, HTTPD_ROUTE_RPC_TEST_LEN, &HTTPD_METHOD_POST_TEST, HTTPD_METHOD_POST_TEST_LEN, &HTTPD_AUTH_EMBEDDED_BEARER, HTTPD_AUTH_EMBEDDED_BEARER_LEN, &HTTPD_EMPTY, HTTPD_EMPTY_LEN, &HTTPD_EMPTY, HTTPD_EMPTY_LEN, &HTTPD_EMPTY, HTTPD_EMPTY_LEN, &HTTPD_EMPTY, HTTPD_EMPTY_LEN, &embedded_len_slot)
+    embedded_len = load embedded_len_slot+0 as u64
+    embedded_nonempty = ugt embedded_len, 0
+    call @assert_contract(embedded_nonempty, 954)
+    call @assert_buffer_contains(&embedded_ptr, embedded_len, &HTTPD_NEEDLE_REQ_LOG_EMBEDDED_AUTH, HTTPD_NEEDLE_REQ_LOG_EMBEDDED_AUTH_LEN, 955)
+    call @assert_buffer_contains(&embedded_ptr, embedded_len, &HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE_NONE, HTTPD_NEEDLE_REQ_LOG_CONTENT_TYPE_NONE_LEN, 956)
+    call @assert_buffer_contains(&embedded_ptr, embedded_len, &HTTPD_NEEDLE_REQ_LOG_BODY_BYTES_ZERO, HTTPD_NEEDLE_REQ_LOG_BODY_BYTES_ZERO_LEN, 957)
+    call @assert_buffer_contains(&embedded_ptr, embedded_len, &HTTPD_NEEDLE_REQ_LOG_BODY_NULL, HTTPD_NEEDLE_REQ_LOG_BODY_NULL_LEN, 958)
+    call @assert_buffer_contains(&embedded_ptr, embedded_len, &HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES_ZERO, HTTPD_NEEDLE_REQ_LOG_RAW_BODY_BYTES_ZERO_LEN, 959)
+    call @assert_buffer_contains(&embedded_ptr, embedded_len, &HTTPD_NEEDLE_REQ_LOG_RAW_BODY_NULL, HTTPD_NEEDLE_REQ_LOG_RAW_BODY_NULL_LEN, 960)
+
+    !embedded_nonempty
+    !embedded_len
+    !embedded_ptr
+    !nonempty
+    !body_len
+    !body_ptr
+    return
+
+@test "log body writer creates Deno request log file under log dir"():
+L_ENTRY:
+    body_len_slot = stack_alloc 8
+    body_ptr = call @build_api_request_log_body_owned(&HTTPD_ROUTE_RPC_TEST, HTTPD_ROUTE_RPC_TEST_LEN, &HTTPD_METHOD_POST_TEST, HTTPD_METHOD_POST_TEST_LEN, &HTTPD_AUTH_LOG_BEARER_LONG, HTTPD_AUTH_LOG_BEARER_LONG_LEN, &HTTPD_AUTH_LOG_XKEY, HTTPD_AUTH_LOG_XKEY_LEN, &HTTPD_REQ_LOG_CONTENT_TYPE, HTTPD_REQ_LOG_CONTENT_TYPE_LEN, &HTTPD_REQ_LOG_BODY, HTTPD_REQ_LOG_BODY_LEN, &HTTPD_REQ_LOG_RAW_BODY, HTTPD_REQ_LOG_RAW_BODY_LEN, &body_len_slot)
+    body_len = load body_len_slot+0 as u64
+
+    file_len_slot = stack_alloc 8
+    file_path = call @write_log_body_to_dir_owned(&HTTPD_LOG_DIR, HTTPD_LOG_DIR_LEN, &body_ptr, body_len, &file_len_slot)
+    file_len = load file_len_slot+0 as u64
+    file_nonempty = ugt file_len, HTTPD_LOG_DIR_LEN
+    call @assert_contract(file_nonempty, 982)
+    call @assert_buffer_contains(&file_path, file_len, &HTTPD_LOG_DIR, HTTPD_LOG_DIR_LEN, 983)
+    call @assert_buffer_contains(&file_path, file_len, &HTTPD_LOG_PATH_NEEDLE, HTTPD_LOG_PATH_NEEDLE_LEN, 984)
+    call @assert_buffer_contains(&file_path, file_len, &HTTPD_LOG_SUFFIX_NEEDLE, HTTPD_LOG_SUFFIX_NEEDLE_LEN, 985)
+
+    read_buf_slot = stack_alloc 8
+    read_status = call @sa_std_fs_read_file(&file_path, file_len, 65536, &read_buf_slot)
+    read_ok = eq read_status, 0
+    call @assert_contract(read_ok, 986)
+    read_buf = load read_buf_slot+0 as u64
+    read_buf_ok = ne read_buf, 0
+    call @assert_contract(read_buf_ok, 987)
+    read_ptr = call @sa_fs_read_buffer_data(read_buf)
+    read_len = call @sa_fs_read_buffer_len(read_buf)
+    read_len_ok = eq read_len, body_len
+    call @assert_contract(read_len_ok, 988)
+    eq_raw = call @sa_bytes_eq(&read_ptr, read_len, &body_ptr, body_len)
+    eq_ok = eq eq_raw, 1
+    call @assert_contract(eq_ok, 989)
+    free_status = call @sa_fs_read_buffer_free(^read_buf)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 990)
+
+    !free_ok
+    !free_status
+    !eq_ok
+    !eq_raw
+    !read_len_ok
+    !read_len
+    !read_ptr
+    !read_buf_ok
+    !read_ok
+    !read_status
+    !file_nonempty
+    !file_len
+    !file_path
+    !body_len
+    !body_ptr
+    return
+
+@test "upstream auth header uses configured api key instead of caller token"():
+L_ENTRY:
+    auth_len_slot = stack_alloc 8
+    auth_ptr = call @build_upstream_auth_header_owned(&HTTPD_UPSTREAM_API_KEY, HTTPD_UPSTREAM_API_KEY_LEN, &auth_len_slot)
+    auth_len = load auth_len_slot+0 as u64
+    len_ok = eq auth_len, HTTPD_UPSTREAM_AUTH_EXPECTED_LEN
+    call @assert_contract(len_ok, 916)
+
+    eq_raw = call @sa_bytes_eq(&auth_ptr, auth_len, &HTTPD_UPSTREAM_AUTH_EXPECTED, HTTPD_UPSTREAM_AUTH_EXPECTED_LEN)
+    eq_ok = eq eq_raw, 1
+    call @assert_contract(eq_ok, 917)
+
+    caller_idx = call @sa_bytes_find(&auth_ptr, auth_len, &HTTPD_CALLER_AUTH_TOKEN, HTTPD_CALLER_AUTH_TOKEN_LEN)
+    caller_absent = slt caller_idx, 0
+    call @assert_contract(caller_absent, 918)
+
+    !caller_absent
+    !caller_idx
+    !eq_ok
+    !eq_raw
+    !len_ok
+    !auth_len
+    !auth_ptr
+    return
+
+@test "upstream forward header plan strips client auth and hop headers like Deno"():
+L_ENTRY:
+    plan_len_slot = stack_alloc 8
+    plan_ptr = call @build_upstream_forward_header_plan_owned(&HTTPD_UPSTREAM_API_KEY, HTTPD_UPSTREAM_API_KEY_LEN, 1, &plan_len_slot)
+    plan_len = load plan_len_slot+0 as u64
+
+    plan_nonempty = ugt plan_len, 0
+    call @assert_contract(plan_nonempty, 968)
+    call @assert_buffer_contains(&plan_ptr, plan_len, &HTTPD_NEEDLE_HEADER_PLAN_FORWARDED, HTTPD_NEEDLE_HEADER_PLAN_FORWARDED_LEN, 969)
+    call @assert_buffer_contains(&plan_ptr, plan_len, &HTTPD_NEEDLE_HEADER_PLAN_AUTH, HTTPD_NEEDLE_HEADER_PLAN_AUTH_LEN, 970)
+    call @assert_buffer_contains(&plan_ptr, plan_len, &HTTPD_NEEDLE_HEADER_PLAN_XKEY, HTTPD_NEEDLE_HEADER_PLAN_XKEY_LEN, 971)
+    call @assert_buffer_contains(&plan_ptr, plan_len, &HTTPD_NEEDLE_HEADER_PLAN_CONTENT_TYPE, HTTPD_NEEDLE_HEADER_PLAN_CONTENT_TYPE_LEN, 972)
+    call @assert_buffer_contains(&plan_ptr, plan_len, &HTTPD_NEEDLE_HEADER_PLAN_DROPPED, HTTPD_NEEDLE_HEADER_PLAN_DROPPED_LEN, 973)
+    call @assert_buffer_not_contains(&plan_ptr, plan_len, &HTTPD_NEEDLE_HEADER_PLAN_CLIENT_SECRET, HTTPD_NEEDLE_HEADER_PLAN_CLIENT_SECRET_LEN, 974)
+    call @assert_buffer_not_contains(&plan_ptr, plan_len, &HTTPD_NEEDLE_HEADER_PLAN_API_KEY_FIELD, HTTPD_NEEDLE_HEADER_PLAN_API_KEY_FIELD_LEN, 975)
+
+    no_key_len_slot = stack_alloc 8
+    no_key_ptr = call @build_upstream_forward_header_plan_owned(&HTTPD_EMPTY, HTTPD_EMPTY_LEN, 1, &no_key_len_slot)
+    no_key_len = load no_key_len_slot+0 as u64
+    no_key_nonempty = ugt no_key_len, 0
+    call @assert_contract(no_key_nonempty, 976)
+    call @assert_buffer_contains(&no_key_ptr, no_key_len, &HTTPD_NEEDLE_HEADER_PLAN_FORWARDED, HTTPD_NEEDLE_HEADER_PLAN_FORWARDED_LEN, 977)
+    call @assert_buffer_contains(&no_key_ptr, no_key_len, &HTTPD_NEEDLE_HEADER_PLAN_CONTENT_TYPE, HTTPD_NEEDLE_HEADER_PLAN_CONTENT_TYPE_LEN, 978)
+    call @assert_buffer_contains(&no_key_ptr, no_key_len, &HTTPD_NEEDLE_HEADER_PLAN_DROPPED, HTTPD_NEEDLE_HEADER_PLAN_DROPPED_LEN, 979)
+    call @assert_buffer_not_contains(&no_key_ptr, no_key_len, &HTTPD_NEEDLE_HEADER_PLAN_AUTH_FIELD, HTTPD_NEEDLE_HEADER_PLAN_AUTH_FIELD_LEN, 980)
+    call @assert_buffer_not_contains(&no_key_ptr, no_key_len, &HTTPD_NEEDLE_HEADER_PLAN_XKEY_FIELD, HTTPD_NEEDLE_HEADER_PLAN_XKEY_FIELD_LEN, 981)
+
+    !no_key_nonempty
+    !no_key_len
+    !no_key_ptr
+    !plan_nonempty
+    !plan_len
+    !plan_ptr
+    return
+
+@test "upstream url helper preserves Deno route suffix selection"():
+L_ENTRY:
+    models_len_slot = stack_alloc 8
+    models_ptr = call @build_upstream_url_owned(&HTTPD_UPSTREAM_BASE, HTTPD_UPSTREAM_BASE_LEN, HTTPD_UPSTREAM_ROUTE_MODELS, &models_len_slot)
+    models_len = load models_len_slot+0 as u64
+    models_len_ok = eq models_len, HTTPD_UPSTREAM_MODELS_EXPECTED_LEN
+    call @assert_contract(models_len_ok, 961)
+    models_eq_raw = call @sa_bytes_eq(&models_ptr, models_len, &HTTPD_UPSTREAM_MODELS_EXPECTED, HTTPD_UPSTREAM_MODELS_EXPECTED_LEN)
+    models_ok = eq models_eq_raw, 1
+    call @assert_contract(models_ok, 962)
+
+    chat_len_slot = stack_alloc 8
+    chat_ptr = call @build_upstream_url_owned(&HTTPD_UPSTREAM_BASE, HTTPD_UPSTREAM_BASE_LEN, HTTPD_UPSTREAM_ROUTE_CHAT, &chat_len_slot)
+    chat_len = load chat_len_slot+0 as u64
+    chat_len_ok = eq chat_len, HTTPD_UPSTREAM_CHAT_EXPECTED_LEN
+    call @assert_contract(chat_len_ok, 963)
+    chat_eq_raw = call @sa_bytes_eq(&chat_ptr, chat_len, &HTTPD_UPSTREAM_CHAT_EXPECTED, HTTPD_UPSTREAM_CHAT_EXPECTED_LEN)
+    chat_ok = eq chat_eq_raw, 1
+    call @assert_contract(chat_ok, 964)
+
+    responses_len_slot = stack_alloc 8
+    responses_ptr = call @build_upstream_url_owned(&HTTPD_UPSTREAM_BASE, HTTPD_UPSTREAM_BASE_LEN, HTTPD_UPSTREAM_ROUTE_RESPONSES, &responses_len_slot)
+    responses_len = load responses_len_slot+0 as u64
+    responses_len_ok = eq responses_len, HTTPD_UPSTREAM_RESPONSES_EXPECTED_LEN
+    call @assert_contract(responses_len_ok, 965)
+    responses_eq_raw = call @sa_bytes_eq(&responses_ptr, responses_len, &HTTPD_UPSTREAM_RESPONSES_EXPECTED, HTTPD_UPSTREAM_RESPONSES_EXPECTED_LEN)
+    responses_ok = eq responses_eq_raw, 1
+    call @assert_contract(responses_ok, 966)
+
+    fallback_len_slot = stack_alloc 8
+    fallback_ptr = call @build_upstream_url_owned(&HTTPD_UPSTREAM_BASE, HTTPD_UPSTREAM_BASE_LEN, HTTPD_UPSTREAM_ROUTE_CHAT, &fallback_len_slot)
+    fallback_len = load fallback_len_slot+0 as u64
+    fallback_eq_raw = call @sa_bytes_eq(&fallback_ptr, fallback_len, &HTTPD_UPSTREAM_CHAT_EXPECTED, HTTPD_UPSTREAM_CHAT_EXPECTED_LEN)
+    fallback_ok = eq fallback_eq_raw, 1
+    call @assert_contract(fallback_ok, 967)
+
+    !fallback_ok
+    !fallback_eq_raw
+    !fallback_len
+    !fallback_ptr
+    !responses_ok
+    !responses_eq_raw
+    !responses_len_ok
+    !responses_len
+    !responses_ptr
+    !chat_ok
+    !chat_eq_raw
+    !chat_len_ok
+    !chat_len
+    !chat_ptr
+    !models_ok
+    !models_eq_raw
+    !models_len_ok
+    !models_len
+    !models_ptr
+    return
+
+@test "auth header matcher follows Deno Bearer and x-api-key semantics"():
+L_ENTRY:
+    bearer = call @auth_header_matches_token(&HTTPD_AUTH_BEARER_LOCAL, HTTPD_AUTH_BEARER_LOCAL_LEN, &HTTPD_LOCAL_AUTH_TOKEN, HTTPD_LOCAL_AUTH_TOKEN_LEN)
+    bearer_ok = eq bearer, 1
+    call @assert_contract(bearer_ok, 926)
+
+    raw = call @auth_header_matches_token(&HTTPD_AUTH_RAW_LOCAL, HTTPD_AUTH_RAW_LOCAL_LEN, &HTTPD_LOCAL_AUTH_TOKEN, HTTPD_LOCAL_AUTH_TOKEN_LEN)
+    raw_rejected = eq raw, 0
+    call @assert_contract(raw_rejected, 927)
+
+    embedded = call @auth_header_matches_token(&HTTPD_AUTH_EMBEDDED_BEARER, HTTPD_AUTH_EMBEDDED_BEARER_LEN, &HTTPD_LOCAL_AUTH_TOKEN, HTTPD_LOCAL_AUTH_TOKEN_LEN)
+    embedded_rejected = eq embedded, 0
+    call @assert_contract(embedded_rejected, 928)
+
+    wrong = call @auth_header_matches_token(&HTTPD_AUTH_BAD_BEARER, HTTPD_AUTH_BAD_BEARER_LEN, &HTTPD_LOCAL_AUTH_TOKEN, HTTPD_LOCAL_AUTH_TOKEN_LEN)
+    wrong_rejected = eq wrong, 0
+    call @assert_contract(wrong_rejected, 929)
+
+    xkey_raw = call @sa_bytes_eq(&HTTPD_AUTH_RAW_LOCAL, HTTPD_AUTH_RAW_LOCAL_LEN, &HTTPD_LOCAL_AUTH_TOKEN, HTTPD_LOCAL_AUTH_TOKEN_LEN)
+    xkey_ok = eq xkey_raw, 1
+    call @assert_contract(xkey_ok, 930)
+
+    !xkey_ok
+    !xkey_raw
+    !wrong_rejected
+    !wrong
+    !embedded_rejected
+    !embedded
+    !raw_rejected
+    !raw
+    !bearer_ok
+    !bearer
+    return
+
+@test "public models route helper bypasses auth only for GET models"():
+L_ENTRY:
+    models_get = call @route_is_public_models_get(&HTTPD_ROUTE_MODELS_TEST, HTTPD_ROUTE_MODELS_TEST_LEN, 1)
+    models_get_ok = eq models_get, 1
+    call @assert_contract(models_get_ok, 931)
+
+    models_post = call @route_is_public_models_get(&HTTPD_ROUTE_MODELS_TEST, HTTPD_ROUTE_MODELS_TEST_LEN, 0)
+    models_post_rejected = eq models_post, 0
+    call @assert_contract(models_post_rejected, 932)
+
+    rpc_get = call @route_is_public_models_get(&HTTPD_ROUTE_RPC_TEST, HTTPD_ROUTE_RPC_TEST_LEN, 1)
+    rpc_get_rejected = eq rpc_get, 0
+    call @assert_contract(rpc_get_rejected, 933)
+
+    !rpc_get_rejected
+    !rpc_get
+    !models_post_rejected
+    !models_post
+    !models_get_ok
+    !models_get
+    return
+
+@test "request log path builder uses Deno request file naming"():
+L_ENTRY:
+    path_len_slot = stack_alloc 8
+    path_ptr = call @build_request_log_file_path(&HTTPD_LOG_DIR, HTTPD_LOG_DIR_LEN, &path_len_slot)
+    path_len = load path_len_slot+0 as u64
+
+    nonempty = ugt path_len, HTTPD_LOG_DIR_LEN
+    call @assert_contract(nonempty, 919)
+
+    dir_idx = call @sa_bytes_find(&path_ptr, path_len, &HTTPD_LOG_DIR, HTTPD_LOG_DIR_LEN)
+    dir_at_start = eq dir_idx, 0
+    call @assert_contract(dir_at_start, 920)
+
+    request_idx = call @sa_bytes_find(&path_ptr, path_len, &HTTPD_LOG_PATH_NEEDLE, HTTPD_LOG_PATH_NEEDLE_LEN)
+    has_request = sge request_idx, 0
+    call @assert_contract(has_request, 921)
+
+    suffix_idx = call @sa_bytes_find(&path_ptr, path_len, &HTTPD_LOG_SUFFIX_NEEDLE, HTTPD_LOG_SUFFIX_NEEDLE_LEN)
+    has_suffix = sge suffix_idx, 0
+    call @assert_contract(has_suffix, 922)
+
+    !has_suffix
+    !suffix_idx
+    !has_request
+    !request_idx
+    !dir_at_start
+    !dir_idx
+    !nonempty
+    !path_len
+    !path_ptr
+    return
+
+@test "request and auth logs are disabled by default without request handles"():
+L_ENTRY:
+    cfg = stack_alloc CFG_SIZE
+    zero_status = call @cfg_zero(&cfg)
+    zero_ok = eq zero_status, 0
+    call @assert_contract(zero_ok, 923)
+
+    null_req_slot = stack_alloc 8
+    store null_req_slot+0, 0 as ptr
+    null_req = load null_req_slot+0 as ptr
+
+    req_status = call @write_api_request_log(&null_req, &cfg, &HTTPD_ROUTE_RPC_TEST, HTTPD_ROUTE_RPC_TEST_LEN, &HTTPD_METHOD_POST_TEST, HTTPD_METHOD_POST_TEST_LEN, &HTTPD_EMPTY, HTTPD_EMPTY_LEN, &HTTPD_EMPTY, HTTPD_EMPTY_LEN)
+    req_ok = eq req_status, 0
+    call @assert_contract(req_ok, 924)
+
+    auth_status = call @write_auth_failure_log(&null_req, &cfg, &HTTPD_ROUTE_RPC_TEST, HTTPD_ROUTE_RPC_TEST_LEN, &HTTPD_TOKEN_LONG, HTTPD_TOKEN_LONG_LEN)
+    auth_ok = eq auth_status, 0
+    call @assert_contract(auth_ok, 925)
+
+    !auth_ok
+    !auth_status
+    !req_ok
+    !req_status
+    !null_req
+    !zero_ok
+    !zero_status
+    return

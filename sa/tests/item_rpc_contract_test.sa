@@ -1,0 +1,321 @@
+// SA native @test coverage for Deno-compatible item notification contracts.
+@import "../src/hub_modules.sa"
+
+@const ITEM_THREAD_KEY = utf8:"item-thread"
+@const ITEM_MODEL = utf8:"model"
+@const ITEM_CWD = utf8:"/tmp"
+
+@const ITEM_BODY_AGENT = utf8:"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"turn/start\",\"params\":{\"input\":[{\"type\":\"message\",\"id\":\"msg-1\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello agent\"}]}]}}"
+@const ITEM_BODY_REASONING = utf8:"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"turn/start\",\"params\":{\"input\":[{\"type\":\"reasoning\",\"id\":\"reason-1\",\"text\":\"summary text\",\"content\":[{\"text\":\"reason body\"}]}]}}"
+@const ITEM_BODY_PLAN = utf8:"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"turn/start\",\"params\":{\"input\":[{\"type\":\"plan\",\"id\":\"plan-1\",\"text\":\"do step\"}]}}"
+@const ITEM_BODY_FILE = utf8:"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"turn/start\",\"params\":{\"input\":[{\"type\":\"fileChange\",\"id\":\"file-1\",\"changes\":[{\"path\":\"a.txt\",\"kind\":\"modify\"}]}]}}"
+@const ITEM_BODY_COMMAND = utf8:"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"turn/start\",\"params\":{\"input\":[{\"type\":\"commandExecution\",\"id\":\"cmd-1\",\"stdout\":\"cmd out\"}]}}"
+@const ITEM_BODY_MCP = utf8:"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"turn/start\",\"params\":{\"input\":[{\"type\":\"mcpToolCall\",\"id\":\"mcp-1\",\"message\":\"mcp progress\"}]}}"
+
+@const NEEDLE_ITEM_STARTED_EVENT = utf8:"event: item/started"
+@const NEEDLE_ITEM_RAW_EVENT = utf8:"event: rawResponseItem/completed"
+@const NEEDLE_ITEM_COMPLETED_EVENT = utf8:"event: item/completed"
+@const NEEDLE_ITEM_STARTED_AT_MS = utf8:"\"startedAtMs\":"
+@const NEEDLE_ITEM_COMPLETED_AT_MS = utf8:"\"completedAtMs\":"
+@const NEEDLE_ITEM_THREAD = utf8:"\"threadId\":\"item-thread\""
+@const NEEDLE_ITEM_TURN = utf8:"\"turnId\":\"2\""
+@const NEEDLE_AGENT_EVENT = utf8:"event: item/agentMessage/delta"
+@const NEEDLE_AGENT_ID = utf8:"\"itemId\":\"msg-1\""
+@const NEEDLE_AGENT_DELTA = utf8:"\"delta\":\"hello agent\""
+@const NEEDLE_REASON_SUMMARY_EVENT = utf8:"event: item/reasoning/summaryTextDelta"
+@const NEEDLE_REASON_SUMMARY_ADDED_EVENT = utf8:"event: item/reasoning/summaryPartAdded"
+@const NEEDLE_REASON_TEXT_EVENT = utf8:"event: item/reasoning/textDelta"
+@const NEEDLE_REASON_ID = utf8:"\"itemId\":\"reason-1\""
+@const NEEDLE_REASON_SUMMARY_DELTA = utf8:"\"delta\":\"summary text\""
+@const NEEDLE_REASON_SUMMARY_INDEX = utf8:"\"summaryIndex\":0"
+@const NEEDLE_REASON_TEXT_DELTA = utf8:"\"delta\":\"reason body\""
+@const NEEDLE_REASON_CONTENT_INDEX = utf8:"\"contentIndex\":0"
+@const NEEDLE_PLAN_EVENT = utf8:"event: item/plan/delta"
+@const NEEDLE_PLAN_ID = utf8:"\"itemId\":\"plan-1\""
+@const NEEDLE_PLAN_DELTA = utf8:"\"delta\":\"do step\""
+@const NEEDLE_FILE_EVENT = utf8:"event: item/fileChange/patchUpdated"
+@const NEEDLE_FILE_ID = utf8:"\"itemId\":\"file-1\""
+@const NEEDLE_FILE_CHANGES = utf8:"\"changes\":[{\"path\":\"a.txt\",\"kind\":\"modify\"}]"
+@const NEEDLE_COMMAND_EVENT = utf8:"event: item/commandExecution/outputDelta"
+@const NEEDLE_COMMAND_ID = utf8:"\"itemId\":\"cmd-1\""
+@const NEEDLE_COMMAND_DELTA = utf8:"\"delta\":\"cmd out\""
+@const NEEDLE_MCP_EVENT = utf8:"event: item/mcpToolCall/progress"
+@const NEEDLE_MCP_ID = utf8:"\"itemId\":\"mcp-1\""
+@const NEEDLE_MCP_MESSAGE = utf8:"\"message\":\"mcp progress\""
+
+#def ITEM_THREAD_KEY_LEN = 11
+#def ITEM_MODEL_LEN = 5
+#def ITEM_CWD_LEN = 4
+#def ITEM_BODY_AGENT_LEN = 155
+#def ITEM_BODY_REASONING_LEN = 161
+#def ITEM_BODY_PLAN_LEN = 114
+#def ITEM_BODY_FILE_LEN = 148
+#def ITEM_BODY_COMMAND_LEN = 127
+#def ITEM_BODY_MCP_LEN = 128
+#def NEEDLE_ITEM_STARTED_EVENT_LEN = 19
+#def NEEDLE_ITEM_RAW_EVENT_LEN = 32
+#def NEEDLE_ITEM_COMPLETED_EVENT_LEN = 21
+#def NEEDLE_ITEM_STARTED_AT_MS_LEN = 14
+#def NEEDLE_ITEM_COMPLETED_AT_MS_LEN = 16
+#def NEEDLE_ITEM_THREAD_LEN = 24
+#def NEEDLE_ITEM_TURN_LEN = 12
+#def NEEDLE_AGENT_EVENT_LEN = 30
+#def NEEDLE_AGENT_ID_LEN = 16
+#def NEEDLE_AGENT_DELTA_LEN = 21
+#def NEEDLE_REASON_SUMMARY_EVENT_LEN = 38
+#def NEEDLE_REASON_SUMMARY_ADDED_EVENT_LEN = 38
+#def NEEDLE_REASON_TEXT_EVENT_LEN = 31
+#def NEEDLE_REASON_ID_LEN = 19
+#def NEEDLE_REASON_SUMMARY_DELTA_LEN = 22
+#def NEEDLE_REASON_SUMMARY_INDEX_LEN = 16
+#def NEEDLE_REASON_TEXT_DELTA_LEN = 21
+#def NEEDLE_REASON_CONTENT_INDEX_LEN = 16
+#def NEEDLE_PLAN_EVENT_LEN = 22
+#def NEEDLE_PLAN_ID_LEN = 17
+#def NEEDLE_PLAN_DELTA_LEN = 17
+#def NEEDLE_FILE_EVENT_LEN = 35
+#def NEEDLE_FILE_ID_LEN = 17
+#def NEEDLE_FILE_CHANGES_LEN = 44
+#def NEEDLE_COMMAND_EVENT_LEN = 40
+#def NEEDLE_COMMAND_ID_LEN = 16
+#def NEEDLE_COMMAND_DELTA_LEN = 17
+#def NEEDLE_MCP_EVENT_LEN = 32
+#def NEEDLE_MCP_ID_LEN = 16
+#def NEEDLE_MCP_MESSAGE_LEN = 24
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@assert_buffer_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    ok = sge idx, 0
+    call @assert_contract(ok, code)
+    !ok
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@assert_single_detail_item(&body: ptr, body_len: u64, &event_ptr: ptr, event_len: u64, &id_ptr: ptr, id_len: u64, &value_ptr: ptr, value_len: u64, code: i32):
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, code)
+    thread_id = call @state_thread_create_with_key(&state, &ITEM_THREAD_KEY, ITEM_THREAD_KEY_LEN, &ITEM_MODEL, ITEM_MODEL_LEN, &ITEM_CWD, ITEM_CWD_LEN)
+    thread_ok = eq thread_id, 1
+    call @assert_contract(thread_ok, code)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, code)
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    count = call @notify_turn_input_items_from_dom(&state, &body, body_len, thread_id, turn_id)
+    count_ok = eq count, 1
+    call @assert_contract(count_ok, code)
+
+    start_frame = stack_alloc 1024
+    start_len_slot = stack_alloc 8
+    start_read = call @state_notify_read(&state, &cursor_slot, &start_frame, 1024, &start_len_slot)
+    start_ok = eq start_read, 1
+    call @assert_contract(start_ok, code)
+    start_len = load start_len_slot+0 as u64
+    call @assert_buffer_contains(&start_frame, start_len, &NEEDLE_ITEM_STARTED_EVENT, NEEDLE_ITEM_STARTED_EVENT_LEN, code)
+    call @assert_buffer_contains(&start_frame, start_len, &NEEDLE_ITEM_STARTED_AT_MS, NEEDLE_ITEM_STARTED_AT_MS_LEN, code)
+
+    detail_frame = stack_alloc 1024
+    detail_len_slot = stack_alloc 8
+    detail_read = call @state_notify_read(&state, &cursor_slot, &detail_frame, 1024, &detail_len_slot)
+    detail_ok = eq detail_read, 1
+    call @assert_contract(detail_ok, code)
+    detail_len = load detail_len_slot+0 as u64
+    call @assert_buffer_contains(&detail_frame, detail_len, &event_ptr, event_len, code)
+    call @assert_buffer_contains(&detail_frame, detail_len, &NEEDLE_ITEM_THREAD, NEEDLE_ITEM_THREAD_LEN, code)
+    call @assert_buffer_contains(&detail_frame, detail_len, &NEEDLE_ITEM_TURN, NEEDLE_ITEM_TURN_LEN, code)
+    call @assert_buffer_contains(&detail_frame, detail_len, &id_ptr, id_len, code)
+    call @assert_buffer_contains(&detail_frame, detail_len, &value_ptr, value_len, code)
+
+    raw_frame = stack_alloc 1024
+    raw_len_slot = stack_alloc 8
+    raw_read = call @state_notify_read(&state, &cursor_slot, &raw_frame, 1024, &raw_len_slot)
+    raw_ok = eq raw_read, 1
+    call @assert_contract(raw_ok, code)
+    raw_len = load raw_len_slot+0 as u64
+    call @assert_buffer_contains(&raw_frame, raw_len, &NEEDLE_ITEM_RAW_EVENT, NEEDLE_ITEM_RAW_EVENT_LEN, code)
+
+    completed_frame = stack_alloc 1024
+    completed_len_slot = stack_alloc 8
+    completed_read = call @state_notify_read(&state, &cursor_slot, &completed_frame, 1024, &completed_len_slot)
+    completed_ok = eq completed_read, 1
+    call @assert_contract(completed_ok, code)
+    completed_len = load completed_len_slot+0 as u64
+    call @assert_buffer_contains(&completed_frame, completed_len, &NEEDLE_ITEM_COMPLETED_EVENT, NEEDLE_ITEM_COMPLETED_EVENT_LEN, code)
+    call @assert_buffer_contains(&completed_frame, completed_len, &NEEDLE_ITEM_COMPLETED_AT_MS, NEEDLE_ITEM_COMPLETED_AT_MS_LEN, code)
+
+    !completed_len
+    !completed_read
+    !completed_ok
+    !raw_len
+    !raw_read
+    !raw_ok
+    !detail_len
+    !detail_read
+    !detail_ok
+    !start_len
+    !start_read
+    !start_ok
+    !count
+    !count_ok
+    !cursor
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    !body
+    !body_len
+    !event_ptr
+    !event_len
+    !id_ptr
+    !id_len
+    !value_ptr
+    !value_len
+    !code
+    return
+
+@test "item completed notifications keep Deno order for agent message"():
+L_ENTRY:
+    call @assert_single_detail_item(&ITEM_BODY_AGENT, ITEM_BODY_AGENT_LEN, &NEEDLE_AGENT_EVENT, NEEDLE_AGENT_EVENT_LEN, &NEEDLE_AGENT_ID, NEEDLE_AGENT_ID_LEN, &NEEDLE_AGENT_DELTA, NEEDLE_AGENT_DELTA_LEN, 900)
+    return
+
+@test "reasoning item emits Deno summary and text sub-events"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 910)
+    thread_id = call @state_thread_create_with_key(&state, &ITEM_THREAD_KEY, ITEM_THREAD_KEY_LEN, &ITEM_MODEL, ITEM_MODEL_LEN, &ITEM_CWD, ITEM_CWD_LEN)
+    thread_ok = eq thread_id, 1
+    call @assert_contract(thread_ok, 911)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, 912)
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    count = call @notify_turn_input_items_from_dom(&state, &ITEM_BODY_REASONING, ITEM_BODY_REASONING_LEN, thread_id, turn_id)
+    count_ok = eq count, 1
+    call @assert_contract(count_ok, 913)
+
+    start_frame = stack_alloc 1024
+    start_len_slot = stack_alloc 8
+    start_read = call @state_notify_read(&state, &cursor_slot, &start_frame, 1024, &start_len_slot)
+    start_ok = eq start_read, 1
+    call @assert_contract(start_ok, 914)
+    start_len = load start_len_slot+0 as u64
+    call @assert_buffer_contains(&start_frame, start_len, &NEEDLE_ITEM_STARTED_EVENT, NEEDLE_ITEM_STARTED_EVENT_LEN, 915)
+    call @assert_buffer_contains(&start_frame, start_len, &NEEDLE_ITEM_STARTED_AT_MS, NEEDLE_ITEM_STARTED_AT_MS_LEN, 916)
+
+    summary_frame = stack_alloc 1024
+    summary_len_slot = stack_alloc 8
+    summary_read = call @state_notify_read(&state, &cursor_slot, &summary_frame, 1024, &summary_len_slot)
+    summary_ok = eq summary_read, 1
+    call @assert_contract(summary_ok, 916)
+    summary_len = load summary_len_slot+0 as u64
+    call @assert_buffer_contains(&summary_frame, summary_len, &NEEDLE_REASON_SUMMARY_EVENT, NEEDLE_REASON_SUMMARY_EVENT_LEN, 917)
+    call @assert_buffer_contains(&summary_frame, summary_len, &NEEDLE_REASON_ID, NEEDLE_REASON_ID_LEN, 918)
+    call @assert_buffer_contains(&summary_frame, summary_len, &NEEDLE_REASON_SUMMARY_DELTA, NEEDLE_REASON_SUMMARY_DELTA_LEN, 919)
+    call @assert_buffer_contains(&summary_frame, summary_len, &NEEDLE_REASON_SUMMARY_INDEX, NEEDLE_REASON_SUMMARY_INDEX_LEN, 920)
+
+    added_frame = stack_alloc 1024
+    added_len_slot = stack_alloc 8
+    added_read = call @state_notify_read(&state, &cursor_slot, &added_frame, 1024, &added_len_slot)
+    added_ok = eq added_read, 1
+    call @assert_contract(added_ok, 921)
+    added_len = load added_len_slot+0 as u64
+    call @assert_buffer_contains(&added_frame, added_len, &NEEDLE_REASON_SUMMARY_ADDED_EVENT, NEEDLE_REASON_SUMMARY_ADDED_EVENT_LEN, 922)
+    call @assert_buffer_contains(&added_frame, added_len, &NEEDLE_REASON_ID, NEEDLE_REASON_ID_LEN, 923)
+    call @assert_buffer_contains(&added_frame, added_len, &NEEDLE_REASON_SUMMARY_INDEX, NEEDLE_REASON_SUMMARY_INDEX_LEN, 924)
+
+    text_frame = stack_alloc 1024
+    text_len_slot = stack_alloc 8
+    text_read = call @state_notify_read(&state, &cursor_slot, &text_frame, 1024, &text_len_slot)
+    text_ok = eq text_read, 1
+    call @assert_contract(text_ok, 925)
+    text_len = load text_len_slot+0 as u64
+    call @assert_buffer_contains(&text_frame, text_len, &NEEDLE_REASON_TEXT_EVENT, NEEDLE_REASON_TEXT_EVENT_LEN, 926)
+    call @assert_buffer_contains(&text_frame, text_len, &NEEDLE_REASON_ID, NEEDLE_REASON_ID_LEN, 927)
+    call @assert_buffer_contains(&text_frame, text_len, &NEEDLE_REASON_TEXT_DELTA, NEEDLE_REASON_TEXT_DELTA_LEN, 928)
+    call @assert_buffer_contains(&text_frame, text_len, &NEEDLE_REASON_CONTENT_INDEX, NEEDLE_REASON_CONTENT_INDEX_LEN, 929)
+
+    raw_frame = stack_alloc 1024
+    raw_len_slot = stack_alloc 8
+    raw_read = call @state_notify_read(&state, &cursor_slot, &raw_frame, 1024, &raw_len_slot)
+    raw_ok = eq raw_read, 1
+    call @assert_contract(raw_ok, 930)
+    raw_len = load raw_len_slot+0 as u64
+    call @assert_buffer_contains(&raw_frame, raw_len, &NEEDLE_ITEM_RAW_EVENT, NEEDLE_ITEM_RAW_EVENT_LEN, 931)
+
+    completed_frame = stack_alloc 1024
+    completed_len_slot = stack_alloc 8
+    completed_read = call @state_notify_read(&state, &cursor_slot, &completed_frame, 1024, &completed_len_slot)
+    completed_ok = eq completed_read, 1
+    call @assert_contract(completed_ok, 932)
+    completed_len = load completed_len_slot+0 as u64
+    call @assert_buffer_contains(&completed_frame, completed_len, &NEEDLE_ITEM_COMPLETED_EVENT, NEEDLE_ITEM_COMPLETED_EVENT_LEN, 933)
+    call @assert_buffer_contains(&completed_frame, completed_len, &NEEDLE_ITEM_COMPLETED_AT_MS, NEEDLE_ITEM_COMPLETED_AT_MS_LEN, 934)
+
+    !completed_len
+    !completed_read
+    !completed_ok
+    !raw_len
+    !raw_read
+    !raw_ok
+    !text_len
+    !text_read
+    !text_ok
+    !added_len
+    !added_read
+    !added_ok
+    !summary_len
+    !summary_read
+    !summary_ok
+    !start_len
+    !start_read
+    !start_ok
+    !count
+    !count_ok
+    !cursor
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "plan file command and mcp item detail events match Deno names"():
+L_ENTRY:
+    call @assert_single_detail_item(&ITEM_BODY_PLAN, ITEM_BODY_PLAN_LEN, &NEEDLE_PLAN_EVENT, NEEDLE_PLAN_EVENT_LEN, &NEEDLE_PLAN_ID, NEEDLE_PLAN_ID_LEN, &NEEDLE_PLAN_DELTA, NEEDLE_PLAN_DELTA_LEN, 940)
+    call @assert_single_detail_item(&ITEM_BODY_FILE, ITEM_BODY_FILE_LEN, &NEEDLE_FILE_EVENT, NEEDLE_FILE_EVENT_LEN, &NEEDLE_FILE_ID, NEEDLE_FILE_ID_LEN, &NEEDLE_FILE_CHANGES, NEEDLE_FILE_CHANGES_LEN, 950)
+    call @assert_single_detail_item(&ITEM_BODY_COMMAND, ITEM_BODY_COMMAND_LEN, &NEEDLE_COMMAND_EVENT, NEEDLE_COMMAND_EVENT_LEN, &NEEDLE_COMMAND_ID, NEEDLE_COMMAND_ID_LEN, &NEEDLE_COMMAND_DELTA, NEEDLE_COMMAND_DELTA_LEN, 960)
+    call @assert_single_detail_item(&ITEM_BODY_MCP, ITEM_BODY_MCP_LEN, &NEEDLE_MCP_EVENT, NEEDLE_MCP_EVENT_LEN, &NEEDLE_MCP_ID, NEEDLE_MCP_ID_LEN, &NEEDLE_MCP_MESSAGE, NEEDLE_MCP_MESSAGE_LEN, 970)
+    return

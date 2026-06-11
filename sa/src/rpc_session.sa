@@ -41,6 +41,11 @@
 @const RPC_SESSION_JSON_KEY_ITEMS = utf8:"items"
 @const RPC_SESSION_JSON_KEY_ITEMS_VIEW = utf8:"itemsView"
 @const RPC_SESSION_JSON_KEY_ITEM = utf8:"item"
+@const RPC_SESSION_JSON_KEY_ITEM_ID = utf8:"itemId"
+@const RPC_SESSION_JSON_KEY_DELTA = utf8:"delta"
+@const RPC_SESSION_JSON_KEY_SUMMARY_INDEX = utf8:"summaryIndex"
+@const RPC_SESSION_JSON_KEY_CONTENT_INDEX = utf8:"contentIndex"
+@const RPC_SESSION_JSON_KEY_CHANGES = utf8:"changes"
 @const RPC_SESSION_JSON_KEY_STARTED_AT_MS = utf8:"startedAtMs"
 @const RPC_SESSION_JSON_KEY_COMPLETED_AT_MS = utf8:"completedAtMs"
 @const RPC_SESSION_JSON_KEY_STARTED_AT = utf8:"startedAt"
@@ -65,9 +70,26 @@
 @const RPC_SESSION_JSON_KEY_PLAN = utf8:"plan"
 @const RPC_SESSION_JSON_KEY_EXPLANATION = utf8:"explanation"
 @const RPC_SESSION_FB_KEY_TYPE = utf8:"type"
+@const RPC_SESSION_FB_KEY_ID = utf8:"id"
 @const RPC_SESSION_FB_KEY_INPUT = utf8:"input"
 @const RPC_SESSION_FB_KEY_ITEMS = utf8:"items"
+@const RPC_SESSION_FB_KEY_CONTENT = utf8:"content"
+@const RPC_SESSION_FB_KEY_SUMMARY = utf8:"summary"
+@const RPC_SESSION_FB_KEY_TEXT = utf8:"text"
+@const RPC_SESSION_FB_KEY_OUTPUT = utf8:"output"
+@const RPC_SESSION_FB_KEY_STDOUT = utf8:"stdout"
+@const RPC_SESSION_FB_KEY_PROGRESS = utf8:"progress"
+@const RPC_SESSION_FB_KEY_MESSAGE = utf8:"message"
+@const RPC_SESSION_FB_KEY_CHANGES = utf8:"changes"
 @const RPC_SESSION_FB_KEY_COLLAB_MODE_KIND = utf8:"collaborationModeKind"
+@const RPC_SESSION_FB_TYPE_MESSAGE = utf8:"message"
+@const RPC_SESSION_FB_TYPE_AGENT_MESSAGE = utf8:"agent_message"
+@const RPC_SESSION_FB_TYPE_REASONING = utf8:"reasoning"
+@const RPC_SESSION_FB_TYPE_PLAN = utf8:"plan"
+@const RPC_SESSION_FB_TYPE_FILE_CHANGE = utf8:"fileChange"
+@const RPC_SESSION_FB_TYPE_COMMAND_EXECUTION = utf8:"commandExecution"
+@const RPC_SESSION_FB_TYPE_MCP_TOOL_CALL = utf8:"mcpToolCall"
+@const RPC_SESSION_FB_TYPE_OUTPUT_TEXT = utf8:"output_text"
 @const RPC_SESSION_FB_VALUE_PLAN = utf8:"plan"
 @const RPC_SESSION_FB_VALUE_GOAL = utf8:"goal"
 @const RPC_SESSION_FB_VALUE_CODE = utf8:"code"
@@ -77,6 +99,7 @@
 @const RPC_SESSION_JSON_VALUE_FULL = utf8:"full"
 @const RPC_SESSION_J_ERR_THREAD_NOT_FOUND = utf8:"thread not found"
 @const RPC_SESSION_J_ERR_TURN_NOT_FOUND = utf8:"turn not found"
+@const RPC_SESSION_J_EMPTY_ARRAY = utf8:"[]"
 @const RPC_SESSION_J_NAME_KEY = utf8:"\"name\":\""
 @const RPC_SESSION_J_PREVIEW_KEY = utf8:"\"preview\":\""
 @const RPC_SESSION_J_THREAD_ID_ALL = utf8:"*"
@@ -108,6 +131,14 @@
 @const RPC_SESSION_EV_ITEM_STARTED = utf8:"item/started"
 @const RPC_SESSION_EV_RAW_ITEM_COMPLETED = utf8:"rawResponseItem/completed"
 @const RPC_SESSION_EV_ITEM_COMPLETED = utf8:"item/completed"
+@const RPC_SESSION_EV_ITEM_AGENT_DELTA = utf8:"item/agentMessage/delta"
+@const RPC_SESSION_EV_ITEM_REASON_SUMMARY_DELTA = utf8:"item/reasoning/summaryTextDelta"
+@const RPC_SESSION_EV_ITEM_REASON_SUMMARY_ADDED = utf8:"item/reasoning/summaryPartAdded"
+@const RPC_SESSION_EV_ITEM_REASON_TEXT_DELTA = utf8:"item/reasoning/textDelta"
+@const RPC_SESSION_EV_ITEM_PLAN_DELTA = utf8:"item/plan/delta"
+@const RPC_SESSION_EV_ITEM_FILE_PATCH = utf8:"item/fileChange/patchUpdated"
+@const RPC_SESSION_EV_ITEM_COMMAND_OUTPUT = utf8:"item/commandExecution/outputDelta"
+@const RPC_SESSION_EV_ITEM_MCP_PROGRESS = utf8:"item/mcpToolCall/progress"
 @const RPC_SESSION_JSON_VALUE_THREAD_GOAL_CLEARED = utf8:"thread/goal/cleared"
 @const RPC_SESSION_J_THREADID_KEY = utf8:"\"threadId\":\""
 @const RPC_SESSION_J_MODEL_KEY = utf8:"\"model\":\""
@@ -173,6 +204,11 @@
 #def RPC_SESSION_JSON_KEY_ITEMS_LEN = 5
 #def RPC_SESSION_JSON_KEY_ITEMS_VIEW_LEN = 9
 #def RPC_SESSION_JSON_KEY_ITEM_LEN = 4
+#def RPC_SESSION_JSON_KEY_ITEM_ID_LEN = 6
+#def RPC_SESSION_JSON_KEY_DELTA_LEN = 5
+#def RPC_SESSION_JSON_KEY_SUMMARY_INDEX_LEN = 12
+#def RPC_SESSION_JSON_KEY_CONTENT_INDEX_LEN = 12
+#def RPC_SESSION_JSON_KEY_CHANGES_LEN = 7
 #def RPC_SESSION_JSON_KEY_STARTED_AT_MS_LEN = 11
 #def RPC_SESSION_JSON_KEY_COMPLETED_AT_MS_LEN = 13
 #def RPC_SESSION_JSON_KEY_STARTED_AT_LEN = 9
@@ -197,9 +233,26 @@
 #def RPC_SESSION_JSON_KEY_PLAN_LEN = 4
 #def RPC_SESSION_JSON_KEY_EXPLANATION_LEN = 11
 #def RPC_SESSION_FB_KEY_TYPE_LEN = 4
+#def RPC_SESSION_FB_KEY_ID_LEN = 2
 #def RPC_SESSION_FB_KEY_INPUT_LEN = 5
 #def RPC_SESSION_FB_KEY_ITEMS_LEN = 5
+#def RPC_SESSION_FB_KEY_CONTENT_LEN = 7
+#def RPC_SESSION_FB_KEY_SUMMARY_LEN = 7
+#def RPC_SESSION_FB_KEY_TEXT_LEN = 4
+#def RPC_SESSION_FB_KEY_OUTPUT_LEN = 6
+#def RPC_SESSION_FB_KEY_STDOUT_LEN = 6
+#def RPC_SESSION_FB_KEY_PROGRESS_LEN = 8
+#def RPC_SESSION_FB_KEY_MESSAGE_LEN = 7
+#def RPC_SESSION_FB_KEY_CHANGES_LEN = 7
 #def RPC_SESSION_FB_KEY_COLLAB_MODE_KIND_LEN = 21
+#def RPC_SESSION_FB_TYPE_MESSAGE_LEN = 7
+#def RPC_SESSION_FB_TYPE_AGENT_MESSAGE_LEN = 13
+#def RPC_SESSION_FB_TYPE_REASONING_LEN = 9
+#def RPC_SESSION_FB_TYPE_PLAN_LEN = 4
+#def RPC_SESSION_FB_TYPE_FILE_CHANGE_LEN = 10
+#def RPC_SESSION_FB_TYPE_COMMAND_EXECUTION_LEN = 16
+#def RPC_SESSION_FB_TYPE_MCP_TOOL_CALL_LEN = 11
+#def RPC_SESSION_FB_TYPE_OUTPUT_TEXT_LEN = 11
 #def RPC_SESSION_FB_VALUE_PLAN_LEN = 4
 #def RPC_SESSION_FB_VALUE_GOAL_LEN = 4
 #def RPC_SESSION_FB_VALUE_CODE_LEN = 4
@@ -209,6 +262,7 @@
 #def RPC_SESSION_JSON_VALUE_FULL_LEN = 4
 #def RPC_SESSION_J_ERR_THREAD_NOT_FOUND_LEN = 16
 #def RPC_SESSION_J_ERR_TURN_NOT_FOUND_LEN = 14
+#def RPC_SESSION_J_EMPTY_ARRAY_LEN = 2
 #def RPC_SESSION_J_NAME_KEY_LEN = 8
 #def RPC_SESSION_J_PREVIEW_KEY_LEN = 11
 #def RPC_SESSION_J_THREAD_ID_ALL_LEN = 1
@@ -240,6 +294,14 @@
 #def RPC_SESSION_EV_ITEM_STARTED_LEN = 12
 #def RPC_SESSION_EV_RAW_ITEM_COMPLETED_LEN = 25
 #def RPC_SESSION_EV_ITEM_COMPLETED_LEN = 14
+#def RPC_SESSION_EV_ITEM_AGENT_DELTA_LEN = 23
+#def RPC_SESSION_EV_ITEM_REASON_SUMMARY_DELTA_LEN = 31
+#def RPC_SESSION_EV_ITEM_REASON_SUMMARY_ADDED_LEN = 31
+#def RPC_SESSION_EV_ITEM_REASON_TEXT_DELTA_LEN = 24
+#def RPC_SESSION_EV_ITEM_PLAN_DELTA_LEN = 15
+#def RPC_SESSION_EV_ITEM_FILE_PATCH_LEN = 28
+#def RPC_SESSION_EV_ITEM_COMMAND_OUTPUT_LEN = 33
+#def RPC_SESSION_EV_ITEM_MCP_PROGRESS_LEN = 25
 #def RPC_SESSION_JSON_VALUE_THREAD_GOAL_CLEARED_LEN = 19
 #def RPC_SESSION_J_THREADID_KEY_LEN = 12
 #def RPC_SESSION_J_MODEL_KEY_LEN = 9
@@ -1152,7 +1214,7 @@ L_ENTRY:
 L_ENTRY:
     EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
-    thread_status = call @json_writer_field_u64_string(writer, &RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, thread_id)
+    thread_status = call @json_writer_field_thread_id_string(writer, &RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, &state_ptr, thread_id)
     status_begin = call @json_writer_begin_field_object(writer, &RPC_SESSION_JSON_KEY_STATUS, RPC_SESSION_JSON_KEY_STATUS_LEN)
     EXPAND JSON_WRITER_FIELD_STRING type_status, writer, RPC_SESSION_FB_KEY_TYPE, RPC_SESSION_FB_KEY_TYPE_LEN, RPC_SESSION_JSON_VALUE_IDLE, RPC_SESSION_JSON_VALUE_IDLE_LEN
     EXPAND JSON_WRITER_END_OBJECT status_end, writer
@@ -2692,6 +2754,695 @@ L_TIMED_ITEM_AFTER_TIME:
     !time_prefix_len
     return 0
 
+@ffi_wrapper item_id_or_empty(item_node: ptr, &out_ptr: ptr, &out_len: ptr) -> u32:
+L_ENTRY:
+    id_ptr_slot = stack_alloc 8
+    id_len_slot = stack_alloc 8
+    id_status = call @sa_json_object_get_string(item_node, &RPC_SESSION_FB_KEY_ID, RPC_SESSION_FB_KEY_ID_LEN, &id_ptr_slot, &id_len_slot)
+    id_ok = eq id_status, 0
+    br id_ok -> L_ITEM_ID_FOUND, L_ITEM_ID_EMPTY
+
+L_ITEM_ID_FOUND:
+    !id_ok
+    id_ptr = load id_ptr_slot+0 as ptr
+    id_len = load id_len_slot+0 as u64
+    store out_ptr+0, id_ptr as ptr
+    store out_len+0, id_len as u64
+    !id_ptr
+    !id_len
+    !id_status
+    !item_node
+    !out_ptr
+    !out_len
+    return 1
+
+L_ITEM_ID_EMPTY:
+    !id_ok
+    empty_ptr = &RPC_SESSION_EMPTY_TEXT
+    store out_ptr+0, empty_ptr as ptr
+    store out_len+0, RPC_SESSION_EMPTY_TEXT_LEN as u64
+    !empty_ptr
+    !id_status
+    !item_node
+    !out_ptr
+    !out_len
+    return 0
+
+@ffi_wrapper notify_item_string_detail(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, thread_id: u64, turn_id: u64, &item_id_ptr: ptr, item_id_len: u64, &value_key_ptr: ptr, value_key_len: u64, &value_ptr: ptr, value_len: u64, index_kind: u8, index_value: i64) -> u32:
+L_ENTRY:
+    has_value = ugt value_len, 0
+    br has_value -> L_ITEM_STR_BUILD, L_ITEM_STR_SKIP
+
+L_ITEM_STR_BUILD:
+    !has_value
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    thread_status = call @json_writer_field_thread_id_string(writer, &RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, &state_ptr, thread_id)
+    turn_status = call @json_writer_field_u64_string(writer, &RPC_SESSION_JSON_KEY_TURN_ID, RPC_SESSION_JSON_KEY_TURN_ID_LEN, turn_id)
+    EXPAND JSON_WRITER_FIELD_STRING item_status, writer, RPC_SESSION_JSON_KEY_ITEM_ID, RPC_SESSION_JSON_KEY_ITEM_ID_LEN, item_id_ptr, item_id_len
+    EXPAND JSON_WRITER_FIELD_STRING value_status, writer, value_key_ptr, value_key_len, value_ptr, value_len
+    has_summary_index = eq index_kind, 1
+    br has_summary_index -> L_ITEM_STR_SUMMARY_INDEX, L_ITEM_STR_CONTENT_CHECK
+
+L_ITEM_STR_SUMMARY_INDEX:
+    !has_summary_index
+    EXPAND JSON_WRITER_FIELD_I64 summary_status, writer, RPC_SESSION_JSON_KEY_SUMMARY_INDEX, RPC_SESSION_JSON_KEY_SUMMARY_INDEX_LEN, index_value
+    !summary_status
+    jmp L_ITEM_STR_FINISH
+
+L_ITEM_STR_CONTENT_CHECK:
+    !has_summary_index
+    has_content_index = eq index_kind, 2
+    br has_content_index -> L_ITEM_STR_CONTENT_INDEX, L_ITEM_STR_FINISH_NO_INDEX
+
+L_ITEM_STR_CONTENT_INDEX:
+    !has_content_index
+    EXPAND JSON_WRITER_FIELD_I64 content_status, writer, RPC_SESSION_JSON_KEY_CONTENT_INDEX, RPC_SESSION_JSON_KEY_CONTENT_INDEX_LEN, index_value
+    !content_status
+    jmp L_ITEM_STR_FINISH
+
+L_ITEM_STR_FINISH_NO_INDEX:
+    !has_content_index
+    jmp L_ITEM_STR_FINISH
+
+L_ITEM_STR_FINISH:
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &event_ptr, event_len, writer)
+    !end_status
+    !value_status
+    !item_status
+    !turn_status
+    !thread_status
+    !begin_status
+    !writer_status
+    !state_ptr
+    !event_ptr
+    !event_len
+    !thread_id
+    !turn_id
+    !item_id_ptr
+    !item_id_len
+    !value_key_ptr
+    !value_key_len
+    !value_ptr
+    !value_len
+    !index_kind
+    !index_value
+    return 1
+
+L_ITEM_STR_SKIP:
+    !has_value
+    !state_ptr
+    !event_ptr
+    !event_len
+    !thread_id
+    !turn_id
+    !item_id_ptr
+    !item_id_len
+    !value_key_ptr
+    !value_key_len
+    !value_ptr
+    !value_len
+    !index_kind
+    !index_value
+    return 0
+
+@ffi_wrapper notify_item_index_detail(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, thread_id: u64, turn_id: u64, &item_id_ptr: ptr, item_id_len: u64, &index_key_ptr: ptr, index_key_len: u64, index_value: i64) -> u32:
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    thread_status = call @json_writer_field_thread_id_string(writer, &RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, &state_ptr, thread_id)
+    turn_status = call @json_writer_field_u64_string(writer, &RPC_SESSION_JSON_KEY_TURN_ID, RPC_SESSION_JSON_KEY_TURN_ID_LEN, turn_id)
+    EXPAND JSON_WRITER_FIELD_STRING item_status, writer, RPC_SESSION_JSON_KEY_ITEM_ID, RPC_SESSION_JSON_KEY_ITEM_ID_LEN, item_id_ptr, item_id_len
+    EXPAND JSON_WRITER_FIELD_I64 index_status, writer, index_key_ptr, index_key_len, index_value
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &event_ptr, event_len, writer)
+    !end_status
+    !index_status
+    !item_status
+    !turn_status
+    !thread_status
+    !begin_status
+    !writer_status
+    !state_ptr
+    !event_ptr
+    !event_len
+    !thread_id
+    !turn_id
+    !item_id_ptr
+    !item_id_len
+    !index_key_ptr
+    !index_key_len
+    !index_value
+    return 1
+
+@ffi_wrapper notify_item_changes_detail(&state_ptr: ptr, thread_id: u64, turn_id: u64, &item_id_ptr: ptr, item_id_len: u64, changes_node: ptr) -> u32:
+L_ENTRY:
+    count_slot = stack_alloc 8
+    count_status = call @sa_json_value_count(changes_node, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_ITEM_CHANGES_COUNT, L_ITEM_CHANGES_SKIP
+
+L_ITEM_CHANGES_COUNT:
+    !count_ok
+    count = load count_slot+0 as u64
+    has_changes = ugt count, 0
+    br has_changes -> L_ITEM_CHANGES_BUILD, L_ITEM_CHANGES_SKIP_COUNT
+
+L_ITEM_CHANGES_BUILD:
+    !has_changes
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    thread_status = call @json_writer_field_thread_id_string(writer, &RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, &state_ptr, thread_id)
+    turn_status = call @json_writer_field_u64_string(writer, &RPC_SESSION_JSON_KEY_TURN_ID, RPC_SESSION_JSON_KEY_TURN_ID_LEN, turn_id)
+    EXPAND JSON_WRITER_FIELD_STRING item_status, writer, RPC_SESSION_JSON_KEY_ITEM_ID, RPC_SESSION_JSON_KEY_ITEM_ID_LEN, item_id_ptr, item_id_len
+    changes_status = call @sa_json_writer_field_node(writer, &RPC_SESSION_JSON_KEY_CHANGES, RPC_SESSION_JSON_KEY_CHANGES_LEN, changes_node)
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    call @notify_writer_params(&state_ptr, &RPC_SESSION_EV_ITEM_FILE_PATCH, RPC_SESSION_EV_ITEM_FILE_PATCH_LEN, writer)
+    !end_status
+    !changes_status
+    !item_status
+    !turn_status
+    !thread_status
+    !begin_status
+    !writer_status
+    !count
+    !count_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_id_ptr
+    !item_id_len
+    !changes_node
+    return 1
+
+L_ITEM_CHANGES_SKIP_COUNT:
+    !has_changes
+    !count
+    jmp L_ITEM_CHANGES_SKIP_AFTER
+
+L_ITEM_CHANGES_SKIP:
+    !count_ok
+    jmp L_ITEM_CHANGES_SKIP_AFTER
+
+L_ITEM_CHANGES_SKIP_AFTER:
+    !count_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_id_ptr
+    !item_id_len
+    !changes_node
+    return 0
+
+@ffi_wrapper notify_agent_message_detail(&state_ptr: ptr, thread_id: u64, turn_id: u64, item_node: ptr, &item_id_ptr: ptr, item_id_len: u64) -> u32:
+L_ENTRY:
+    content_slot = stack_alloc 8
+    content_status = call @sa_json_object_get(item_node, &RPC_SESSION_FB_KEY_CONTENT, RPC_SESSION_FB_KEY_CONTENT_LEN, &content_slot)
+    content_ok = eq content_status, 0
+    br content_ok -> L_AGENT_CONTENT, L_AGENT_DONE
+
+L_AGENT_CONTENT:
+    !content_ok
+    content_node = load content_slot+0 as ptr
+    count_slot = stack_alloc 8
+    count_status = call @sa_json_value_count(content_node, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_AGENT_LOOP_INIT, L_AGENT_FREE_CONTENT
+
+L_AGENT_LOOP_INIT:
+    count = load count_slot+0 as u64
+    index_slot = stack_alloc 8
+    part_slot = stack_alloc 8
+    type_ptr_slot = stack_alloc 8
+    type_len_slot = stack_alloc 8
+    text_ptr_slot = stack_alloc 8
+    text_len_slot = stack_alloc 8
+    store index_slot+0, 0 as u64
+    jmp L_AGENT_LOOP_COND
+
+L_AGENT_LOOP_COND:
+    index = load index_slot+0 as u64
+    has_next = ult index, count
+    br has_next -> L_AGENT_LOOP_BODY, L_AGENT_LOOP_DONE
+
+L_AGENT_LOOP_BODY:
+    !has_next
+    part_status = call @sa_json_array_get(content_node, index, &part_slot)
+    part_ok = eq part_status, 0
+    br part_ok -> L_AGENT_PART, L_AGENT_NEXT_BAD
+
+L_AGENT_PART:
+    !part_ok
+    part_node = load part_slot+0 as ptr
+    part_type_status = call @sa_json_object_get_string(part_node, &RPC_SESSION_FB_KEY_TYPE, RPC_SESSION_FB_KEY_TYPE_LEN, &type_ptr_slot, &type_len_slot)
+    part_text_status = call @sa_json_object_get_string(part_node, &RPC_SESSION_FB_KEY_TEXT, RPC_SESSION_FB_KEY_TEXT_LEN, &text_ptr_slot, &text_len_slot)
+    part_type_ok = eq part_type_status, 0
+    part_text_ok = eq part_text_status, 0
+    both_ok = and part_type_ok, part_text_ok
+    br both_ok -> L_AGENT_CHECK_TYPE, L_AGENT_PART_FREE
+
+L_AGENT_CHECK_TYPE:
+    type_ptr = load type_ptr_slot+0 as ptr
+    type_len = load type_len_slot+0 as u64
+    is_output_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_OUTPUT_TEXT, RPC_SESSION_FB_TYPE_OUTPUT_TEXT_LEN)
+    is_text_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_KEY_TEXT, RPC_SESSION_FB_KEY_TEXT_LEN)
+    is_output = eq is_output_raw, 1
+    is_text = eq is_text_raw, 1
+    part_matches = or is_output, is_text
+    br part_matches -> L_AGENT_EMIT, L_AGENT_PART_FREE_AFTER_TYPE
+
+L_AGENT_EMIT:
+    text_ptr = load text_ptr_slot+0 as ptr
+    text_len = load text_len_slot+0 as u64
+    call @notify_item_string_detail(&state_ptr, &RPC_SESSION_EV_ITEM_AGENT_DELTA, RPC_SESSION_EV_ITEM_AGENT_DELTA_LEN, thread_id, turn_id, &item_id_ptr, item_id_len, &RPC_SESSION_JSON_KEY_DELTA, RPC_SESSION_JSON_KEY_DELTA_LEN, &text_ptr, text_len, 0, 0)
+    !text_ptr
+    !text_len
+    jmp L_AGENT_PART_FREE_AFTER_TYPE
+
+L_AGENT_PART_FREE_AFTER_TYPE:
+    !part_matches
+    !is_text
+    !is_output
+    !is_text_raw
+    !is_output_raw
+    !type_ptr
+    !type_len
+    jmp L_AGENT_PART_FREE
+
+L_AGENT_PART_FREE:
+    !both_ok
+    !part_text_ok
+    !part_type_ok
+    !part_text_status
+    !part_type_status
+    part_free = call @sa_json_free(^part_node)
+    !part_free
+    !part_status
+    jmp L_AGENT_NEXT
+
+L_AGENT_NEXT_BAD:
+    !part_ok
+    !part_status
+    jmp L_AGENT_NEXT
+
+L_AGENT_NEXT:
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !index
+    jmp L_AGENT_LOOP_COND
+
+L_AGENT_LOOP_DONE:
+    !has_next
+    !index
+    !count
+    jmp L_AGENT_FREE_CONTENT
+
+L_AGENT_FREE_CONTENT:
+    !count_ok
+    !count_status
+    content_free = call @sa_json_free(^content_node)
+    !content_free
+    !content_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    return 1
+
+L_AGENT_DONE:
+    !content_ok
+    !content_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    return 0
+
+@ffi_wrapper notify_reasoning_detail(&state_ptr: ptr, thread_id: u64, turn_id: u64, item_node: ptr, &item_id_ptr: ptr, item_id_len: u64) -> u32:
+L_ENTRY:
+    text_ptr_slot = stack_alloc 8
+    text_len_slot = stack_alloc 8
+    content_slot = stack_alloc 8
+    count_slot = stack_alloc 8
+    index_slot = stack_alloc 8
+    part_slot = stack_alloc 8
+    text_ptr_slot2 = stack_alloc 8
+    text_len_slot2 = stack_alloc 8
+    text_status = call @sa_json_object_get_string(item_node, &RPC_SESSION_FB_KEY_TEXT, RPC_SESSION_FB_KEY_TEXT_LEN, &text_ptr_slot, &text_len_slot)
+    text_ok = eq text_status, 0
+    br text_ok -> L_REASON_TEXT_EMIT, L_REASON_CONTENT
+
+L_REASON_TEXT_EMIT:
+    text_ptr = load text_ptr_slot+0 as ptr
+    text_len = load text_len_slot+0 as u64
+    summary_delta = call @notify_item_string_detail(&state_ptr, &RPC_SESSION_EV_ITEM_REASON_SUMMARY_DELTA, RPC_SESSION_EV_ITEM_REASON_SUMMARY_DELTA_LEN, thread_id, turn_id, &item_id_ptr, item_id_len, &RPC_SESSION_JSON_KEY_DELTA, RPC_SESSION_JSON_KEY_DELTA_LEN, &text_ptr, text_len, 1, 0)
+    summary_added = call @notify_item_index_detail(&state_ptr, &RPC_SESSION_EV_ITEM_REASON_SUMMARY_ADDED, RPC_SESSION_EV_ITEM_REASON_SUMMARY_ADDED_LEN, thread_id, turn_id, &item_id_ptr, item_id_len, &RPC_SESSION_JSON_KEY_SUMMARY_INDEX, RPC_SESSION_JSON_KEY_SUMMARY_INDEX_LEN, 0)
+    !summary_added
+    !summary_delta
+    !text_ptr
+    !text_len
+    jmp L_REASON_CONTENT
+
+L_REASON_CONTENT:
+    !text_ok
+    !text_status
+    content_status = call @sa_json_object_get(item_node, &RPC_SESSION_FB_KEY_CONTENT, RPC_SESSION_FB_KEY_CONTENT_LEN, &content_slot)
+    content_ok = eq content_status, 0
+    br content_ok -> L_REASON_CONTENT_LOOP_INIT, L_REASON_DONE
+
+L_REASON_CONTENT_LOOP_INIT:
+    content_node = load content_slot+0 as ptr
+    count_status = call @sa_json_value_count(content_node, &count_slot)
+    count_ok = eq count_status, 0
+    br count_ok -> L_REASON_CONTENT_LOOP_START, L_REASON_CONTENT_FREE
+
+L_REASON_CONTENT_LOOP_START:
+    count = load count_slot+0 as u64
+    store index_slot+0, 0 as u64
+    jmp L_REASON_CONTENT_LOOP_COND
+
+L_REASON_CONTENT_LOOP_COND:
+    index = load index_slot+0 as u64
+    has_next = ult index, count
+    br has_next -> L_REASON_CONTENT_LOOP_BODY, L_REASON_CONTENT_LOOP_DONE
+
+L_REASON_CONTENT_LOOP_BODY:
+    !has_next
+    part_status = call @sa_json_array_get(content_node, index, &part_slot)
+    part_ok = eq part_status, 0
+    br part_ok -> L_REASON_CONTENT_PART, L_REASON_CONTENT_NEXT_BAD
+
+L_REASON_CONTENT_PART:
+    !part_ok
+    part_node = load part_slot+0 as ptr
+    text_status2 = call @sa_json_object_get_string(part_node, &RPC_SESSION_FB_KEY_TEXT, RPC_SESSION_FB_KEY_TEXT_LEN, &text_ptr_slot2, &text_len_slot2)
+    text_ok2 = eq text_status2, 0
+    br text_ok2 -> L_REASON_CONTENT_EMIT, L_REASON_CONTENT_PART_FREE
+
+L_REASON_CONTENT_EMIT:
+    text_ptr2 = load text_ptr_slot2+0 as ptr
+    text_len2 = load text_len_slot2+0 as u64
+    idx_i = bitcast index as i64
+    call @notify_item_string_detail(&state_ptr, &RPC_SESSION_EV_ITEM_REASON_TEXT_DELTA, RPC_SESSION_EV_ITEM_REASON_TEXT_DELTA_LEN, thread_id, turn_id, &item_id_ptr, item_id_len, &RPC_SESSION_JSON_KEY_DELTA, RPC_SESSION_JSON_KEY_DELTA_LEN, &text_ptr2, text_len2, 2, idx_i)
+    !idx_i
+    !text_ptr2
+    !text_len2
+    jmp L_REASON_CONTENT_PART_FREE
+
+L_REASON_CONTENT_PART_FREE:
+    !text_ok2
+    !text_status2
+    part_free = call @sa_json_free(^part_node)
+    !part_free
+    !part_status
+    jmp L_REASON_CONTENT_NEXT
+
+L_REASON_CONTENT_NEXT_BAD:
+    !part_ok
+    !part_status
+    jmp L_REASON_CONTENT_NEXT
+
+L_REASON_CONTENT_NEXT:
+    next_index = add index, 1
+    store index_slot+0, next_index as u64
+    !next_index
+    !index
+    jmp L_REASON_CONTENT_LOOP_COND
+
+L_REASON_CONTENT_LOOP_DONE:
+    !has_next
+    !index
+    !count
+    jmp L_REASON_CONTENT_FREE
+
+L_REASON_CONTENT_FREE:
+    !count_ok
+    !count_status
+    content_free = call @sa_json_free(^content_node)
+    !content_free
+    jmp L_REASON_DONE
+
+L_REASON_DONE:
+    !content_ok
+    !content_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    return 1
+
+@ffi_wrapper notify_simple_text_detail(&state_ptr: ptr, &event_ptr: ptr, event_len: u64, thread_id: u64, turn_id: u64, item_node: ptr, &item_id_ptr: ptr, item_id_len: u64, &primary_key_ptr: ptr, primary_key_len: u64, &fallback_key_ptr: ptr, fallback_key_len: u64, &value_key_ptr: ptr, value_key_len: u64) -> u32:
+L_ENTRY:
+    value_ptr_slot = stack_alloc 8
+    value_len_slot = stack_alloc 8
+    primary_status = call @sa_json_object_get_string(item_node, &primary_key_ptr, primary_key_len, &value_ptr_slot, &value_len_slot)
+    primary_ok = eq primary_status, 0
+    br primary_ok -> L_SIMPLE_TEXT_EMIT, L_SIMPLE_TEXT_FALLBACK
+
+L_SIMPLE_TEXT_FALLBACK:
+    !primary_ok
+    !primary_status
+    fallback_status = call @sa_json_object_get_string(item_node, &fallback_key_ptr, fallback_key_len, &value_ptr_slot, &value_len_slot)
+    fallback_ok = eq fallback_status, 0
+    br fallback_ok -> L_SIMPLE_TEXT_EMIT_FALLBACK, L_SIMPLE_TEXT_DONE
+
+L_SIMPLE_TEXT_EMIT_FALLBACK:
+    !fallback_ok
+    value_ptr_fb = load value_ptr_slot+0 as ptr
+    value_len_fb = load value_len_slot+0 as u64
+    emit_status_fb = call @notify_item_string_detail(&state_ptr, &event_ptr, event_len, thread_id, turn_id, &item_id_ptr, item_id_len, &value_key_ptr, value_key_len, &value_ptr_fb, value_len_fb, 0, 0)
+    !emit_status_fb
+    !value_ptr_fb
+    !value_len_fb
+    !fallback_status
+    !state_ptr
+    !event_ptr
+    !event_len
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    !primary_key_ptr
+    !primary_key_len
+    !fallback_key_ptr
+    !fallback_key_len
+    !value_key_ptr
+    !value_key_len
+    return 1
+
+L_SIMPLE_TEXT_EMIT:
+    !primary_ok
+    value_ptr = load value_ptr_slot+0 as ptr
+    value_len = load value_len_slot+0 as u64
+    emit_status = call @notify_item_string_detail(&state_ptr, &event_ptr, event_len, thread_id, turn_id, &item_id_ptr, item_id_len, &value_key_ptr, value_key_len, &value_ptr, value_len, 0, 0)
+    !emit_status
+    !value_ptr
+    !value_len
+    !primary_status
+    !state_ptr
+    !event_ptr
+    !event_len
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    !primary_key_ptr
+    !primary_key_len
+    !fallback_key_ptr
+    !fallback_key_len
+    !value_key_ptr
+    !value_key_len
+    return 1
+
+L_SIMPLE_TEXT_DONE:
+    !fallback_ok
+    !fallback_status
+    !state_ptr
+    !event_ptr
+    !event_len
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    !primary_key_ptr
+    !primary_key_len
+    !fallback_key_ptr
+    !fallback_key_len
+    !value_key_ptr
+    !value_key_len
+    return 0
+
+@ffi_wrapper notify_file_change_detail(&state_ptr: ptr, thread_id: u64, turn_id: u64, item_node: ptr, &item_id_ptr: ptr, item_id_len: u64) -> u32:
+L_ENTRY:
+    changes_slot = stack_alloc 8
+    changes_status = call @sa_json_object_get(item_node, &RPC_SESSION_FB_KEY_CHANGES, RPC_SESSION_FB_KEY_CHANGES_LEN, &changes_slot)
+    changes_ok = eq changes_status, 0
+    br changes_ok -> L_FILE_CHANGE_EMIT, L_FILE_CHANGE_DONE
+
+L_FILE_CHANGE_EMIT:
+    !changes_ok
+    changes_node = load changes_slot+0 as ptr
+    emit_status = call @notify_item_changes_detail(&state_ptr, thread_id, turn_id, &item_id_ptr, item_id_len, changes_node)
+    changes_free = call @sa_json_free(^changes_node)
+    !changes_free
+    !emit_status
+    !changes_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    return 1
+
+L_FILE_CHANGE_DONE:
+    !changes_ok
+    !changes_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_node
+    !item_id_ptr
+    !item_id_len
+    return 0
+
+@ffi_wrapper notify_item_detail_events(&state_ptr: ptr, thread_id: u64, turn_id: u64, item_node: ptr) -> u32:
+L_ENTRY:
+    type_ptr_slot = stack_alloc 8
+    type_len_slot = stack_alloc 8
+    type_status = call @sa_json_object_get_string(item_node, &RPC_SESSION_FB_KEY_TYPE, RPC_SESSION_FB_KEY_TYPE_LEN, &type_ptr_slot, &type_len_slot)
+    type_ok = eq type_status, 0
+    br type_ok -> L_ITEM_DETAIL_HAS_TYPE, L_ITEM_DETAIL_DONE
+
+L_ITEM_DETAIL_HAS_TYPE:
+    !type_ok
+    item_id_ptr_slot = stack_alloc 8
+    item_id_len_slot = stack_alloc 8
+    id_status = call @item_id_or_empty(item_node, &item_id_ptr_slot, &item_id_len_slot)
+    item_id_ptr = load item_id_ptr_slot+0 as ptr
+    item_id_len = load item_id_len_slot+0 as u64
+    type_ptr = load type_ptr_slot+0 as ptr
+    type_len = load type_len_slot+0 as u64
+    is_message_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_MESSAGE, RPC_SESSION_FB_TYPE_MESSAGE_LEN)
+    is_agent_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_AGENT_MESSAGE, RPC_SESSION_FB_TYPE_AGENT_MESSAGE_LEN)
+    is_message = eq is_message_raw, 1
+    is_agent = eq is_agent_raw, 1
+    is_agent_any = or is_message, is_agent
+    br is_agent_any -> L_ITEM_DETAIL_AGENT, L_ITEM_DETAIL_REASON_CHECK
+
+L_ITEM_DETAIL_AGENT:
+    !is_agent_any
+    agent_status = call @notify_agent_message_detail(&state_ptr, thread_id, turn_id, item_node, &item_id_ptr, item_id_len)
+    !agent_status
+    jmp L_ITEM_DETAIL_DONE_AFTER_TYPE
+
+L_ITEM_DETAIL_REASON_CHECK:
+    !is_agent_any
+    is_reason_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_REASONING, RPC_SESSION_FB_TYPE_REASONING_LEN)
+    is_reason = eq is_reason_raw, 1
+    br is_reason -> L_ITEM_DETAIL_REASON, L_ITEM_DETAIL_PLAN_CHECK
+
+L_ITEM_DETAIL_REASON:
+    !is_reason
+    reason_status = call @notify_reasoning_detail(&state_ptr, thread_id, turn_id, item_node, &item_id_ptr, item_id_len)
+    !reason_status
+    !is_reason_raw
+    jmp L_ITEM_DETAIL_DONE_AFTER_TYPE
+
+L_ITEM_DETAIL_PLAN_CHECK:
+    !is_reason
+    is_plan_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_PLAN, RPC_SESSION_FB_TYPE_PLAN_LEN)
+    is_plan = eq is_plan_raw, 1
+    br is_plan -> L_ITEM_DETAIL_PLAN, L_ITEM_DETAIL_FILE_CHECK
+
+L_ITEM_DETAIL_PLAN:
+    !is_plan
+    plan_status = call @notify_simple_text_detail(&state_ptr, &RPC_SESSION_EV_ITEM_PLAN_DELTA, RPC_SESSION_EV_ITEM_PLAN_DELTA_LEN, thread_id, turn_id, item_node, &item_id_ptr, item_id_len, &RPC_SESSION_FB_KEY_TEXT, RPC_SESSION_FB_KEY_TEXT_LEN, &RPC_SESSION_FB_KEY_TEXT, RPC_SESSION_FB_KEY_TEXT_LEN, &RPC_SESSION_JSON_KEY_DELTA, RPC_SESSION_JSON_KEY_DELTA_LEN)
+    !plan_status
+    !is_plan_raw
+    jmp L_ITEM_DETAIL_DONE_AFTER_TYPE
+
+L_ITEM_DETAIL_FILE_CHECK:
+    !is_plan
+    is_file_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_FILE_CHANGE, RPC_SESSION_FB_TYPE_FILE_CHANGE_LEN)
+    is_file = eq is_file_raw, 1
+    br is_file -> L_ITEM_DETAIL_FILE, L_ITEM_DETAIL_COMMAND_CHECK
+
+L_ITEM_DETAIL_FILE:
+    !is_file
+    file_status = call @notify_file_change_detail(&state_ptr, thread_id, turn_id, item_node, &item_id_ptr, item_id_len)
+    !file_status
+    !is_file_raw
+    jmp L_ITEM_DETAIL_DONE_AFTER_TYPE
+
+L_ITEM_DETAIL_COMMAND_CHECK:
+    !is_file
+    is_cmd_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_COMMAND_EXECUTION, RPC_SESSION_FB_TYPE_COMMAND_EXECUTION_LEN)
+    is_cmd = eq is_cmd_raw, 1
+    br is_cmd -> L_ITEM_DETAIL_COMMAND, L_ITEM_DETAIL_MCP_CHECK
+
+L_ITEM_DETAIL_COMMAND:
+    !is_cmd
+    cmd_status = call @notify_simple_text_detail(&state_ptr, &RPC_SESSION_EV_ITEM_COMMAND_OUTPUT, RPC_SESSION_EV_ITEM_COMMAND_OUTPUT_LEN, thread_id, turn_id, item_node, &item_id_ptr, item_id_len, &RPC_SESSION_FB_KEY_OUTPUT, RPC_SESSION_FB_KEY_OUTPUT_LEN, &RPC_SESSION_FB_KEY_STDOUT, RPC_SESSION_FB_KEY_STDOUT_LEN, &RPC_SESSION_JSON_KEY_DELTA, RPC_SESSION_JSON_KEY_DELTA_LEN)
+    !cmd_status
+    !is_cmd_raw
+    jmp L_ITEM_DETAIL_DONE_AFTER_TYPE
+
+L_ITEM_DETAIL_MCP_CHECK:
+    !is_cmd
+    is_mcp_raw = call @sa_bytes_eq(&type_ptr, type_len, &RPC_SESSION_FB_TYPE_MCP_TOOL_CALL, RPC_SESSION_FB_TYPE_MCP_TOOL_CALL_LEN)
+    is_mcp = eq is_mcp_raw, 1
+    br is_mcp -> L_ITEM_DETAIL_MCP, L_ITEM_DETAIL_DONE_AFTER_TYPE_MCP
+
+L_ITEM_DETAIL_MCP:
+    !is_mcp
+    mcp_status = call @notify_simple_text_detail(&state_ptr, &RPC_SESSION_EV_ITEM_MCP_PROGRESS, RPC_SESSION_EV_ITEM_MCP_PROGRESS_LEN, thread_id, turn_id, item_node, &item_id_ptr, item_id_len, &RPC_SESSION_FB_KEY_PROGRESS, RPC_SESSION_FB_KEY_PROGRESS_LEN, &RPC_SESSION_FB_KEY_MESSAGE, RPC_SESSION_FB_KEY_MESSAGE_LEN, &RPC_SESSION_FB_KEY_MESSAGE, RPC_SESSION_FB_KEY_MESSAGE_LEN)
+    !mcp_status
+    !is_mcp_raw
+    jmp L_ITEM_DETAIL_DONE_AFTER_TYPE
+
+L_ITEM_DETAIL_DONE_AFTER_TYPE_MCP:
+    !is_mcp
+    !is_mcp_raw
+    jmp L_ITEM_DETAIL_DONE_AFTER_TYPE
+
+L_ITEM_DETAIL_DONE_AFTER_TYPE:
+    !is_agent
+    !is_message
+    !is_agent_raw
+    !is_message_raw
+    !id_status
+    !item_id_ptr
+    !item_id_len
+    !type_ptr
+    !type_len
+    !type_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_node
+    return 1
+
+L_ITEM_DETAIL_DONE:
+    !type_ok
+    !type_status
+    !state_ptr
+    !thread_id
+    !turn_id
+    !item_node
+    return 0
+
 @ffi_wrapper notify_completed_item_node(&state_ptr: ptr, thread_id: u64, turn_id: u64, item_node: ptr) -> u32:
 L_ENTRY:
     buffer_slot = stack_alloc 8
@@ -2707,6 +3458,7 @@ L_NOTIFY_ITEM_NODE_OK:
     item_ptr = load item_ptr_slot+0 as ptr
     item_len = load item_len_slot+0 as u64
     call @notify_timed_item(&state_ptr, &RPC_SESSION_EV_ITEM_STARTED, RPC_SESSION_EV_ITEM_STARTED_LEN, thread_id, turn_id, &item_ptr, item_len, &RPC_SESSION_J_EVT_ITEM_STARTED_B1, RPC_SESSION_J_EVT_ITEM_STARTED_B1_LEN)
+    call @notify_item_detail_events(&state_ptr, thread_id, turn_id, item_node)
     call @notify_injected_item(&state_ptr, &RPC_SESSION_EV_RAW_ITEM_COMPLETED, RPC_SESSION_EV_RAW_ITEM_COMPLETED_LEN, thread_id, turn_id, &item_ptr, item_len, &RPC_SESSION_J_EVT_ITEM_RAW_B, RPC_SESSION_J_EVT_ITEM_RAW_B_LEN)
     call @notify_timed_item(&state_ptr, &RPC_SESSION_EV_ITEM_COMPLETED, RPC_SESSION_EV_ITEM_COMPLETED_LEN, thread_id, turn_id, &item_ptr, item_len, &RPC_SESSION_J_EVT_ITEM_COMPLETED_B1, RPC_SESSION_J_EVT_ITEM_COMPLETED_B1_LEN)
     dispose_status = call @json_buffer_dispose(buffer)
@@ -2930,6 +3682,7 @@ L_INJECT_DOM_NOTIFY:
     first_item_ptr = load first_item_ptr_slot+0 as ptr
     first_item_len = load first_item_len_slot+0 as u64
     call @notify_timed_item(&state_ptr, &RPC_SESSION_EV_ITEM_STARTED, RPC_SESSION_EV_ITEM_STARTED_LEN, thread_id, turn_id, &first_item_ptr, first_item_len, &RPC_SESSION_J_EVT_ITEM_STARTED_B1, RPC_SESSION_J_EVT_ITEM_STARTED_B1_LEN)
+    call @notify_item_detail_events(&state_ptr, thread_id, turn_id, first_node)
     call @notify_injected_item(&state_ptr, &RPC_SESSION_EV_RAW_ITEM_COMPLETED, RPC_SESSION_EV_RAW_ITEM_COMPLETED_LEN, thread_id, turn_id, &first_item_ptr, first_item_len, &RPC_SESSION_J_EVT_ITEM_RAW_B, RPC_SESSION_J_EVT_ITEM_RAW_B_LEN)
     call @notify_timed_item(&state_ptr, &RPC_SESSION_EV_ITEM_COMPLETED, RPC_SESSION_EV_ITEM_COMPLETED_LEN, thread_id, turn_id, &first_item_ptr, first_item_len, &RPC_SESSION_J_EVT_ITEM_COMPLETED_B1, RPC_SESSION_J_EVT_ITEM_COMPLETED_B1_LEN)
     dispose_status = call @json_buffer_dispose(buffer)
@@ -3110,6 +3863,8 @@ L_STEER_APPEND:
 L_STEER_NO_INPUT:
     !has_input
     !input_status
+    empty_append_status = call @state_turn_append_items(&state_ptr, thread_id, turn_id, &RPC_SESSION_J_EMPTY_ARRAY, RPC_SESSION_J_EMPTY_ARRAY_LEN)
+    !empty_append_status
     jmp L_STEER_RESP
 
 L_STEER_RESP:
@@ -3148,18 +3903,21 @@ L_STEER_NOT_FOUND:
     !req
     return 0
 
-@ffi_wrapper send_rpc_memory_reset(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, thread_id: u64) -> u32:
+@ffi_wrapper send_rpc_memory_reset(&req: ptr, &id_ptr: ptr, id_len: u64, &state_ptr: ptr, &body: ptr, body_len: u64) -> u32:
 L_ENTRY:
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    key_status = call @rpc_extract_string_or_default(&body, body_len, &RPC_SESSION_J_THREADID_KEY, RPC_SESSION_J_THREADID_KEY_LEN, &RPC_SESSION_EMPTY_TEXT, RPC_SESSION_EMPTY_TEXT_LEN, &key_ptr_slot, &key_len_slot)
+    key_ptr = load key_ptr_slot+0 as ptr
+    key_len = load key_len_slot+0 as u64
+    !key_status
     reset_status = call @state_reset_runtime(&state_ptr)
     !reset_status
     call @notify_thread_id_string(&state_ptr, &RPC_SESSION_EV_THREAD_CLOSED, RPC_SESSION_EV_THREAD_CLOSED_LEN, &RPC_SESSION_J_THREAD_ID_ALL, RPC_SESSION_J_THREAD_ID_ALL_LEN)
-    len_slot = stack_alloc 8
-    tmp = call @u64_to_owned(thread_id, &len_slot)
-    fmt_len = load len_slot+0 as u64
     EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
     EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
     EXPAND JSON_WRITER_FIELD_BOOL reset_field_status, writer, RPC_SESSION_JSON_KEY_RESET, RPC_SESSION_JSON_KEY_RESET_LEN, 1
-    EXPAND JSON_WRITER_FIELD_STRING thread_field_status, writer, RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, tmp, fmt_len
+    EXPAND JSON_WRITER_FIELD_STRING thread_field_status, writer, RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, key_ptr, key_len
     EXPAND JSON_WRITER_END_OBJECT end_status, writer
     call @send_wrapped_writer_with_id(&req, &id_ptr, id_len, writer)
     !end_status
@@ -3167,9 +3925,10 @@ L_ENTRY:
     !reset_field_status
     !begin_status
     !writer_status
-    !fmt_len
-    !tmp
-    !thread_id
+    !key_ptr
+    !key_len
+    !body
+    !body_len
     !state_ptr
     !req
     return 0

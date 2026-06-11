@@ -1,0 +1,587 @@
+// SA native @test coverage for Deno-compatible thread/goal status and tokenBudget contracts.
+@import "../src/hub_modules.sa"
+
+@const GOAL_BODY_ACTIVE = utf8:"{\"params\":{\"status\":\"active\",\"tokenBudget\":123}}"
+@const GOAL_BODY_PAUSED = utf8:"{\"params\":{\"status\":\"paused\",\"tokenBudget\":null}}"
+@const GOAL_BODY_BLOCKED = utf8:"{\"params\":{\"status\":\"blocked\"}}"
+@const GOAL_BODY_USAGE = utf8:"{\"params\":{\"status\":\"usageLimited\"}}"
+@const GOAL_BODY_BUDGET = utf8:"{\"params\":{\"status\":\"budgetLimited\"}}"
+@const GOAL_BODY_COMPLETE = utf8:"{\"params\":{\"status\":\"complete\"}}"
+@const GOAL_BODY_CUSTOM = utf8:"{\"params\":{\"status\":\"customStatus\",\"tokenBudget\":\"123\"}}"
+@const GOAL_BODY_NEGATIVE = utf8:"{\"params\":{\"status\":\"active\",\"tokenBudget\":-5}}"
+@const GOAL_BODY_MISSING = utf8:"{\"params\":{}}"
+@const GOAL_THREAD_KEY = utf8:"goal-only-thread"
+@const GOAL_OBJECTIVE = utf8:"custom status"
+@const GOAL_OBJECTIVE_FIRST = utf8:"first objective"
+@const GOAL_OBJECTIVE_SECOND = utf8:"second objective"
+@const GOAL_CUSTOM_STATUS = utf8:"customStatus"
+@const GOAL_UPDATED_STATUS = utf8:"updated status"
+@const NEEDLE_THREAD_KEY = utf8:"\"threadId\":\"goal-only-thread\""
+@const NEEDLE_CUSTOM_STATUS = utf8:"\"status\":\"customStatus\""
+@const NEEDLE_BUDGET_NULL = utf8:"\"tokenBudget\":null"
+@const NEEDLE_BUDGET_NEGATIVE = utf8:"\"tokenBudget\":-5"
+@const NEEDLE_BUDGET_POSITIVE = utf8:"\"tokenBudget\":123"
+@const NEEDLE_OBJECTIVE = utf8:"\"objective\":\"custom status\""
+@const NEEDLE_GOAL_UPDATED_EVENT = utf8:"event: thread/goal/updated"
+@const NEEDLE_GOAL_OBJECT_THREAD_KEY = utf8:"\"goal\":{\"threadId\":\"goal-only-thread\""
+@const NEEDLE_STATUS_ACTIVE = utf8:"\"status\":\"active\""
+@const NEEDLE_TOKENS_USED_ZERO = utf8:"\"tokensUsed\":0"
+@const NEEDLE_TURN_ID_KEY = utf8:"\"turnId\""
+
+#def GOAL_BODY_ACTIVE_LEN = 48
+#def GOAL_BODY_PAUSED_LEN = 49
+#def GOAL_BODY_BLOCKED_LEN = 31
+#def GOAL_BODY_USAGE_LEN = 36
+#def GOAL_BODY_BUDGET_LEN = 37
+#def GOAL_BODY_COMPLETE_LEN = 32
+#def GOAL_BODY_CUSTOM_LEN = 56
+#def GOAL_BODY_NEGATIVE_LEN = 47
+#def GOAL_BODY_MISSING_LEN = 13
+#def GOAL_THREAD_KEY_LEN = 16
+#def GOAL_OBJECTIVE_LEN = 13
+#def GOAL_OBJECTIVE_FIRST_LEN = 15
+#def GOAL_OBJECTIVE_SECOND_LEN = 16
+#def GOAL_CUSTOM_STATUS_LEN = 12
+#def GOAL_UPDATED_STATUS_LEN = 14
+#def NEEDLE_THREAD_KEY_LEN = 29
+#def NEEDLE_CUSTOM_STATUS_LEN = 23
+#def NEEDLE_BUDGET_NULL_LEN = 18
+#def NEEDLE_BUDGET_NEGATIVE_LEN = 16
+#def NEEDLE_BUDGET_POSITIVE_LEN = 17
+#def NEEDLE_OBJECTIVE_LEN = 27
+#def NEEDLE_GOAL_UPDATED_EVENT_LEN = 26
+#def NEEDLE_GOAL_OBJECT_THREAD_KEY_LEN = 37
+#def NEEDLE_STATUS_ACTIVE_LEN = 17
+#def NEEDLE_TOKENS_USED_ZERO_LEN = 14
+#def NEEDLE_TURN_ID_KEY_LEN = 8
+#def GOAL_BUDGET_NULL_SENTINEL_TEST = -1
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@test "goal status parser covers Deno and Codex status strings"():
+L_ENTRY:
+    active = call @rpc_goal_status_from_body(&GOAL_BODY_ACTIVE, GOAL_BODY_ACTIVE_LEN)
+    active_ok = eq active, 0
+    call @assert_contract(active_ok, 610)
+
+    paused = call @rpc_goal_status_from_body(&GOAL_BODY_PAUSED, GOAL_BODY_PAUSED_LEN)
+    paused_ok = eq paused, 1
+    call @assert_contract(paused_ok, 611)
+
+    blocked = call @rpc_goal_status_from_body(&GOAL_BODY_BLOCKED, GOAL_BODY_BLOCKED_LEN)
+    blocked_ok = eq blocked, 2
+    call @assert_contract(blocked_ok, 612)
+
+    usage = call @rpc_goal_status_from_body(&GOAL_BODY_USAGE, GOAL_BODY_USAGE_LEN)
+    usage_ok = eq usage, 3
+    call @assert_contract(usage_ok, 613)
+
+    budget = call @rpc_goal_status_from_body(&GOAL_BODY_BUDGET, GOAL_BODY_BUDGET_LEN)
+    budget_ok = eq budget, 4
+    call @assert_contract(budget_ok, 614)
+
+    complete = call @rpc_goal_status_from_body(&GOAL_BODY_COMPLETE, GOAL_BODY_COMPLETE_LEN)
+    complete_ok = eq complete, 5
+    call @assert_contract(complete_ok, 615)
+
+    custom = call @rpc_goal_status_from_body(&GOAL_BODY_CUSTOM, GOAL_BODY_CUSTOM_LEN)
+    custom_ok = eq custom, 255
+    call @assert_contract(custom_ok, 616)
+
+    missing = call @rpc_goal_status_from_body(&GOAL_BODY_MISSING, GOAL_BODY_MISSING_LEN)
+    missing_ok = eq missing, 0
+    call @assert_contract(missing_ok, 617)
+
+    !missing
+    !missing_ok
+    !custom
+    !custom_ok
+    !complete
+    !complete_ok
+    !budget
+    !budget_ok
+    !usage
+    !usage_ok
+    !blocked
+    !blocked_ok
+    !paused
+    !paused_ok
+    !active
+    !active_ok
+    return
+
+@test "goal tokenBudget parser preserves only numeric values like Deno"():
+L_ENTRY:
+    positive = call @rpc_extract_i64_number_after(&GOAL_BODY_ACTIVE, GOAL_BODY_ACTIVE_LEN, &RPC_SESSION_J_TOKEN_BUDGET_KEY, RPC_SESSION_J_TOKEN_BUDGET_KEY_LEN, GOAL_BUDGET_NULL_SENTINEL_TEST)
+    positive_ok = eq positive, 123
+    call @assert_contract(positive_ok, 620)
+
+    negative = call @rpc_extract_i64_number_after(&GOAL_BODY_NEGATIVE, GOAL_BODY_NEGATIVE_LEN, &RPC_SESSION_J_TOKEN_BUDGET_KEY, RPC_SESSION_J_TOKEN_BUDGET_KEY_LEN, GOAL_BUDGET_NULL_SENTINEL_TEST)
+    negative_ok = eq negative, -5
+    call @assert_contract(negative_ok, 621)
+
+    null_value = call @rpc_extract_i64_number_after(&GOAL_BODY_PAUSED, GOAL_BODY_PAUSED_LEN, &RPC_SESSION_J_TOKEN_BUDGET_KEY, RPC_SESSION_J_TOKEN_BUDGET_KEY_LEN, GOAL_BUDGET_NULL_SENTINEL_TEST)
+    null_ok = eq null_value, GOAL_BUDGET_NULL_SENTINEL_TEST
+    call @assert_contract(null_ok, 622)
+
+    string_value = call @rpc_extract_i64_number_after(&GOAL_BODY_CUSTOM, GOAL_BODY_CUSTOM_LEN, &RPC_SESSION_J_TOKEN_BUDGET_KEY, RPC_SESSION_J_TOKEN_BUDGET_KEY_LEN, GOAL_BUDGET_NULL_SENTINEL_TEST)
+    string_ok = eq string_value, GOAL_BUDGET_NULL_SENTINEL_TEST
+    call @assert_contract(string_ok, 623)
+
+    missing = call @rpc_extract_i64_number_after(&GOAL_BODY_MISSING, GOAL_BODY_MISSING_LEN, &RPC_SESSION_J_TOKEN_BUDGET_KEY, RPC_SESSION_J_TOKEN_BUDGET_KEY_LEN, GOAL_BUDGET_NULL_SENTINEL_TEST)
+    missing_ok = eq missing, GOAL_BUDGET_NULL_SENTINEL_TEST
+    call @assert_contract(missing_ok, 624)
+
+    !missing
+    !missing_ok
+    !string_value
+    !string_ok
+    !null_value
+    !null_ok
+    !negative
+    !negative_ok
+    !positive
+    !positive_ok
+    return
+
+@test "goal state preserves custom status string and missing thread key"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 630)
+
+    set_status = call @state_goal_set(&state, 0, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, 255, &GOAL_CUSTOM_STATUS, GOAL_CUSTOM_STATUS_LEN, 1, GOAL_BUDGET_NULL_SENTINEL_TEST, &GOAL_OBJECTIVE, GOAL_OBJECTIVE_LEN)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 631)
+
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    status_slot = stack_alloc 8
+    status_ptr_slot = stack_alloc 8
+    status_len_slot = stack_alloc 8
+    budget_null_slot = stack_alloc 1
+    budget_slot = stack_alloc 8
+    used_slot = stack_alloc 8
+    created_slot = stack_alloc 8
+    updated_slot = stack_alloc 8
+    obj_ptr_slot = stack_alloc 8
+    obj_len_slot = stack_alloc 8
+    get_status = call @state_goal_get_full(&state, 0, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, &status_slot, &key_ptr_slot, &key_len_slot, &status_ptr_slot, &status_len_slot, &budget_null_slot, &budget_slot, &used_slot, &created_slot, &updated_slot, &obj_ptr_slot, &obj_len_slot)
+    found = sge get_status, 0
+    call @assert_contract(found, 632)
+
+    status = load status_slot+0 as u8
+    status_custom = eq status, 255
+    call @assert_contract(status_custom, 633)
+
+    stored_status_ptr = load status_ptr_slot+0 as ptr
+    stored_status_len = load status_len_slot+0 as u64
+    status_eq = call @sa_bytes_eq(&stored_status_ptr, stored_status_len, &GOAL_CUSTOM_STATUS, GOAL_CUSTOM_STATUS_LEN)
+    status_eq_ok = eq status_eq, 1
+    call @assert_contract(status_eq_ok, 634)
+
+    stored_key_ptr = load key_ptr_slot+0 as ptr
+    stored_key_len = load key_len_slot+0 as u64
+    key_eq = call @sa_bytes_eq(&stored_key_ptr, stored_key_len, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN)
+    key_eq_ok = eq key_eq, 1
+    call @assert_contract(key_eq_ok, 635)
+
+    budget_null = load budget_null_slot+0 as u8
+    budget_is_null = eq budget_null, 1
+    call @assert_contract(budget_is_null, 636)
+
+    stored_obj_ptr = load obj_ptr_slot+0 as ptr
+    stored_obj_len = load obj_len_slot+0 as u64
+    obj_eq = call @sa_bytes_eq(&stored_obj_ptr, stored_obj_len, &GOAL_OBJECTIVE, GOAL_OBJECTIVE_LEN)
+    obj_eq_ok = eq obj_eq, 1
+    call @assert_contract(obj_eq_ok, 637)
+
+    !obj_eq
+    !obj_eq_ok
+    !stored_obj_ptr
+    !stored_obj_len
+    !budget_null
+    !budget_is_null
+    !key_eq
+    !key_eq_ok
+    !stored_key_ptr
+    !stored_key_len
+    !status_eq
+    !status_eq_ok
+    !stored_status_ptr
+    !stored_status_len
+    !status
+    !status_custom
+    !get_status
+    !found
+    !set_status
+    !set_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "goal repeated set preserves createdAt and advances updatedAt like Deno"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 638)
+
+    first_status = call @state_goal_set(&state, 0, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, 0, &GOAL_CUSTOM_STATUS, 0, 0, 123, &GOAL_OBJECTIVE_FIRST, GOAL_OBJECTIVE_FIRST_LEN)
+    first_ok = eq first_status, 0
+    call @assert_contract(first_ok, 650)
+
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    status_slot = stack_alloc 8
+    status_ptr_slot = stack_alloc 8
+    status_len_slot = stack_alloc 8
+    budget_null_slot = stack_alloc 1
+    budget_slot = stack_alloc 8
+    used_slot = stack_alloc 8
+    created_slot = stack_alloc 8
+    updated_slot = stack_alloc 8
+    obj_ptr_slot = stack_alloc 8
+    obj_len_slot = stack_alloc 8
+    first_get = call @state_goal_get_full(&state, 0, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, &status_slot, &key_ptr_slot, &key_len_slot, &status_ptr_slot, &status_len_slot, &budget_null_slot, &budget_slot, &used_slot, &created_slot, &updated_slot, &obj_ptr_slot, &obj_len_slot)
+    first_found = sge first_get, 0
+    call @assert_contract(first_found, 651)
+    first_created = load created_slot+0 as u64
+    first_updated = load updated_slot+0 as u64
+    first_equal = eq first_created, first_updated
+    call @assert_contract(first_equal, 652)
+    first_obj_ptr = load obj_ptr_slot+0 as ptr
+    first_obj_len = load obj_len_slot+0 as u64
+    first_obj_eq_raw = call @sa_bytes_eq(&first_obj_ptr, first_obj_len, &GOAL_OBJECTIVE_FIRST, GOAL_OBJECTIVE_FIRST_LEN)
+    first_obj_eq = eq first_obj_eq_raw, 1
+    call @assert_contract(first_obj_eq, 653)
+
+    EXPAND DENO_SLEEP_MS sleep_status, 1100
+
+    second_status = call @state_goal_set(&state, 0, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, 255, &GOAL_UPDATED_STATUS, GOAL_UPDATED_STATUS_LEN, 0, 456, &GOAL_OBJECTIVE_SECOND, GOAL_OBJECTIVE_SECOND_LEN)
+    second_ok = eq second_status, 0
+    call @assert_contract(second_ok, 654)
+    second_get = call @state_goal_get_full(&state, 0, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, &status_slot, &key_ptr_slot, &key_len_slot, &status_ptr_slot, &status_len_slot, &budget_null_slot, &budget_slot, &used_slot, &created_slot, &updated_slot, &obj_ptr_slot, &obj_len_slot)
+    second_found = sge second_get, 0
+    call @assert_contract(second_found, 655)
+    second_created = load created_slot+0 as u64
+    second_updated = load updated_slot+0 as u64
+    created_preserved = eq second_created, first_created
+    call @assert_contract(created_preserved, 656)
+    updated_advanced = ugt second_updated, first_updated
+    call @assert_contract(updated_advanced, 657)
+    second_status_code = load status_slot+0 as u8
+    second_status_custom = eq second_status_code, 255
+    call @assert_contract(second_status_custom, 658)
+    second_budget = load budget_slot+0 as i64
+    second_budget_ok = eq second_budget, 456
+    call @assert_contract(second_budget_ok, 659)
+    second_obj_ptr = load obj_ptr_slot+0 as ptr
+    second_obj_len = load obj_len_slot+0 as u64
+    second_obj_eq_raw = call @sa_bytes_eq(&second_obj_ptr, second_obj_len, &GOAL_OBJECTIVE_SECOND, GOAL_OBJECTIVE_SECOND_LEN)
+    second_obj_eq = eq second_obj_eq_raw, 1
+    call @assert_contract(second_obj_eq, 660)
+
+    !second_obj_eq
+    !second_obj_eq_raw
+    !second_obj_ptr
+    !second_obj_len
+    !second_budget
+    !second_budget_ok
+    !second_status_code
+    !second_status_custom
+    !updated_advanced
+    !created_preserved
+    !second_created
+    !second_updated
+    !second_get
+    !second_found
+    !second_status
+    !second_ok
+    !sleep_status
+    !first_obj_eq
+    !first_obj_eq_raw
+    !first_obj_ptr
+    !first_obj_len
+    !first_equal
+    !first_created
+    !first_updated
+    !first_get
+    !first_found
+    !first_status
+    !first_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "goal writer emits custom status and numeric or null tokenBudget"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 640)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    goal_begin_status = call @json_writer_begin_field_object(writer, &RPC_SESSION_JSON_KEY_GOAL, RPC_SESSION_JSON_KEY_GOAL_LEN)
+    thread_field_status = call @json_writer_field_thread_id_goal_key(writer, &RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, &state, 0, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN)
+    EXPAND JSON_WRITER_FIELD_STRING objective_field_status, writer, RPC_SESSION_JSON_KEY_OBJECTIVE, RPC_SESSION_JSON_KEY_OBJECTIVE_LEN, GOAL_OBJECTIVE, GOAL_OBJECTIVE_LEN
+    status_field_status = call @json_writer_field_goal_status_text(writer, 255, &GOAL_CUSTOM_STATUS, GOAL_CUSTOM_STATUS_LEN)
+    budget_field_status = call @json_writer_field_goal_budget(writer, 1, GOAL_BUDGET_NULL_SENTINEL_TEST)
+    EXPAND JSON_WRITER_END_OBJECT goal_end_status, writer
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    buffer_slot = stack_alloc 8
+    data_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_slot, &len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data = load data_slot+0 as ptr
+    len = load len_slot+0 as u64
+
+    key_idx = call @sa_bytes_find(&data, len, &NEEDLE_THREAD_KEY, NEEDLE_THREAD_KEY_LEN)
+    key_ok = sge key_idx, 0
+    call @assert_contract(key_ok, 641)
+    status_idx = call @sa_bytes_find(&data, len, &NEEDLE_CUSTOM_STATUS, NEEDLE_CUSTOM_STATUS_LEN)
+    status_ok = sge status_idx, 0
+    call @assert_contract(status_ok, 642)
+    null_idx = call @sa_bytes_find(&data, len, &NEEDLE_BUDGET_NULL, NEEDLE_BUDGET_NULL_LEN)
+    null_ok = sge null_idx, 0
+    call @assert_contract(null_ok, 643)
+    objective_idx = call @sa_bytes_find(&data, len, &NEEDLE_OBJECTIVE, NEEDLE_OBJECTIVE_LEN)
+    objective_ok = sge objective_idx, 0
+    call @assert_contract(objective_ok, 644)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 645)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED writer2_status, writer2
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin2_status, writer2
+    budget2_status = call @json_writer_field_goal_budget(writer2, 0, -5)
+    EXPAND JSON_WRITER_END_OBJECT end2_status, writer2
+    buffer2_slot = stack_alloc 8
+    data2_slot = stack_alloc 8
+    len2_slot = stack_alloc 8
+    finish2_status = call @json_writer_finish_view(writer2, &buffer2_slot, &data2_slot, &len2_slot)
+    buffer2 = load buffer2_slot+0 as ptr
+    data2 = load data2_slot+0 as ptr
+    len2 = load len2_slot+0 as u64
+    neg_idx = call @sa_bytes_find(&data2, len2, &NEEDLE_BUDGET_NEGATIVE, NEEDLE_BUDGET_NEGATIVE_LEN)
+    neg_ok = sge neg_idx, 0
+    call @assert_contract(neg_ok, 646)
+    free2_status = call @json_writer_dispose_finished(buffer2, writer2)
+    free2_ok = eq free2_status, 0
+    call @assert_contract(free2_ok, 647)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED writer3_status, writer3
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin3_status, writer3
+    budget3_status = call @json_writer_field_goal_budget(writer3, 0, 123)
+    EXPAND JSON_WRITER_END_OBJECT end3_status, writer3
+    buffer3_slot = stack_alloc 8
+    data3_slot = stack_alloc 8
+    len3_slot = stack_alloc 8
+    finish3_status = call @json_writer_finish_view(writer3, &buffer3_slot, &data3_slot, &len3_slot)
+    buffer3 = load buffer3_slot+0 as ptr
+    data3 = load data3_slot+0 as ptr
+    len3 = load len3_slot+0 as u64
+    pos_idx = call @sa_bytes_find(&data3, len3, &NEEDLE_BUDGET_POSITIVE, NEEDLE_BUDGET_POSITIVE_LEN)
+    pos_ok = sge pos_idx, 0
+    call @assert_contract(pos_ok, 648)
+    free3_status = call @json_writer_dispose_finished(buffer3, writer3)
+    free3_ok = eq free3_status, 0
+    call @assert_contract(free3_ok, 649)
+
+    !free3_status
+    !free3_ok
+    !pos_idx
+    !pos_ok
+    !finish3_status
+    !buffer3
+    !data3
+    !len3
+    !writer3
+    !end3_status
+    !budget3_status
+    !begin3_status
+    !writer3_status
+    !free2_status
+    !free2_ok
+    !neg_idx
+    !neg_ok
+    !finish2_status
+    !buffer2
+    !data2
+    !len2
+    !writer2
+    !end2_status
+    !budget2_status
+    !begin2_status
+    !writer2_status
+    !free_status
+    !free_ok
+    !objective_idx
+    !objective_ok
+    !null_idx
+    !null_ok
+    !status_idx
+    !status_ok
+    !key_idx
+    !key_ok
+    !finish_status
+    !buffer
+    !data
+    !len
+    !writer
+    !end_status
+    !goal_end_status
+    !budget_field_status
+    !status_field_status
+    !objective_field_status
+    !thread_field_status
+    !goal_begin_status
+    !begin_status
+    !writer_status
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "goal updated event uses Deno external thread key shape"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 670)
+
+    thread_id = call @state_thread_create_with_key(&state, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, &GOAL_BODY_ACTIVE, 0, &GOAL_BODY_ACTIVE, 0)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 671)
+    set_status = call @state_goal_set(&state, thread_id, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, 0, &GOAL_CUSTOM_STATUS, 0, 0, 123, &GOAL_OBJECTIVE, GOAL_OBJECTIVE_LEN)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 672)
+
+    key_ptr_slot = stack_alloc 8
+    key_len_slot = stack_alloc 8
+    status_slot = stack_alloc 8
+    status_ptr_slot = stack_alloc 8
+    status_len_slot = stack_alloc 8
+    budget_null_slot = stack_alloc 1
+    budget_slot = stack_alloc 8
+    used_slot = stack_alloc 8
+    created_slot = stack_alloc 8
+    updated_slot = stack_alloc 8
+    obj_ptr_slot = stack_alloc 8
+    obj_len_slot = stack_alloc 8
+    get_status = call @state_goal_get_full(&state, thread_id, &GOAL_THREAD_KEY, GOAL_THREAD_KEY_LEN, &status_slot, &key_ptr_slot, &key_len_slot, &status_ptr_slot, &status_len_slot, &budget_null_slot, &budget_slot, &used_slot, &created_slot, &updated_slot, &obj_ptr_slot, &obj_len_slot)
+    found = sge get_status, 0
+    call @assert_contract(found, 673)
+
+    status_code = load status_slot+0 as u8
+    status_ptr = load status_ptr_slot+0 as ptr
+    status_len = load status_len_slot+0 as u64
+    key_ptr = load key_ptr_slot+0 as ptr
+    key_len = load key_len_slot+0 as u64
+    budget_null = load budget_null_slot+0 as u8
+    budget = load budget_slot+0 as i64
+    used = load used_slot+0 as u64
+    created = load created_slot+0 as u64
+    updated = load updated_slot+0 as u64
+    obj_ptr = load obj_ptr_slot+0 as ptr
+    obj_len = load obj_len_slot+0 as u64
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    notify_status = call @notify_goal_updated(&state, thread_id, &key_ptr, key_len, status_code, &status_ptr, status_len, budget_null, budget, used, created, updated, &obj_ptr, obj_len)
+    notify_ok = eq notify_status, 0
+    call @assert_contract(notify_ok, 674)
+
+    frame = stack_alloc 2048
+    len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    read_ok = eq read_status, 1
+    call @assert_contract(read_ok, 675)
+    frame_len = load len_slot+0 as u64
+
+    event_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_GOAL_UPDATED_EVENT, NEEDLE_GOAL_UPDATED_EVENT_LEN)
+    event_ok = sge event_idx, 0
+    call @assert_contract(event_ok, 676)
+    top_thread_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_THREAD_KEY, NEEDLE_THREAD_KEY_LEN)
+    top_thread_ok = sge top_thread_idx, 0
+    call @assert_contract(top_thread_ok, 677)
+    goal_thread_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_GOAL_OBJECT_THREAD_KEY, NEEDLE_GOAL_OBJECT_THREAD_KEY_LEN)
+    goal_thread_ok = sge goal_thread_idx, 0
+    call @assert_contract(goal_thread_ok, 678)
+    objective_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_OBJECTIVE, NEEDLE_OBJECTIVE_LEN)
+    objective_ok = sge objective_idx, 0
+    call @assert_contract(objective_ok, 679)
+    status_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_STATUS_ACTIVE, NEEDLE_STATUS_ACTIVE_LEN)
+    status_ok = sge status_idx, 0
+    call @assert_contract(status_ok, 680)
+    budget_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_BUDGET_POSITIVE, NEEDLE_BUDGET_POSITIVE_LEN)
+    budget_ok = sge budget_idx, 0
+    call @assert_contract(budget_ok, 681)
+    used_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_TOKENS_USED_ZERO, NEEDLE_TOKENS_USED_ZERO_LEN)
+    used_ok = sge used_idx, 0
+    call @assert_contract(used_ok, 682)
+    turn_id_idx = call @sa_bytes_find(&frame, frame_len, &NEEDLE_TURN_ID_KEY, NEEDLE_TURN_ID_KEY_LEN)
+    no_turn_id = slt turn_id_idx, 0
+    call @assert_contract(no_turn_id, 683)
+
+    !turn_id_idx
+    !no_turn_id
+    !used_idx
+    !used_ok
+    !budget_idx
+    !budget_ok
+    !status_idx
+    !status_ok
+    !objective_idx
+    !objective_ok
+    !goal_thread_idx
+    !goal_thread_ok
+    !top_thread_idx
+    !top_thread_ok
+    !event_idx
+    !event_ok
+    !frame_len
+    !read_status
+    !read_ok
+    !notify_status
+    !notify_ok
+    !cursor
+    !obj_ptr
+    !obj_len
+    !updated
+    !created
+    !used
+    !budget
+    !budget_null
+    !key_ptr
+    !key_len
+    !status_ptr
+    !status_len
+    !status_code
+    !get_status
+    !found
+    !set_status
+    !set_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return

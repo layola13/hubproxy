@@ -1,0 +1,1230 @@
+// SA native @test coverage for Deno-compatible thread RPC contracts.
+@import "../src/hub_modules.sa"
+
+@const THREAD_ROLLBACK_NUMERIC_BODY = utf8:"{\"params\":{\"numTurns\":2}}"
+@const THREAD_ROLLBACK_STRING_BODY = utf8:"{\"params\":{\"numTurns\":\"2\"}}"
+@const THREAD_ROLLBACK_MISSING_BODY = utf8:"{\"params\":{}}"
+@const THREAD_ROLLBACK_KEY = utf8:"rollback-thread"
+@const THREAD_MODEL = utf8:"model"
+@const THREAD_CWD = utf8:"/tmp"
+@const THREAD_RESET_OBJECTIVE = utf8:"reset objective"
+@const THREAD_RESET_PROC = utf8:"reset-proc"
+@const THREAD_RESET_WATCH = utf8:"reset-watch"
+@const THREAD_CLOSED_NEEDLE = utf8:"thread/closed"
+@const THREAD_ID_STAR_NEEDLE = utf8:"\"threadId\":\"*\""
+@const THREAD_ARCHIVE_KEY = utf8:"archive-thread"
+@const THREAD_FORK_SOURCE_KEY = utf8:"fork-source"
+@const THREAD_FORK_CHILD_KEY = utf8:"fork-child"
+@const THREAD_PROVIDER = utf8:"provider"
+@const THREAD_RESUME_KEY = utf8:"resume-thread"
+@const THREAD_RESUME_MODEL = utf8:"resume-model"
+@const THREAD_RESUME_PROVIDER = utf8:"anthropic"
+@const THREAD_RESUME_CWD = utf8:"/tmp/resume-cwd"
+@const THREAD_RESUME_BODY = utf8:"{\"params\":{\"threadId\":\"resume-thread\"}}"
+@const THREAD_RESUME_ITEM = utf8:"[{\"type\":\"message\",\"role\":\"user\",\"content\":\"resume me\"}]"
+@const THREAD_RESUME_MODE = utf8:"goal"
+@const THREAD_INJECT_KEY = utf8:"inject-thread"
+@const THREAD_INJECT_BODY = utf8:"{\"params\":{\"threadId\":\"inject-thread\",\"items\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"injected\"}]}}"
+@const THREAD_INJECT_ITEMS = utf8:"[{\"type\":\"message\",\"role\":\"user\",\"content\":\"injected\"}]"
+@const THREAD_PREVIEW = utf8:"fork preview"
+@const THREAD_NAME = utf8:"fork thread"
+@const THREAD_GIT_INFO = utf8:"{\"branch\":\"main\",\"commit\":\"abc123\"}"
+@const THREAD_FORK_PARENT_NEEDLE = utf8:"\"forkedFromId\":\"fork-source\""
+@const THREAD_ID_NEEDLE = utf8:"\"id\":\"fork-child\""
+@const THREAD_SESSION_ID_NEEDLE = utf8:"\"sessionId\":\"fork-child\""
+@const THREAD_NAME_NEEDLE = utf8:"\"name\":\"fork thread\""
+@const THREAD_GIT_BRANCH_NEEDLE = utf8:"\"branch\":\"main\""
+@const THREAD_GIT_COMMIT_NEEDLE = utf8:"\"commit\":\"abc123\""
+@const THREAD_EPHEMERAL_NEEDLE = utf8:"\"ephemeral\":true"
+@const THREAD_PROVIDER_NEEDLE = utf8:"\"modelProvider\":\"provider\""
+@const THREAD_TURNS_EMPTY_NEEDLE = utf8:"\"turns\":[]"
+@const THREAD_STARTED_EVENT_NEEDLE = utf8:"event: thread/started"
+@const THREAD_STARTED_ID_NEEDLE = utf8:"\"thread\":{\"id\":\"archive-thread\""
+@const THREAD_STARTED_SESSION_NEEDLE = utf8:"\"sessionId\":\"archive-thread\""
+@const THREAD_STATUS_EVENT_NEEDLE = utf8:"event: thread/status/changed"
+@const THREAD_ARCHIVED_EVENT_NEEDLE = utf8:"event: thread/archived"
+@const THREAD_UNARCHIVED_EVENT_NEEDLE = utf8:"event: thread/unarchived"
+@const THREAD_CLOSED_EVENT_NEEDLE = utf8:"event: thread/closed"
+@const THREAD_NAME_UPDATED_EVENT_NEEDLE = utf8:"event: thread/name/updated"
+@const THREAD_GOAL_CLEARED_EVENT_NEEDLE = utf8:"event: thread/goal/cleared"
+@const THREAD_ARCHIVE_THREAD_NEEDLE = utf8:"\"threadId\":\"archive-thread\""
+@const THREAD_STATUS_IDLE_NEEDLE = utf8:"\"status\":{\"type\":\"idle\"}"
+@const THREAD_NAME_NULL_NEEDLE = utf8:"\"name\":null"
+@const THREAD_MODEL_NEEDLE = utf8:"\"model\":\"model\""
+@const THREAD_CWD_NEEDLE = utf8:"\"cwd\":\"/tmp\""
+@const THREAD_RESUME_MODEL_NEEDLE = utf8:"\"model\":\"resume-model\""
+@const THREAD_RESUME_PROVIDER_NEEDLE = utf8:"\"modelProvider\":\"anthropic\""
+@const THREAD_RESUME_CWD_NEEDLE = utf8:"\"cwd\":\"/tmp/resume-cwd\""
+@const THREAD_RESUME_SERVICE_NEEDLE = utf8:"\"serviceTier\":null"
+@const THREAD_RESUME_INSTRUCTIONS_NEEDLE = utf8:"\"instructionSources\":[]"
+@const THREAD_RESUME_APPROVAL_NEEDLE = utf8:"\"approvalPolicy\":\"never\""
+@const THREAD_RESUME_REVIEWER_NEEDLE = utf8:"\"approvalsReviewer\":\"user\""
+@const THREAD_RESUME_SANDBOX_NEEDLE = utf8:"\"sandbox\":\"danger-full-access\""
+@const THREAD_RESUME_THREAD_ID_NEEDLE = utf8:"\"thread\":{\"id\":\"resume-thread\""
+@const THREAD_RESUME_SESSION_ID_NEEDLE = utf8:"\"sessionId\":\"resume-thread\""
+@const THREAD_RESUME_TURNS_NEEDLE = utf8:"\"turns\":[{\"id\":\"2\""
+@const THREAD_RESUME_TURN_MODE_NEEDLE = utf8:"\"collaborationModeKind\":\"goal\""
+@const THREAD_RESUME_TURN_ITEMS_NEEDLE = utf8:"\"items\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"resume me\"}]"
+@const THREAD_INJECT_THREAD_NEEDLE = utf8:"\"threadId\":\"inject-thread\""
+@const THREAD_INJECT_COUNT_NEEDLE = utf8:"\"injectedCount\":1"
+@const THREAD_INJECT_STARTED_EVENT = utf8:"event: item/started"
+@const THREAD_INJECT_RAW_EVENT = utf8:"event: rawResponseItem/completed"
+@const THREAD_INJECT_COMPLETED_EVENT = utf8:"event: item/completed"
+@const THREAD_INJECT_TURN_NEEDLE = utf8:"\"turnId\":\"2\""
+@const THREAD_INJECT_CONTENT_NEEDLE = utf8:"\"content\":\"injected\""
+
+#def THREAD_ROLLBACK_NUMERIC_BODY_LEN = 25
+#def THREAD_ROLLBACK_STRING_BODY_LEN = 27
+#def THREAD_ROLLBACK_MISSING_BODY_LEN = 13
+#def THREAD_ROLLBACK_KEY_LEN = 15
+#def THREAD_MODEL_LEN = 5
+#def THREAD_CWD_LEN = 4
+#def THREAD_RESET_OBJECTIVE_LEN = 15
+#def THREAD_RESET_PROC_LEN = 10
+#def THREAD_RESET_WATCH_LEN = 11
+#def THREAD_CLOSED_NEEDLE_LEN = 13
+#def THREAD_ID_STAR_NEEDLE_LEN = 14
+#def THREAD_ARCHIVE_KEY_LEN = 14
+#def THREAD_FORK_SOURCE_KEY_LEN = 11
+#def THREAD_FORK_CHILD_KEY_LEN = 10
+#def THREAD_PROVIDER_LEN = 8
+#def THREAD_RESUME_KEY_LEN = 13
+#def THREAD_RESUME_MODEL_LEN = 12
+#def THREAD_RESUME_PROVIDER_LEN = 9
+#def THREAD_RESUME_CWD_LEN = 15
+#def THREAD_RESUME_BODY_LEN = 39
+#def THREAD_RESUME_ITEM_LEN = 56
+#def THREAD_RESUME_MODE_LEN = 4
+#def THREAD_INJECT_KEY_LEN = 13
+#def THREAD_INJECT_BODY_LEN = 103
+#def THREAD_INJECT_ITEMS_LEN = 55
+#def THREAD_PREVIEW_LEN = 12
+#def THREAD_NAME_LEN = 11
+#def THREAD_GIT_INFO_LEN = 35
+#def THREAD_FORK_PARENT_NEEDLE_LEN = 28
+#def THREAD_ID_NEEDLE_LEN = 17
+#def THREAD_SESSION_ID_NEEDLE_LEN = 24
+#def THREAD_NAME_NEEDLE_LEN = 20
+#def THREAD_GIT_BRANCH_NEEDLE_LEN = 15
+#def THREAD_GIT_COMMIT_NEEDLE_LEN = 17
+#def THREAD_EPHEMERAL_NEEDLE_LEN = 16
+#def THREAD_PROVIDER_NEEDLE_LEN = 26
+#def THREAD_TURNS_EMPTY_NEEDLE_LEN = 10
+#def THREAD_STARTED_EVENT_NEEDLE_LEN = 21
+#def THREAD_STARTED_ID_NEEDLE_LEN = 31
+#def THREAD_STARTED_SESSION_NEEDLE_LEN = 28
+#def THREAD_STATUS_EVENT_NEEDLE_LEN = 28
+#def THREAD_ARCHIVED_EVENT_NEEDLE_LEN = 22
+#def THREAD_UNARCHIVED_EVENT_NEEDLE_LEN = 24
+#def THREAD_CLOSED_EVENT_NEEDLE_LEN = 20
+#def THREAD_NAME_UPDATED_EVENT_NEEDLE_LEN = 26
+#def THREAD_GOAL_CLEARED_EVENT_NEEDLE_LEN = 26
+#def THREAD_ARCHIVE_THREAD_NEEDLE_LEN = 27
+#def THREAD_STATUS_IDLE_NEEDLE_LEN = 24
+#def THREAD_NAME_NULL_NEEDLE_LEN = 11
+#def THREAD_MODEL_NEEDLE_LEN = 15
+#def THREAD_CWD_NEEDLE_LEN = 12
+#def THREAD_RESUME_MODEL_NEEDLE_LEN = 22
+#def THREAD_RESUME_PROVIDER_NEEDLE_LEN = 27
+#def THREAD_RESUME_CWD_NEEDLE_LEN = 23
+#def THREAD_RESUME_SERVICE_NEEDLE_LEN = 18
+#def THREAD_RESUME_INSTRUCTIONS_NEEDLE_LEN = 23
+#def THREAD_RESUME_APPROVAL_NEEDLE_LEN = 24
+#def THREAD_RESUME_REVIEWER_NEEDLE_LEN = 26
+#def THREAD_RESUME_SANDBOX_NEEDLE_LEN = 30
+#def THREAD_RESUME_THREAD_ID_NEEDLE_LEN = 30
+#def THREAD_RESUME_SESSION_ID_NEEDLE_LEN = 27
+#def THREAD_RESUME_TURNS_NEEDLE_LEN = 18
+#def THREAD_RESUME_TURN_MODE_NEEDLE_LEN = 30
+#def THREAD_RESUME_TURN_ITEMS_NEEDLE_LEN = 64
+#def THREAD_INJECT_THREAD_NEEDLE_LEN = 26
+#def THREAD_INJECT_COUNT_NEEDLE_LEN = 17
+#def THREAD_INJECT_STARTED_EVENT_LEN = 19
+#def THREAD_INJECT_RAW_EVENT_LEN = 32
+#def THREAD_INJECT_COMPLETED_EVENT_LEN = 21
+#def THREAD_INJECT_TURN_NEEDLE_LEN = 12
+#def THREAD_INJECT_CONTENT_NEEDLE_LEN = 20
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@assert_buffer_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    found = sge idx, 0
+    call @assert_contract(found, code)
+    !found
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@test "thread rollback numTurns parser accepts Deno numeric params"():
+L_ENTRY:
+    numeric = call @rpc_extract_u64_after(&THREAD_ROLLBACK_NUMERIC_BODY, THREAD_ROLLBACK_NUMERIC_BODY_LEN, &JSON_KEY_NUM_TURNS, JSON_KEY_NUM_TURNS_LEN, 1)
+    numeric_ok = eq numeric, 2
+    call @assert_contract(numeric_ok, 800)
+
+    string_value = call @rpc_extract_u64_after(&THREAD_ROLLBACK_STRING_BODY, THREAD_ROLLBACK_STRING_BODY_LEN, &JSON_KEY_NUM_TURNS, JSON_KEY_NUM_TURNS_LEN, 1)
+    string_ok = eq string_value, 2
+    call @assert_contract(string_ok, 801)
+
+    missing = call @rpc_extract_u64_after(&THREAD_ROLLBACK_MISSING_BODY, THREAD_ROLLBACK_MISSING_BODY_LEN, &JSON_KEY_NUM_TURNS, JSON_KEY_NUM_TURNS_LEN, 1)
+    missing_default = eq missing, 1
+    call @assert_contract(missing_default, 802)
+
+    !missing
+    !missing_default
+    !string_value
+    !string_ok
+    !numeric
+    !numeric_ok
+    return
+
+@test "thread rollback removes the last N turns and preserves earlier turns"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 810)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_ROLLBACK_KEY, THREAD_ROLLBACK_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 811)
+    turn1 = call @state_turn_create(&state, thread_id)
+    turn2 = call @state_turn_create(&state, thread_id)
+    turn3 = call @state_turn_create(&state, thread_id)
+    turns_ok1 = ugt turn1, 0
+    turns_ok2 = ugt turn2, 0
+    turns_ok3 = ugt turn3, 0
+    turns_ok = and turns_ok1, turns_ok2
+    turns_ok = and turns_ok, turns_ok3
+    call @assert_contract(turns_ok, 812)
+
+    rollback_status = call @state_turn_rollback(&state, thread_id, 2)
+    rollback_ok = eq rollback_status, 0
+    call @assert_contract(rollback_ok, 813)
+    slot1 = call @state_turn_find(&state, thread_id, turn1)
+    slot2 = call @state_turn_find(&state, thread_id, turn2)
+    slot3 = call @state_turn_find(&state, thread_id, turn3)
+    first_kept = ne slot1, 0
+    second_removed = eq slot2, 0
+    third_removed = eq slot3, 0
+    result_ok = and first_kept, second_removed
+    result_ok = and result_ok, third_removed
+    call @assert_contract(result_ok, 814)
+
+    !result_ok
+    !third_removed
+    !second_removed
+    !first_kept
+    !slot3
+    !slot2
+    !slot1
+    !rollback_status
+    !rollback_ok
+    !turn3
+    !turn2
+    !turn1
+    !turns_ok3
+    !turns_ok2
+    !turns_ok1
+    !turns_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread rollback zero keeps all turns like Deno"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 820)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_ROLLBACK_KEY, THREAD_ROLLBACK_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 821)
+    turn1 = call @state_turn_create(&state, thread_id)
+    turn2 = call @state_turn_create(&state, thread_id)
+    rollback_status = call @state_turn_rollback(&state, thread_id, 0)
+    rollback_ok = eq rollback_status, 0
+    call @assert_contract(rollback_ok, 822)
+    slot1 = call @state_turn_find(&state, thread_id, turn1)
+    slot2 = call @state_turn_find(&state, thread_id, turn2)
+    kept1 = ne slot1, 0
+    kept2 = ne slot2, 0
+    both_kept = and kept1, kept2
+    call @assert_contract(both_kept, 823)
+
+    !both_kept
+    !kept2
+    !kept1
+    !slot2
+    !slot1
+    !rollback_status
+    !rollback_ok
+    !turn2
+    !turn1
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread rollback count exceeding active turns clears all turns"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 830)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_ROLLBACK_KEY, THREAD_ROLLBACK_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 831)
+    turn1 = call @state_turn_create(&state, thread_id)
+    turn2 = call @state_turn_create(&state, thread_id)
+    rollback_status = call @state_turn_rollback(&state, thread_id, 99)
+    rollback_ok = eq rollback_status, 0
+    call @assert_contract(rollback_ok, 832)
+    slot1 = call @state_turn_find(&state, thread_id, turn1)
+    slot2 = call @state_turn_find(&state, thread_id, turn2)
+    removed1 = eq slot1, 0
+    removed2 = eq slot2, 0
+    all_removed = and removed1, removed2
+    call @assert_contract(all_removed, 833)
+
+    !all_removed
+    !removed2
+    !removed1
+    !slot2
+    !slot1
+    !rollback_status
+    !rollback_ok
+    !turn2
+    !turn1
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread rollback missing thread returns not found"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 840)
+
+    rollback_status = call @state_turn_rollback(&state, 99999, 1)
+    not_found = eq rollback_status, 1
+    call @assert_contract(not_found, 841)
+
+    !not_found
+    !rollback_status
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread archive and unarchive update active list like Deno lifecycle"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 845)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_ARCHIVE_KEY, THREAD_ARCHIVE_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 846)
+
+    ids = stack_alloc 64
+    count_slot = stack_alloc 8
+    list_status = call @state_thread_list_active(&state, &ids, &count_slot)
+    list_ok = eq list_status, 0
+    call @assert_contract(list_ok, 847)
+    count_before = load count_slot+0 as u64
+    before_ok = eq count_before, 1
+    call @assert_contract(before_ok, 848)
+
+    archive_status = call @state_thread_archive(&state, thread_id)
+    archive_ok = eq archive_status, 0
+    call @assert_contract(archive_ok, 849)
+    list_status2 = call @state_thread_list_active(&state, &ids, &count_slot)
+    list2_ok = eq list_status2, 0
+    call @assert_contract(list2_ok, 850)
+    count_archived = load count_slot+0 as u64
+    archived_hidden = eq count_archived, 0
+    call @assert_contract(archived_hidden, 851)
+
+    unarchive_status = call @state_thread_unarchive(&state, thread_id)
+    unarchive_ok = eq unarchive_status, 0
+    call @assert_contract(unarchive_ok, 852)
+    list_status3 = call @state_thread_list_active(&state, &ids, &count_slot)
+    list3_ok = eq list_status3, 0
+    call @assert_contract(list3_ok, 853)
+    count_unarchived = load count_slot+0 as u64
+    unarchived_visible = eq count_unarchived, 1
+    call @assert_contract(unarchived_visible, 854)
+
+    !count_unarchived
+    !unarchived_visible
+    !list_status3
+    !list3_ok
+    !unarchive_status
+    !unarchive_ok
+    !count_archived
+    !archived_hidden
+    !list_status2
+    !list2_ok
+    !archive_status
+    !archive_ok
+    !count_before
+    !before_ok
+    !list_status
+    !list_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread started event includes Deno thread object with external id"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 877)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_ARCHIVE_KEY, THREAD_ARCHIVE_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 878)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    notify_status = call @notify_thread_started_with_values(&state, thread_id, 0, &THREAD_PROVIDER, THREAD_PROVIDER_LEN, 0, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    notify_ok = eq notify_status, 0
+    call @assert_contract(notify_ok, 879)
+
+    frame = stack_alloc 2048
+    len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    read_ok = eq read_status, 1
+    call @assert_contract(read_ok, 880)
+    frame_len = load len_slot+0 as u64
+
+    event_idx = call @sa_bytes_find(&frame, frame_len, &THREAD_STARTED_EVENT_NEEDLE, THREAD_STARTED_EVENT_NEEDLE_LEN)
+    has_event = sge event_idx, 0
+    call @assert_contract(has_event, 881)
+    id_idx = call @sa_bytes_find(&frame, frame_len, &THREAD_STARTED_ID_NEEDLE, THREAD_STARTED_ID_NEEDLE_LEN)
+    has_id = sge id_idx, 0
+    call @assert_contract(has_id, 882)
+    session_idx = call @sa_bytes_find(&frame, frame_len, &THREAD_STARTED_SESSION_NEEDLE, THREAD_STARTED_SESSION_NEEDLE_LEN)
+    has_session = sge session_idx, 0
+    call @assert_contract(has_session, 883)
+    provider_idx = call @sa_bytes_find(&frame, frame_len, &THREAD_PROVIDER_NEEDLE, THREAD_PROVIDER_NEEDLE_LEN)
+    has_provider = sge provider_idx, 0
+    call @assert_contract(has_provider, 884)
+    model_idx = call @sa_bytes_find(&frame, frame_len, &THREAD_MODEL_NEEDLE, THREAD_MODEL_NEEDLE_LEN)
+    has_model = sge model_idx, 0
+    call @assert_contract(has_model, 885)
+    cwd_idx = call @sa_bytes_find(&frame, frame_len, &THREAD_CWD_NEEDLE, THREAD_CWD_NEEDLE_LEN)
+    has_cwd = sge cwd_idx, 0
+    call @assert_contract(has_cwd, 886)
+    turns_idx = call @sa_bytes_find(&frame, frame_len, &THREAD_TURNS_EMPTY_NEEDLE, THREAD_TURNS_EMPTY_NEEDLE_LEN)
+    has_turns = sge turns_idx, 0
+    call @assert_contract(has_turns, 887)
+
+    !turns_idx
+    !has_turns
+    !cwd_idx
+    !has_cwd
+    !model_idx
+    !has_model
+    !provider_idx
+    !has_provider
+    !session_idx
+    !has_session
+    !id_idx
+    !has_id
+    !event_idx
+    !has_event
+    !frame_len
+    !read_status
+    !read_ok
+    !notify_status
+    !notify_ok
+    !cursor
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread lifecycle events use external id and Deno payload shapes"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 1180)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_ARCHIVE_KEY, THREAD_ARCHIVE_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 1181)
+
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+
+    status_notify = call @notify_thread_status_idle(&state, thread_id)
+    status_ok = eq status_notify, 0
+    call @assert_contract(status_ok, 1182)
+    name_notify = call @notify_thread_name_updated(&state, thread_id, &THREAD_NAME, THREAD_NAME_LEN, 1)
+    name_ok = eq name_notify, 0
+    call @assert_contract(name_ok, 1183)
+    name_clear_notify = call @notify_thread_name_updated(&state, thread_id, &RPC_SESSION_EMPTY_TEXT, RPC_SESSION_EMPTY_TEXT_LEN, 0)
+    name_clear_ok = eq name_clear_notify, 0
+    call @assert_contract(name_clear_ok, 1184)
+    archive_notify = call @notify_thread_id_only(&state, &RPC_SESSION_EV_THREAD_ARCHIVED, RPC_SESSION_EV_THREAD_ARCHIVED_LEN, thread_id)
+    archive_ok = eq archive_notify, 0
+    call @assert_contract(archive_ok, 1185)
+    closed_notify = call @notify_thread_id_only(&state, &RPC_SESSION_EV_THREAD_CLOSED, RPC_SESSION_EV_THREAD_CLOSED_LEN, thread_id)
+    closed_ok = eq closed_notify, 0
+    call @assert_contract(closed_ok, 1186)
+    unarchive_notify = call @notify_thread_id_only(&state, &RPC_SESSION_EV_THREAD_UNARCHIVED, RPC_SESSION_EV_THREAD_UNARCHIVED_LEN, thread_id)
+    unarchive_ok = eq unarchive_notify, 0
+    call @assert_contract(unarchive_ok, 1187)
+    goal_clear_notify = call @notify_thread_id_string(&state, &RPC_SESSION_JSON_VALUE_THREAD_GOAL_CLEARED, RPC_SESSION_JSON_VALUE_THREAD_GOAL_CLEARED_LEN, &THREAD_ARCHIVE_KEY, THREAD_ARCHIVE_KEY_LEN)
+    goal_clear_ok = eq goal_clear_notify, 0
+    call @assert_contract(goal_clear_ok, 1188)
+
+    frame = stack_alloc 2048
+    len_slot = stack_alloc 8
+
+    status_read = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    status_read_ok = eq status_read, 1
+    call @assert_contract(status_read_ok, 1189)
+    status_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&frame, status_len, &THREAD_STATUS_EVENT_NEEDLE, THREAD_STATUS_EVENT_NEEDLE_LEN, 1190)
+    call @assert_buffer_contains(&frame, status_len, &THREAD_ARCHIVE_THREAD_NEEDLE, THREAD_ARCHIVE_THREAD_NEEDLE_LEN, 1191)
+    call @assert_buffer_contains(&frame, status_len, &THREAD_STATUS_IDLE_NEEDLE, THREAD_STATUS_IDLE_NEEDLE_LEN, 1192)
+
+    name_read = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    name_read_ok = eq name_read, 1
+    call @assert_contract(name_read_ok, 1193)
+    name_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&frame, name_len, &THREAD_NAME_UPDATED_EVENT_NEEDLE, THREAD_NAME_UPDATED_EVENT_NEEDLE_LEN, 1194)
+    call @assert_buffer_contains(&frame, name_len, &THREAD_ARCHIVE_THREAD_NEEDLE, THREAD_ARCHIVE_THREAD_NEEDLE_LEN, 1195)
+    call @assert_buffer_contains(&frame, name_len, &THREAD_NAME_NEEDLE, THREAD_NAME_NEEDLE_LEN, 1196)
+
+    name_clear_read = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    name_clear_read_ok = eq name_clear_read, 1
+    call @assert_contract(name_clear_read_ok, 1197)
+    name_clear_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&frame, name_clear_len, &THREAD_NAME_UPDATED_EVENT_NEEDLE, THREAD_NAME_UPDATED_EVENT_NEEDLE_LEN, 1198)
+    call @assert_buffer_contains(&frame, name_clear_len, &THREAD_ARCHIVE_THREAD_NEEDLE, THREAD_ARCHIVE_THREAD_NEEDLE_LEN, 1199)
+    call @assert_buffer_contains(&frame, name_clear_len, &THREAD_NAME_NULL_NEEDLE, THREAD_NAME_NULL_NEEDLE_LEN, 1200)
+
+    archive_read = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    archive_read_ok = eq archive_read, 1
+    call @assert_contract(archive_read_ok, 1201)
+    archive_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&frame, archive_len, &THREAD_ARCHIVED_EVENT_NEEDLE, THREAD_ARCHIVED_EVENT_NEEDLE_LEN, 1202)
+    call @assert_buffer_contains(&frame, archive_len, &THREAD_ARCHIVE_THREAD_NEEDLE, THREAD_ARCHIVE_THREAD_NEEDLE_LEN, 1203)
+
+    closed_read = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    closed_read_ok = eq closed_read, 1
+    call @assert_contract(closed_read_ok, 1204)
+    closed_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&frame, closed_len, &THREAD_CLOSED_EVENT_NEEDLE, THREAD_CLOSED_EVENT_NEEDLE_LEN, 1205)
+    call @assert_buffer_contains(&frame, closed_len, &THREAD_ARCHIVE_THREAD_NEEDLE, THREAD_ARCHIVE_THREAD_NEEDLE_LEN, 1206)
+
+    unarchive_read = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    unarchive_read_ok = eq unarchive_read, 1
+    call @assert_contract(unarchive_read_ok, 1207)
+    unarchive_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&frame, unarchive_len, &THREAD_UNARCHIVED_EVENT_NEEDLE, THREAD_UNARCHIVED_EVENT_NEEDLE_LEN, 1208)
+    call @assert_buffer_contains(&frame, unarchive_len, &THREAD_ARCHIVE_THREAD_NEEDLE, THREAD_ARCHIVE_THREAD_NEEDLE_LEN, 1209)
+
+    goal_clear_read = call @state_notify_read(&state, &cursor_slot, &frame, 2048, &len_slot)
+    goal_clear_read_ok = eq goal_clear_read, 1
+    call @assert_contract(goal_clear_read_ok, 1210)
+    goal_clear_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&frame, goal_clear_len, &THREAD_GOAL_CLEARED_EVENT_NEEDLE, THREAD_GOAL_CLEARED_EVENT_NEEDLE_LEN, 1211)
+    call @assert_buffer_contains(&frame, goal_clear_len, &THREAD_ARCHIVE_THREAD_NEEDLE, THREAD_ARCHIVE_THREAD_NEEDLE_LEN, 1212)
+
+    !goal_clear_len
+    !goal_clear_read_ok
+    !goal_clear_read
+    !unarchive_len
+    !unarchive_read_ok
+    !unarchive_read
+    !closed_len
+    !closed_read_ok
+    !closed_read
+    !archive_len
+    !archive_read_ok
+    !archive_read
+    !name_clear_len
+    !name_clear_read_ok
+    !name_clear_read
+    !name_len
+    !name_read_ok
+    !name_read
+    !status_len
+    !status_read_ok
+    !status_read
+    !goal_clear_notify
+    !goal_clear_ok
+    !unarchive_notify
+    !unarchive_ok
+    !closed_notify
+    !closed_ok
+    !archive_notify
+    !archive_ok
+    !name_clear_notify
+    !name_clear_ok
+    !name_notify
+    !name_ok
+    !status_notify
+    !status_ok
+    !cursor
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread resume writer includes envelope fields and stored turns like Deno"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 888)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_RESUME_KEY, THREAD_RESUME_KEY_LEN, &THREAD_RESUME_MODEL, THREAD_RESUME_MODEL_LEN, &THREAD_RESUME_CWD, THREAD_RESUME_CWD_LEN)
+    thread_ok = eq thread_id, 1
+    call @assert_contract(thread_ok, 889)
+    provider_status = call @state_thread_set_model_provider(&state, thread_id, &THREAD_RESUME_PROVIDER, THREAD_RESUME_PROVIDER_LEN)
+    provider_ok = eq provider_status, 0
+    call @assert_contract(provider_ok, 890)
+    ephemeral_status = call @state_thread_set_ephemeral(&state, thread_id, 0)
+    ephemeral_ok = eq ephemeral_status, 0
+    call @assert_contract(ephemeral_ok, 891)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, 892)
+    mode_status = call @state_turn_set_mode_text(&state, thread_id, turn_id, 2, &THREAD_RESUME_MODE, THREAD_RESUME_MODE_LEN)
+    mode_ok = eq mode_status, 0
+    call @assert_contract(mode_ok, 893)
+    items_status = call @state_turn_set_items(&state, thread_id, turn_id, &THREAD_RESUME_ITEM, THREAD_RESUME_ITEM_LEN)
+    items_ok = eq items_status, 0
+    call @assert_contract(items_ok, 894)
+
+    slot = call @state_thread_find(&state, thread_id)
+    slot_ok = ne slot, 0
+    call @assert_contract(slot_ok, 895)
+    model_ptr = load slot+THR_MODEL_PTR as ptr
+    model_len = load slot+THR_MODEL_LEN as u64
+    provider_ptr = load slot+THR_PROVIDER_PTR as ptr
+    provider_len = load slot+THR_PROVIDER_LEN as u64
+    dir_ptr = load slot+THR_DIR_PTR as ptr
+    dir_len = load slot+THR_DIR_LEN as u64
+    resume_ephemeral = load slot+THR_EPHEMERAL as u8
+    preview_ptr = ptr_add slot, THR_PREVIEW
+    preview_len = load slot+THR_PREVIEW_LEN as u64
+    name_ptr = ptr_add slot, THR_NAME
+    name_len = load slot+THR_NAME_LEN as u64
+    name_set = load slot+THR_NAME_SET as u8
+    forked_from_id = load slot+THR_FORKED_FROM_ID as u64
+
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    prefix_status = call @json_writer_write_thread_envelope_prefix(writer, &THREAD_RESUME_BODY, THREAD_RESUME_BODY_LEN, &model_ptr, model_len, &provider_ptr, provider_len, &dir_ptr, dir_len)
+    thread_status = call @json_writer_write_thread_object_field(writer, &RPC_SESSION_JSON_KEY_THREAD, RPC_SESSION_JSON_KEY_THREAD_LEN, &state, thread_id, forked_from_id, &preview_ptr, preview_len, &provider_ptr, provider_len, resume_ephemeral, &model_ptr, model_len, &dir_ptr, dir_len, &name_ptr, name_len, name_set, 2)
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    data_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_slot, &len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data = load data_slot+0 as ptr
+    len = load len_slot+0 as u64
+    has_data = ne data, 0
+    call @assert_contract(has_data, 896)
+
+    model_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_MODEL_NEEDLE, THREAD_RESUME_MODEL_NEEDLE_LEN)
+    model_found = sge model_idx, 0
+    call @assert_contract(model_found, 897)
+    provider_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_PROVIDER_NEEDLE, THREAD_RESUME_PROVIDER_NEEDLE_LEN)
+    provider_found = sge provider_idx, 0
+    call @assert_contract(provider_found, 898)
+    cwd_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_CWD_NEEDLE, THREAD_RESUME_CWD_NEEDLE_LEN)
+    cwd_found = sge cwd_idx, 0
+    call @assert_contract(cwd_found, 899)
+    service_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_SERVICE_NEEDLE, THREAD_RESUME_SERVICE_NEEDLE_LEN)
+    service_found = sge service_idx, 0
+    call @assert_contract(service_found, 900)
+    instructions_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_INSTRUCTIONS_NEEDLE, THREAD_RESUME_INSTRUCTIONS_NEEDLE_LEN)
+    instructions_found = sge instructions_idx, 0
+    call @assert_contract(instructions_found, 901)
+    approval_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_APPROVAL_NEEDLE, THREAD_RESUME_APPROVAL_NEEDLE_LEN)
+    approval_found = sge approval_idx, 0
+    call @assert_contract(approval_found, 902)
+    reviewer_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_REVIEWER_NEEDLE, THREAD_RESUME_REVIEWER_NEEDLE_LEN)
+    reviewer_found = sge reviewer_idx, 0
+    call @assert_contract(reviewer_found, 903)
+    sandbox_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_SANDBOX_NEEDLE, THREAD_RESUME_SANDBOX_NEEDLE_LEN)
+    sandbox_found = sge sandbox_idx, 0
+    call @assert_contract(sandbox_found, 904)
+    thread_id_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_THREAD_ID_NEEDLE, THREAD_RESUME_THREAD_ID_NEEDLE_LEN)
+    thread_id_found = sge thread_id_idx, 0
+    call @assert_contract(thread_id_found, 905)
+    session_id_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_SESSION_ID_NEEDLE, THREAD_RESUME_SESSION_ID_NEEDLE_LEN)
+    session_id_found = sge session_id_idx, 0
+    call @assert_contract(session_id_found, 906)
+    turns_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_TURNS_NEEDLE, THREAD_RESUME_TURNS_NEEDLE_LEN)
+    turns_found = sge turns_idx, 0
+    call @assert_contract(turns_found, 907)
+    mode_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_TURN_MODE_NEEDLE, THREAD_RESUME_TURN_MODE_NEEDLE_LEN)
+    mode_found = sge mode_idx, 0
+    call @assert_contract(mode_found, 908)
+    items_idx = call @sa_bytes_find(&data, len, &THREAD_RESUME_TURN_ITEMS_NEEDLE, THREAD_RESUME_TURN_ITEMS_NEEDLE_LEN)
+    items_found = sge items_idx, 0
+    call @assert_contract(items_found, 909)
+
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    dispose_ok = eq dispose_status, 0
+    call @assert_contract(dispose_ok, 910)
+
+    !dispose_status
+    !dispose_ok
+    !items_idx
+    !items_found
+    !mode_idx
+    !mode_found
+    !turns_idx
+    !turns_found
+    !session_id_idx
+    !session_id_found
+    !thread_id_idx
+    !thread_id_found
+    !sandbox_idx
+    !sandbox_found
+    !reviewer_idx
+    !reviewer_found
+    !approval_idx
+    !approval_found
+    !instructions_idx
+    !instructions_found
+    !service_idx
+    !service_found
+    !cwd_idx
+    !cwd_found
+    !provider_idx
+    !provider_found
+    !model_idx
+    !model_found
+    !has_data
+    !len
+    !data
+    !buffer
+    !finish_status
+    !end_status
+    !thread_status
+    !prefix_status
+    !begin_status
+    !writer_status
+    !forked_from_id
+    !name_set
+    !name_len
+    !name_ptr
+    !preview_len
+    !preview_ptr
+    !resume_ephemeral
+    !dir_len
+    !dir_ptr
+    !provider_len
+    !provider_ptr
+    !model_len
+    !model_ptr
+    !slot
+    !slot_ok
+    !items_status
+    !items_ok
+    !mode_status
+    !mode_ok
+    !turn_id
+    !turn_ok
+    !ephemeral_status
+    !ephemeral_ok
+    !provider_status
+    !provider_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread inject_items native path stores items and emits lifecycle events"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 911)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_INJECT_KEY, THREAD_INJECT_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = eq thread_id, 1
+    call @assert_contract(thread_ok, 912)
+
+    resolved_tid = call @rpc_resolve_thread_id(&state, &THREAD_INJECT_BODY, THREAD_INJECT_BODY_LEN, 0)
+    resolved_ok = eq resolved_tid, thread_id
+    call @assert_contract(resolved_ok, 913)
+
+    items_ptr_slot = stack_alloc 8
+    items_len_slot = stack_alloc 8
+    items_buffer_slot = stack_alloc 8
+    extract_status = call @rpc_extract_param_array_json(&THREAD_INJECT_BODY, THREAD_INJECT_BODY_LEN, &RPC_SESSION_FB_KEY_ITEMS, RPC_SESSION_FB_KEY_ITEMS_LEN, &items_ptr_slot, &items_len_slot, &items_buffer_slot)
+    extract_ok = eq extract_status, 1
+    call @assert_contract(extract_ok, 914)
+    items_ptr = load items_ptr_slot+0 as ptr
+    items_len = load items_len_slot+0 as u64
+    items_match_raw = call @sa_bytes_eq(&items_ptr, items_len, &THREAD_INJECT_ITEMS, THREAD_INJECT_ITEMS_LEN)
+    items_match = eq items_match_raw, 1
+    call @assert_contract(items_match, 915)
+
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = eq turn_id, 2
+    call @assert_contract(turn_ok, 916)
+    set_status = call @state_turn_set_items(&state, thread_id, turn_id, &items_ptr, items_len)
+    set_ok = eq set_status, 0
+    call @assert_contract(set_ok, 917)
+    turn_slot = call @state_turn_find(&state, thread_id, turn_id)
+    turn_slot_ok = ne turn_slot, 0
+    call @assert_contract(turn_slot_ok, 918)
+    stored_items_ptr = ptr_add turn_slot, TURN_ITEMS
+    stored_items_len = load turn_slot+TURN_ITEMS_LEN as u64
+    stored_match_raw = call @sa_bytes_eq(&stored_items_ptr, stored_items_len, &THREAD_INJECT_ITEMS, THREAD_INJECT_ITEMS_LEN)
+    stored_match = eq stored_match_raw, 1
+    call @assert_contract(stored_match, 919)
+
+    items_buffer = load items_buffer_slot+0 as ptr
+    has_items_buffer = ne items_buffer, 0
+    br has_items_buffer -> L_INJECT_TEST_FREE_ITEMS_BUFFER, L_INJECT_TEST_NO_ITEMS_BUFFER
+
+L_INJECT_TEST_FREE_ITEMS_BUFFER:
+    !has_items_buffer
+    free_status = call @json_buffer_dispose(items_buffer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 920)
+    !free_status
+    !free_ok
+    jmp L_INJECT_TEST_AFTER_BUFFER
+
+L_INJECT_TEST_NO_ITEMS_BUFFER:
+    !has_items_buffer
+    jmp L_INJECT_TEST_AFTER_BUFFER
+
+L_INJECT_TEST_AFTER_BUFFER:
+    cursor = call @state_notify_cursor(&state)
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, cursor as u64
+    injected_count = call @notify_injected_items_from_dom(&state, &THREAD_INJECT_BODY, THREAD_INJECT_BODY_LEN, thread_id, turn_id)
+    injected_ok = eq injected_count, 1
+    call @assert_contract(injected_ok, 921)
+
+    response_buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED response_writer_status, response_writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT response_begin_status, response_writer
+    response_thread_status = call @json_writer_field_thread_id_string(response_writer, &RPC_SESSION_JSON_KEY_THREAD_ID, RPC_SESSION_JSON_KEY_THREAD_ID_LEN, &state, thread_id)
+    injected_i64 = bitcast injected_count as i64
+    response_count_status = call @sa_json_writer_field_i64(response_writer, &RPC_SESSION_JSON_KEY_INJECTED_COUNT, RPC_SESSION_JSON_KEY_INJECTED_COUNT_LEN, injected_i64)
+    EXPAND JSON_WRITER_END_OBJECT response_end_status, response_writer
+    response_data_slot = stack_alloc 8
+    response_len_slot = stack_alloc 8
+    response_finish_status = call @json_writer_finish_view(response_writer, &response_buffer_slot, &response_data_slot, &response_len_slot)
+    response_buffer = load response_buffer_slot+0 as ptr
+    response_data = load response_data_slot+0 as ptr
+    response_len = load response_len_slot+0 as u64
+    response_thread_idx = call @sa_bytes_find(&response_data, response_len, &THREAD_INJECT_THREAD_NEEDLE, THREAD_INJECT_THREAD_NEEDLE_LEN)
+    response_has_thread = sge response_thread_idx, 0
+    call @assert_contract(response_has_thread, 922)
+    response_count_idx = call @sa_bytes_find(&response_data, response_len, &THREAD_INJECT_COUNT_NEEDLE, THREAD_INJECT_COUNT_NEEDLE_LEN)
+    response_has_count = sge response_count_idx, 0
+    call @assert_contract(response_has_count, 923)
+    response_dispose_status = call @json_writer_dispose_finished(response_buffer, response_writer)
+    response_dispose_ok = eq response_dispose_status, 0
+    call @assert_contract(response_dispose_ok, 924)
+
+    start_frame = stack_alloc 2048
+    start_len_slot = stack_alloc 8
+    start_read = call @state_notify_read(&state, &cursor_slot, &start_frame, 2048, &start_len_slot)
+    start_read_ok = eq start_read, 1
+    call @assert_contract(start_read_ok, 925)
+    start_len = load start_len_slot+0 as u64
+    start_event_idx = call @sa_bytes_find(&start_frame, start_len, &THREAD_INJECT_STARTED_EVENT, THREAD_INJECT_STARTED_EVENT_LEN)
+    start_event_ok = sge start_event_idx, 0
+    call @assert_contract(start_event_ok, 926)
+    start_thread_idx = call @sa_bytes_find(&start_frame, start_len, &THREAD_INJECT_THREAD_NEEDLE, THREAD_INJECT_THREAD_NEEDLE_LEN)
+    start_thread_ok = sge start_thread_idx, 0
+    call @assert_contract(start_thread_ok, 927)
+    start_turn_idx = call @sa_bytes_find(&start_frame, start_len, &THREAD_INJECT_TURN_NEEDLE, THREAD_INJECT_TURN_NEEDLE_LEN)
+    start_turn_ok = sge start_turn_idx, 0
+    call @assert_contract(start_turn_ok, 928)
+    start_content_idx = call @sa_bytes_find(&start_frame, start_len, &THREAD_INJECT_CONTENT_NEEDLE, THREAD_INJECT_CONTENT_NEEDLE_LEN)
+    start_content_ok = sge start_content_idx, 0
+    call @assert_contract(start_content_ok, 929)
+
+    raw_frame = stack_alloc 2048
+    raw_len_slot = stack_alloc 8
+    raw_read = call @state_notify_read(&state, &cursor_slot, &raw_frame, 2048, &raw_len_slot)
+    raw_read_ok = eq raw_read, 1
+    call @assert_contract(raw_read_ok, 930)
+    raw_len = load raw_len_slot+0 as u64
+    raw_event_idx = call @sa_bytes_find(&raw_frame, raw_len, &THREAD_INJECT_RAW_EVENT, THREAD_INJECT_RAW_EVENT_LEN)
+    raw_event_ok = sge raw_event_idx, 0
+    call @assert_contract(raw_event_ok, 931)
+    raw_content_idx = call @sa_bytes_find(&raw_frame, raw_len, &THREAD_INJECT_CONTENT_NEEDLE, THREAD_INJECT_CONTENT_NEEDLE_LEN)
+    raw_content_ok = sge raw_content_idx, 0
+    call @assert_contract(raw_content_ok, 932)
+
+    complete_frame = stack_alloc 2048
+    complete_len_slot = stack_alloc 8
+    complete_read = call @state_notify_read(&state, &cursor_slot, &complete_frame, 2048, &complete_len_slot)
+    complete_read_ok = eq complete_read, 1
+    call @assert_contract(complete_read_ok, 933)
+    complete_len = load complete_len_slot+0 as u64
+    complete_event_idx = call @sa_bytes_find(&complete_frame, complete_len, &THREAD_INJECT_COMPLETED_EVENT, THREAD_INJECT_COMPLETED_EVENT_LEN)
+    complete_event_ok = sge complete_event_idx, 0
+    call @assert_contract(complete_event_ok, 934)
+    complete_content_idx = call @sa_bytes_find(&complete_frame, complete_len, &THREAD_INJECT_CONTENT_NEEDLE, THREAD_INJECT_CONTENT_NEEDLE_LEN)
+    complete_content_ok = sge complete_content_idx, 0
+    call @assert_contract(complete_content_ok, 935)
+
+    !complete_content_ok
+    !complete_content_idx
+    !complete_event_ok
+    !complete_event_idx
+    !complete_len
+    !complete_read
+    !complete_read_ok
+    !raw_content_ok
+    !raw_content_idx
+    !raw_event_ok
+    !raw_event_idx
+    !raw_len
+    !raw_read
+    !raw_read_ok
+    !start_content_ok
+    !start_content_idx
+    !start_turn_ok
+    !start_turn_idx
+    !start_thread_ok
+    !start_thread_idx
+    !start_event_ok
+    !start_event_idx
+    !start_len
+    !start_read
+    !start_read_ok
+    !response_dispose_status
+    !response_dispose_ok
+    !response_count_idx
+    !response_has_count
+    !response_thread_idx
+    !response_has_thread
+    !response_len
+    !response_data
+    !response_buffer
+    !response_finish_status
+    !response_end_status
+    !response_count_status
+    !injected_i64
+    !response_thread_status
+    !response_begin_status
+    !response_writer_status
+    !injected_count
+    !injected_ok
+    !cursor
+    !items_buffer
+    !stored_match
+    !stored_match_raw
+    !stored_items_len
+    !stored_items_ptr
+    !turn_slot
+    !turn_slot_ok
+    !set_status
+    !set_ok
+    !turn_id
+    !turn_ok
+    !items_match_raw
+    !items_match
+    !items_len
+    !items_ptr
+    !extract_status
+    !extract_ok
+    !resolved_tid
+    !resolved_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "thread object writer preserves fork parent git info name and provider"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 855)
+
+    source_tid = call @state_thread_create_with_key(&state, &THREAD_FORK_SOURCE_KEY, THREAD_FORK_SOURCE_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    source_ok = ugt source_tid, 0
+    call @assert_contract(source_ok, 856)
+    child_tid = call @state_thread_create_with_key(&state, &THREAD_FORK_CHILD_KEY, THREAD_FORK_CHILD_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    child_ok = ugt child_tid, 0
+    call @assert_contract(child_ok, 857)
+
+    source_git_status = call @state_thread_set_git_info(&state, source_tid, &THREAD_GIT_INFO, THREAD_GIT_INFO_LEN)
+    source_git_ok = eq source_git_status, 0
+    call @assert_contract(source_git_ok, 858)
+    copy_git_status = call @state_thread_copy_git_info(&state, source_tid, child_tid)
+    copy_git_ok = eq copy_git_status, 0
+    call @assert_contract(copy_git_ok, 859)
+    provider_status = call @state_thread_set_model_provider(&state, child_tid, &THREAD_PROVIDER, THREAD_PROVIDER_LEN)
+    provider_ok = eq provider_status, 0
+    call @assert_contract(provider_ok, 860)
+    preview_status = call @state_thread_set_preview(&state, child_tid, &THREAD_PREVIEW, THREAD_PREVIEW_LEN)
+    preview_ok = eq preview_status, 0
+    call @assert_contract(preview_ok, 861)
+    name_status = call @state_thread_set_name(&state, child_tid, &THREAD_NAME, THREAD_NAME_LEN)
+    name_ok = eq name_status, 0
+    call @assert_contract(name_ok, 862)
+    ephemeral_status = call @state_thread_set_ephemeral(&state, child_tid, 1)
+    ephemeral_ok = eq ephemeral_status, 0
+    call @assert_contract(ephemeral_ok, 863)
+
+    child_slot = call @state_thread_find(&state, child_tid)
+    has_child_slot = ne child_slot, 0
+    call @assert_contract(has_child_slot, 864)
+    store child_slot+THR_FORKED_FROM_ID, source_tid as u64
+    child_name_ptr = ptr_add child_slot, THR_NAME
+    child_name_len = load child_slot+THR_NAME_LEN as u64
+    child_name_set = load child_slot+THR_NAME_SET as u8
+
+    buffer_slot = stack_alloc 8
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_thread_object(writer, &state, child_tid, source_tid, &THREAD_PREVIEW, THREAD_PREVIEW_LEN, &THREAD_PROVIDER, THREAD_PROVIDER_LEN, 1, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN, &child_name_ptr, child_name_len, child_name_set, 1)
+    finish_ptr_slot = stack_alloc 8
+    finish_len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &finish_ptr_slot, &finish_len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data = load finish_ptr_slot+0 as ptr
+    len = load finish_len_slot+0 as u64
+    has_data = ne data, 0
+    call @assert_contract(has_data, 865)
+    has_len = ugt len, 0
+    call @assert_contract(has_len, 866)
+
+    parent_idx = call @sa_bytes_find(&data, len, &THREAD_FORK_PARENT_NEEDLE, THREAD_FORK_PARENT_NEEDLE_LEN)
+    has_parent = sge parent_idx, 0
+    call @assert_contract(has_parent, 867)
+    id_idx = call @sa_bytes_find(&data, len, &THREAD_ID_NEEDLE, THREAD_ID_NEEDLE_LEN)
+    has_id = sge id_idx, 0
+    call @assert_contract(has_id, 875)
+    session_id_idx = call @sa_bytes_find(&data, len, &THREAD_SESSION_ID_NEEDLE, THREAD_SESSION_ID_NEEDLE_LEN)
+    has_session_id = sge session_id_idx, 0
+    call @assert_contract(has_session_id, 876)
+    name_idx = call @sa_bytes_find(&data, len, &THREAD_NAME_NEEDLE, THREAD_NAME_NEEDLE_LEN)
+    has_name = sge name_idx, 0
+    call @assert_contract(has_name, 868)
+    branch_idx = call @sa_bytes_find(&data, len, &THREAD_GIT_BRANCH_NEEDLE, THREAD_GIT_BRANCH_NEEDLE_LEN)
+    has_branch = sge branch_idx, 0
+    call @assert_contract(has_branch, 869)
+    commit_idx = call @sa_bytes_find(&data, len, &THREAD_GIT_COMMIT_NEEDLE, THREAD_GIT_COMMIT_NEEDLE_LEN)
+    has_commit = sge commit_idx, 0
+    call @assert_contract(has_commit, 870)
+    ephemeral_idx = call @sa_bytes_find(&data, len, &THREAD_EPHEMERAL_NEEDLE, THREAD_EPHEMERAL_NEEDLE_LEN)
+    has_ephemeral = sge ephemeral_idx, 0
+    call @assert_contract(has_ephemeral, 871)
+    provider_idx = call @sa_bytes_find(&data, len, &THREAD_PROVIDER_NEEDLE, THREAD_PROVIDER_NEEDLE_LEN)
+    has_provider = sge provider_idx, 0
+    call @assert_contract(has_provider, 872)
+    turns_idx = call @sa_bytes_find(&data, len, &THREAD_TURNS_EMPTY_NEEDLE, THREAD_TURNS_EMPTY_NEEDLE_LEN)
+    has_turns = sge turns_idx, 0
+    call @assert_contract(has_turns, 873)
+
+    dispose_status = call @json_writer_dispose_finished(buffer, writer)
+    dispose_ok = eq dispose_status, 0
+    call @assert_contract(dispose_ok, 874)
+
+    !dispose_status
+    !dispose_ok
+    !turns_idx
+    !has_turns
+    !session_id_idx
+    !has_session_id
+    !id_idx
+    !has_id
+    !provider_idx
+    !has_provider
+    !ephemeral_idx
+    !has_ephemeral
+    !commit_idx
+    !has_commit
+    !branch_idx
+    !has_branch
+    !name_idx
+    !has_name
+    !parent_idx
+    !has_parent
+    !buffer
+    !finish_status
+    !write_status
+    !writer_status
+    !child_name_ptr
+    !child_name_len
+    !child_name_set
+    !child_slot
+    !has_child_slot
+    !ephemeral_status
+    !ephemeral_ok
+    !name_status
+    !name_ok
+    !preview_status
+    !preview_ok
+    !provider_status
+    !provider_ok
+    !copy_git_status
+    !copy_git_ok
+    !source_git_status
+    !source_git_ok
+    !child_tid
+    !child_ok
+    !source_tid
+    !source_ok
+    !init_status
+    !init_ok
+    !state
+    return
+
+@test "memory reset clears runtime state and emits wildcard thread closed"():
+L_ENTRY:
+    state = alloc ST_TOTAL
+    init_status = call @state_init(&state)
+    init_ok = eq init_status, 0
+    call @assert_contract(init_ok, 850)
+
+    thread_id = call @state_thread_create_with_key(&state, &THREAD_ROLLBACK_KEY, THREAD_ROLLBACK_KEY_LEN, &THREAD_MODEL, THREAD_MODEL_LEN, &THREAD_CWD, THREAD_CWD_LEN)
+    thread_ok = ugt thread_id, 0
+    call @assert_contract(thread_ok, 851)
+    turn_id = call @state_turn_create(&state, thread_id)
+    turn_ok = ugt turn_id, 0
+    call @assert_contract(turn_ok, 852)
+    goal_status = call @state_goal_set(&state, thread_id, &THREAD_ROLLBACK_KEY, THREAD_ROLLBACK_KEY_LEN, 0, &THREAD_RESET_OBJECTIVE, 0, 1, -1, &THREAD_RESET_OBJECTIVE, THREAD_RESET_OBJECTIVE_LEN)
+    goal_ok = eq goal_status, 0
+    call @assert_contract(goal_ok, 853)
+    proc_status = call @state_process_put(&state, &THREAD_RESET_PROC, THREAD_RESET_PROC_LEN)
+    proc_ok = eq proc_status, 0
+    call @assert_contract(proc_ok, 854)
+    watch_status = call @state_watch_put(&state, &THREAD_RESET_WATCH, THREAD_RESET_WATCH_LEN)
+    watch_ok = eq watch_status, 0
+    call @assert_contract(watch_ok, 855)
+
+    reset_status = call @state_reset_runtime(&state)
+    reset_ok = eq reset_status, 0
+    call @assert_contract(reset_ok, 856)
+    closed_notify = call @notify_thread_id_string(&state, &RPC_SESSION_EV_THREAD_CLOSED, RPC_SESSION_EV_THREAD_CLOSED_LEN, &RPC_SESSION_J_THREAD_ID_ALL, RPC_SESSION_J_THREAD_ID_ALL_LEN)
+    closed_ok = eq closed_notify, 0
+    call @assert_contract(closed_ok, 857)
+
+    reset_thread = call @state_thread_find(&state, thread_id)
+    thread_cleared = eq reset_thread, 0
+    call @assert_contract(thread_cleared, 858)
+    reset_turn = call @state_turn_find(&state, thread_id, turn_id)
+    turn_cleared = eq reset_turn, 0
+    call @assert_contract(turn_cleared, 859)
+    budget_slot = stack_alloc 8
+    used_slot = stack_alloc 8
+    reset_goal = call @state_goal_get(&state, thread_id, &budget_slot, &used_slot)
+    goal_cleared = ne reset_goal, 0
+    call @assert_contract(goal_cleared, 860)
+    proc_deleted = call @state_process_delete(&state, &THREAD_RESET_PROC, THREAD_RESET_PROC_LEN)
+    proc_cleared = eq proc_deleted, 0
+    call @assert_contract(proc_cleared, 861)
+    watch_deleted = call @state_watch_delete(&state, &THREAD_RESET_WATCH, THREAD_RESET_WATCH_LEN)
+    watch_cleared = eq watch_deleted, 0
+    call @assert_contract(watch_cleared, 862)
+
+    cursor_slot = stack_alloc 8
+    store cursor_slot+0, 0 as u64
+    out_frame = stack_alloc 512
+    out_len_slot = stack_alloc 8
+    read_status = call @state_notify_read(&state, &cursor_slot, &out_frame, 512, &out_len_slot)
+    read_ok = eq read_status, 1
+    call @assert_contract(read_ok, 863)
+    out_len = load out_len_slot+0 as u64
+    event_pos = call @sa_bytes_find(&out_frame, out_len, &THREAD_CLOSED_NEEDLE, THREAD_CLOSED_NEEDLE_LEN)
+    has_event = sge event_pos, 0
+    call @assert_contract(has_event, 864)
+    thread_pos = call @sa_bytes_find(&out_frame, out_len, &THREAD_ID_STAR_NEEDLE, THREAD_ID_STAR_NEEDLE_LEN)
+    has_thread_star = sge thread_pos, 0
+    call @assert_contract(has_thread_star, 865)
+
+    !has_thread_star
+    !thread_pos
+    !has_event
+    !event_pos
+    !out_len
+    !read_status
+    !read_ok
+    !watch_deleted
+    !watch_cleared
+    !proc_deleted
+    !proc_cleared
+    !reset_goal
+    !goal_cleared
+    !reset_turn
+    !turn_cleared
+    !reset_thread
+    !thread_cleared
+    !closed_notify
+    !closed_ok
+    !reset_status
+    !reset_ok
+    !watch_status
+    !watch_ok
+    !proc_status
+    !proc_ok
+    !goal_status
+    !goal_ok
+    !turn_id
+    !turn_ok
+    !thread_id
+    !thread_ok
+    !init_status
+    !init_ok
+    !state
+    return

@@ -1,11 +1,20 @@
 // http_dispatch.sai — HTTP request helper surface for SA HubProxy
 
 @extern body_is_blank(&body: ptr, body_len: u64) -> u32
+@extern route_is_public_models_get(&path_ptr: ptr, path_len: u64, is_get: u8) -> u8
+@extern auth_header_matches_token(&hdr_ptr: ptr, hdr_len: u64, &token_ptr: ptr, token_len: u64) -> u8
 @extern check_auth(&req: ptr, &token_ptr: ptr, token_len: u64) -> u8
 @extern scan_chunk_for_tokens(&buf: ptr, len: u64) -> u64
+@extern token_preview_value_owned(&token_ptr: ptr, token_len: u64, &out_len: ptr) -> ^ptr
+@extern build_upstream_auth_header_owned(&api_key_ptr: ptr, api_key_len: u64, &out_len: ptr) -> ^ptr
+@extern build_upstream_url_owned(&base_ptr: ptr, base_len: u64, route_kind: u32, &out_len: ptr) -> ^ptr
+@extern build_upstream_forward_header_plan_owned(&api_key_ptr: ptr, api_key_len: u64, include_content_type: u8, &out_len: ptr) -> ^ptr
 @extern json_writer_field_token_preview(writer: ptr, &key: ptr, key_len: u64, &token_ptr: ptr, token_len: u64) -> u32
+@extern build_auth_failure_log_body_owned(&path_ptr: ptr, path_len: u64, &auth_ptr: ptr, auth_len: u64, &xkey_ptr: ptr, xkey_len: u64, &token_ptr: ptr, token_len: u64, &out_len: ptr) -> ^ptr
+@extern write_log_body_to_dir_owned(&log_dir_ptr: ptr, log_dir_len: u64, &body_ptr: ptr, body_len: u64, &out_len: ptr) -> ^ptr
+@extern build_api_request_log_body_owned(&path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &auth_ptr: ptr, auth_len: u64, &xkey_ptr: ptr, xkey_len: u64, &content_type_ptr: ptr, content_type_len: u64, &body_ptr_in: ptr, body_len: u64, &raw_body_ptr_in: ptr, raw_body_len: u64, &out_len: ptr) -> ^ptr
 @extern write_auth_failure_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &token_ptr: ptr, token_len: u64) -> u32
-@extern write_api_request_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &body_ptr_in: ptr, body_len: u64) -> u32
+@extern write_api_request_log(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, &body_ptr_in: ptr, body_len: u64, &raw_body_ptr_in: ptr, raw_body_len: u64) -> u32
 @extern send_builder_response(&req: ptr, ^buf: ptr) -> u32
 @extern handle_models_proxy(&req: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64) -> u32
 @extern handle_chat_proxy(&req: ptr, &state_ptr: ptr, &cfg_ptr: ptr, &path_ptr: ptr, path_len: u64, &method_ptr: ptr, method_len: u64, is_get: u8, is_post: u8) -> u32

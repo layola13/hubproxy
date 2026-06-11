@@ -8,6 +8,7 @@
 @extern body_collaboration_mode_fallback(&body: ptr, body_len: u64) -> u8
 @extern body_allows_progress_continuation(&body: ptr, body_len: u64) -> u32
 @extern build_request_context_body(&body: ptr, body_len: u64, mode: u8, &out_len: ptr) -> ^ptr
+@extern response_request_context_mode_from_ids(&state_ptr: ptr, &thread_ptr: ptr, thread_len: u64, &turn_ptr: ptr, turn_len: u64, &body: ptr, body_len: u64) -> u8
 @extern response_request_context_mode(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64) -> u8
 @extern build_response_request_context_body(&req: ptr, &state_ptr: ptr, &body: ptr, body_len: u64, &out_len: ptr) -> ^ptr
 @extern responses_sse_is_progress_message(&body: ptr, body_len: u64) -> u32

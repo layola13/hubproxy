@@ -7,7 +7,8 @@ sa_dir="sa"
 sa_bin="${sa_dir}/hubproxy"
 env_file=".env"
 port=""
-log_dir=""
+log_dir="logs"
+logs_enabled=1
 
 if [[ -f "$env_file" ]]; then
   port="$(awk -F= '$1=="SA_PORT"{print substr($0, index($0, "=") + 1)}' "$env_file" | tail -n 1 | tr -d '\r')"
@@ -17,6 +18,7 @@ port="${port:-28080}"
 while (($# > 0)); do
   case "$1" in
     --logs)
+      logs_enabled=1
       if (($# > 1)) && [[ ! "$2" =~ ^-- ]]; then
         log_dir="$2"
         shift 2
@@ -26,6 +28,7 @@ while (($# > 0)); do
       fi
       ;;
     --log-dir)
+      logs_enabled=1
       if (($# < 2)); then
         echo "missing value for --log-dir" >&2
         exit 1
@@ -33,9 +36,14 @@ while (($# > 0)); do
       log_dir="$2"
       shift 2
       ;;
+    --no-logs)
+      logs_enabled=0
+      log_dir=""
+      shift
+      ;;
     *)
       echo "unknown argument: $1" >&2
-      echo "usage: $0 [--logs [DIR] | --log-dir DIR]" >&2
+      echo "usage: $0 [--logs [DIR] | --log-dir DIR | --no-logs]" >&2
       exit 1
       ;;
   esac
@@ -45,6 +53,11 @@ if [[ ! -x "$sa_bin" ]]; then
   echo "missing SA binary: $sa_bin" >&2
   echo "build it with: cd $sa_dir && /home/vscode/.sa/bin/sa build main.sa -o hubproxy --json" >&2
   exit 1
+fi
+
+if [[ "$logs_enabled" == "1" && -n "$log_dir" ]]; then
+  mkdir -p "$log_dir"
+  log_dir="$(cd "$log_dir" && pwd)"
 fi
 
 pids=""
@@ -69,10 +82,11 @@ if [[ -n "$pids" ]]; then
   fi
 fi
 
-if [[ -n "$log_dir" ]]; then
+if [[ "$logs_enabled" == "1" && -n "$log_dir" ]]; then
   export HUBPROXY_LOG_DIR="$log_dir"
   mkdir -p "$HUBPROXY_LOG_DIR"
   find "$HUBPROXY_LOG_DIR" -name "*.json" -mtime +1 -delete 2>/dev/null || true
+  echo "[hubproxy] Request logs -> $HUBPROXY_LOG_DIR"
 else
   unset HUBPROXY_LOG_DIR || true
 fi

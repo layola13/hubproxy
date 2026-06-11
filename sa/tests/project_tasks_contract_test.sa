@@ -1,0 +1,92 @@
+// SA native @test coverage for root deno.json task defaults.
+@import "sa_std/fs.sai"
+@import "../src/strings.sa"
+
+@const TASKS_DENO_JSON = utf8:"/home/vscode/projects/hubproxy/deno.json"
+@const TASKS_DEFAULT_DEV = utf8:"\"dev\": \"cd sa && /home/vscode/.sa/bin/sa build main.sa -o hubproxy --json && ../restart_sa.sh\""
+@const TASKS_DEFAULT_START = utf8:"\"start\": \"./restart_sa.sh\""
+@const TASKS_DEFAULT_CHECK = utf8:"\"check\": \"cd sa && /home/vscode/.sa/bin/sa build main.sa -o hubproxy --json\""
+@const TASKS_DENO_DEV = utf8:"\"deno:dev\": \"deno run --watch --allow-net --allow-env --allow-read --allow-write src/main.ts\""
+@const TASKS_DENO_START = utf8:"\"deno:start\": \"deno run --allow-net --allow-env --allow-read --allow-write src/main.ts\""
+@const TASKS_DENO_CHECK = utf8:"\"deno:check\": \"deno check src/main.ts\""
+@const TASKS_BAD_DEFAULT_DEV = utf8:"\"dev\": \"deno"
+@const TASKS_BAD_DEFAULT_START = utf8:"\"start\": \"deno"
+@const TASKS_BAD_DEFAULT_CHECK = utf8:"\"check\": \"deno"
+
+#def TASKS_DENO_JSON_LEN = 40
+#def TASKS_DEFAULT_DEV_LEN = 94
+#def TASKS_DEFAULT_START_LEN = 26
+#def TASKS_DEFAULT_CHECK_LEN = 76
+#def TASKS_DENO_DEV_LEN = 93
+#def TASKS_DENO_START_LEN = 87
+#def TASKS_DENO_CHECK_LEN = 38
+#def TASKS_BAD_DEFAULT_DEV_LEN = 12
+#def TASKS_BAD_DEFAULT_START_LEN = 14
+#def TASKS_BAD_DEFAULT_CHECK_LEN = 14
+
+@assert_task_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@assert_contains(&hay: ptr, hay_len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&hay, hay_len, &needle, needle_len)
+    found = sge idx, 0
+    call @assert_task_contract(found, code)
+    !found
+    !idx
+    return
+
+@assert_not_contains(&hay: ptr, hay_len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&hay, hay_len, &needle, needle_len)
+    missing = slt idx, 0
+    call @assert_task_contract(missing, code)
+    !missing
+    !idx
+    return
+
+@test "default project tasks use SA and Deno tasks stay namespaced"():
+L_ENTRY:
+    buf_slot = stack_alloc 8
+    read_status = call @sa_std_fs_read_file(&TASKS_DENO_JSON, TASKS_DENO_JSON_LEN, 4096, &buf_slot)
+    read_ok = eq read_status, 0
+    call @assert_task_contract(read_ok, 930)
+    buf = load buf_slot+0 as u64
+    buf_ok = ne buf, 0
+    call @assert_task_contract(buf_ok, 941)
+
+    json_ptr = call @sa_fs_read_buffer_data(buf)
+    json_len = call @sa_fs_read_buffer_len(buf)
+
+    call @assert_contains(&json_ptr, json_len, &TASKS_DEFAULT_DEV, TASKS_DEFAULT_DEV_LEN, 931)
+    call @assert_contains(&json_ptr, json_len, &TASKS_DEFAULT_START, TASKS_DEFAULT_START_LEN, 932)
+    call @assert_contains(&json_ptr, json_len, &TASKS_DEFAULT_CHECK, TASKS_DEFAULT_CHECK_LEN, 933)
+    call @assert_contains(&json_ptr, json_len, &TASKS_DENO_DEV, TASKS_DENO_DEV_LEN, 934)
+    call @assert_contains(&json_ptr, json_len, &TASKS_DENO_START, TASKS_DENO_START_LEN, 935)
+    call @assert_contains(&json_ptr, json_len, &TASKS_DENO_CHECK, TASKS_DENO_CHECK_LEN, 936)
+    call @assert_not_contains(&json_ptr, json_len, &TASKS_BAD_DEFAULT_DEV, TASKS_BAD_DEFAULT_DEV_LEN, 937)
+    call @assert_not_contains(&json_ptr, json_len, &TASKS_BAD_DEFAULT_START, TASKS_BAD_DEFAULT_START_LEN, 938)
+    call @assert_not_contains(&json_ptr, json_len, &TASKS_BAD_DEFAULT_CHECK, TASKS_BAD_DEFAULT_CHECK_LEN, 939)
+
+    free_status = call @sa_fs_read_buffer_free(^buf)
+    free_ok = eq free_status, 0
+    call @assert_task_contract(free_ok, 940)
+
+    !free_ok
+    !free_status
+    !json_len
+    !json_ptr
+    !buf_ok
+    !read_ok
+    !read_status
+    return

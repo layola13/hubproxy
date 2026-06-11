@@ -1,0 +1,278 @@
+// SA native @test coverage for Deno-compatible config parsing.
+@import "sa_std/fs.sai"
+@import "../src/config.sa"
+@import "../src/strings.sa"
+
+@const CFG_LINE_SA_PORT = utf8:"SA_PORT=28080"
+@const CFG_LINE_DENO_PORT = utf8:"PORT=9999"
+@const CFG_LINE_BAD_PORT_HIGH = utf8:"PORT=70000"
+@const CFG_LINE_BAD_PORT_ZERO = utf8:"SA_PORT=0"
+@const CFG_LINE_BAD_PORT_TEXT = utf8:"PORT=abc"
+@const CFG_LINE_MODEL_QUOTED = utf8:" DEFAULT_MODEL = 'gpt-test' "
+@const CFG_LINE_HOST_QUOTED = utf8:" HOST = \"127.0.0.1\" "
+@const CFG_LINE_CODEX_AUTH = utf8:" CODEX_SECRET = skip-me "
+@const CFG_EXPECT_MODEL = utf8:"gpt-test"
+@const CFG_EXPECT_HOST = utf8:"127.0.0.1"
+@const CFG_ENV_PATH_GOOD = utf8:"/tmp/hubproxy-config-contract-good.env"
+@const CFG_ENV_PATH_BAD = utf8:"/tmp/hubproxy-config-contract-bad.env"
+@const CFG_ENV_BODY = utf8:"PORT=9999\nCHAT_BASE_URL=http://127.0.0.1:2/v1\nDEFAULT_MODEL='gpt-test'\nOPENAI_API_KEY=sk-test\nDATA_DIR=/tmp\nCODEX_SECRET=skip-me\nHUBPROXY_LOG_DIR=logs\n"
+@const CFG_EXPECT_CHAT = utf8:"http://127.0.0.1:2/v1"
+@const CFG_EXPECT_KEY = utf8:"sk-test"
+@const CFG_EXPECT_LOG = utf8:"logs"
+
+#def CFG_LINE_SA_PORT_LEN = 13
+#def CFG_LINE_DENO_PORT_LEN = 9
+#def CFG_LINE_BAD_PORT_HIGH_LEN = 10
+#def CFG_LINE_BAD_PORT_ZERO_LEN = 9
+#def CFG_LINE_BAD_PORT_TEXT_LEN = 8
+#def CFG_LINE_MODEL_QUOTED_LEN = 28
+#def CFG_LINE_HOST_QUOTED_LEN = 20
+#def CFG_LINE_CODEX_AUTH_LEN = 24
+#def CFG_EXPECT_MODEL_LEN = 8
+#def CFG_EXPECT_HOST_LEN = 9
+#def CFG_ENV_PATH_GOOD_LEN = 38
+#def CFG_ENV_PATH_BAD_LEN = 37
+#def CFG_ENV_BODY_LEN = 151
+#def CFG_EXPECT_CHAT_LEN = 21
+#def CFG_EXPECT_KEY_LEN = 7
+#def CFG_EXPECT_LOG_LEN = 4
+
+@assert_cfg_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@test "config parser keeps SA port and Deno PORT aliases with dotenv trimming"():
+L_ENTRY:
+    cfg = stack_alloc CFG_SIZE
+    zero_status = call @cfg_zero(&cfg)
+    zero_ok = eq zero_status, 0
+    call @assert_cfg_contract(zero_ok, 960)
+    store cfg+CFG_PORT, 8787 as u16
+
+    sa_port_status = call @cfg_parse_line(&cfg, &CFG_LINE_SA_PORT, CFG_LINE_SA_PORT_LEN)
+    sa_port_ok = eq sa_port_status, 0
+    call @assert_cfg_contract(sa_port_ok, 961)
+    sa_port = call @cfg_get_port(&cfg)
+    sa_port_match = eq sa_port, 28080
+    call @assert_cfg_contract(sa_port_match, 962)
+
+    deno_port_status = call @cfg_parse_line(&cfg, &CFG_LINE_DENO_PORT, CFG_LINE_DENO_PORT_LEN)
+    deno_port_ok = eq deno_port_status, 0
+    call @assert_cfg_contract(deno_port_ok, 963)
+    deno_port = call @cfg_get_port(&cfg)
+    deno_port_match = eq deno_port, 9999
+    call @assert_cfg_contract(deno_port_match, 964)
+
+    model_status = call @cfg_parse_line(&cfg, &CFG_LINE_MODEL_QUOTED, CFG_LINE_MODEL_QUOTED_LEN)
+    model_status_ok = eq model_status, 0
+    call @assert_cfg_contract(model_status_ok, 965)
+    model_ptr = load cfg+CFG_MODEL_PTR as ptr
+    model_len = load cfg+CFG_MODEL_LEN as u64
+    model_eq_raw = call @sa_bytes_eq(&model_ptr, model_len, &CFG_EXPECT_MODEL, CFG_EXPECT_MODEL_LEN)
+    model_ok = eq model_eq_raw, 1
+    call @assert_cfg_contract(model_ok, 966)
+
+    host_status = call @cfg_parse_line(&cfg, &CFG_LINE_HOST_QUOTED, CFG_LINE_HOST_QUOTED_LEN)
+    host_status_ok = eq host_status, 0
+    call @assert_cfg_contract(host_status_ok, 967)
+    host_ptr = load cfg+CFG_HOST_PTR as ptr
+    host_len = load cfg+CFG_HOST_LEN as u64
+    host_eq_raw = call @sa_bytes_eq(&host_ptr, host_len, &CFG_EXPECT_HOST, CFG_EXPECT_HOST_LEN)
+    host_ok = eq host_eq_raw, 1
+    call @assert_cfg_contract(host_ok, 968)
+
+    codex_status = call @cfg_parse_line(&cfg, &CFG_LINE_CODEX_AUTH, CFG_LINE_CODEX_AUTH_LEN)
+    codex_status_ok = eq codex_status, 0
+    call @assert_cfg_contract(codex_status_ok, 969)
+    auth_len = load cfg+CFG_AUTH_LEN as u64
+    auth_empty = eq auth_len, 0
+    call @assert_cfg_contract(auth_empty, 970)
+
+    !auth_empty
+    !auth_len
+    !codex_status_ok
+    !codex_status
+    !host_ok
+    !host_eq_raw
+    !host_len
+    !host_ptr
+    !host_status_ok
+    !host_status
+    !model_ok
+    !model_eq_raw
+    !model_len
+    !model_ptr
+    !model_status_ok
+    !model_status
+    !deno_port_match
+    !deno_port
+    !deno_port_ok
+    !deno_port_status
+    !sa_port_match
+    !sa_port
+    !sa_port_ok
+    !sa_port_status
+    !zero_ok
+    !zero_status
+    return
+
+@test "config parser rejects invalid Deno port range instead of truncating"():
+L_ENTRY:
+    cfg = stack_alloc CFG_SIZE
+    zero_status = call @cfg_zero(&cfg)
+    zero_ok = eq zero_status, 0
+    call @assert_cfg_contract(zero_ok, 971)
+    store cfg+CFG_PORT, 8787 as u16
+
+    high_status = call @cfg_parse_line(&cfg, &CFG_LINE_BAD_PORT_HIGH, CFG_LINE_BAD_PORT_HIGH_LEN)
+    high_rejected = ne high_status, 0
+    call @assert_cfg_contract(high_rejected, 972)
+    high_port = call @cfg_get_port(&cfg)
+    high_kept_default = eq high_port, 8787
+    call @assert_cfg_contract(high_kept_default, 973)
+
+    zero_line_status = call @cfg_parse_line(&cfg, &CFG_LINE_BAD_PORT_ZERO, CFG_LINE_BAD_PORT_ZERO_LEN)
+    zero_rejected = ne zero_line_status, 0
+    call @assert_cfg_contract(zero_rejected, 974)
+    zero_port = call @cfg_get_port(&cfg)
+    zero_kept_default = eq zero_port, 8787
+    call @assert_cfg_contract(zero_kept_default, 975)
+
+    text_status = call @cfg_parse_line(&cfg, &CFG_LINE_BAD_PORT_TEXT, CFG_LINE_BAD_PORT_TEXT_LEN)
+    text_rejected = ne text_status, 0
+    call @assert_cfg_contract(text_rejected, 976)
+    text_port = call @cfg_get_port(&cfg)
+    text_kept_default = eq text_port, 8787
+    call @assert_cfg_contract(text_kept_default, 977)
+
+    !text_kept_default
+    !text_port
+    !text_rejected
+    !text_status
+    !zero_kept_default
+    !zero_port
+    !zero_rejected
+    !zero_line_status
+    !high_kept_default
+    !high_port
+    !high_rejected
+    !high_status
+    !zero_ok
+    !zero_status
+    return
+
+@test "config load accepts Deno PORT and missing responses base like Deno"():
+L_ENTRY:
+    write_status = call @sa_fs_write_file(&CFG_ENV_PATH_GOOD, CFG_ENV_PATH_GOOD_LEN, &CFG_ENV_BODY, CFG_ENV_BODY_LEN)
+    write_ok = eq write_status, 0
+    call @assert_cfg_contract(write_ok, 978)
+
+    cfg = stack_alloc CFG_SIZE
+    load_status = call @cfg_load(&CFG_ENV_PATH_GOOD, CFG_ENV_PATH_GOOD_LEN, &cfg)
+    load_ok = eq load_status, 0
+    call @assert_cfg_contract(load_ok, 979)
+    port = call @cfg_get_port(&cfg)
+    port_ok = eq port, 9999
+    call @assert_cfg_contract(port_ok, 980)
+
+    chat_ptr = load cfg+CFG_CHAT_PTR as ptr
+    chat_len = load cfg+CFG_CHAT_LEN as u64
+    chat_eq_raw = call @sa_bytes_eq(&chat_ptr, chat_len, &CFG_EXPECT_CHAT, CFG_EXPECT_CHAT_LEN)
+    chat_ok = eq chat_eq_raw, 1
+    call @assert_cfg_contract(chat_ok, 981)
+
+    model_ptr = load cfg+CFG_MODEL_PTR as ptr
+    model_len = load cfg+CFG_MODEL_LEN as u64
+    model_eq_raw = call @sa_bytes_eq(&model_ptr, model_len, &CFG_EXPECT_MODEL, CFG_EXPECT_MODEL_LEN)
+    model_ok = eq model_eq_raw, 1
+    call @assert_cfg_contract(model_ok, 982)
+
+    key_ptr = load cfg+CFG_KEY_PTR as ptr
+    key_len = load cfg+CFG_KEY_LEN as u64
+    key_eq_raw = call @sa_bytes_eq(&key_ptr, key_len, &CFG_EXPECT_KEY, CFG_EXPECT_KEY_LEN)
+    key_ok = eq key_eq_raw, 1
+    call @assert_cfg_contract(key_ok, 983)
+
+    log_ptr = load cfg+CFG_LOG_PTR as ptr
+    log_len = load cfg+CFG_LOG_LEN as u64
+    log_eq_raw = call @sa_bytes_eq(&log_ptr, log_len, &CFG_EXPECT_LOG, CFG_EXPECT_LOG_LEN)
+    log_ok = eq log_eq_raw, 1
+    call @assert_cfg_contract(log_ok, 984)
+
+    rbase_len = load cfg+CFG_RBASE_LEN as u64
+    rbase_empty = eq rbase_len, 0
+    call @assert_cfg_contract(rbase_empty, 985)
+    auth_len = load cfg+CFG_AUTH_LEN as u64
+    auth_empty = eq auth_len, 0
+    call @assert_cfg_contract(auth_empty, 986)
+
+    remove_status = call @sa_fs_remove_file(&CFG_ENV_PATH_GOOD, CFG_ENV_PATH_GOOD_LEN)
+    remove_ok = eq remove_status, 0
+    call @assert_cfg_contract(remove_ok, 987)
+
+    !remove_ok
+    !remove_status
+    !auth_empty
+    !auth_len
+    !rbase_empty
+    !rbase_len
+    !log_ok
+    !log_eq_raw
+    !log_len
+    !log_ptr
+    !key_ok
+    !key_eq_raw
+    !key_len
+    !key_ptr
+    !model_ok
+    !model_eq_raw
+    !model_len
+    !model_ptr
+    !chat_ok
+    !chat_eq_raw
+    !chat_len
+    !chat_ptr
+    !port_ok
+    !port
+    !load_ok
+    !load_status
+    !write_ok
+    !write_status
+    return
+
+@test "config load rejects invalid PORT files like Deno"():
+L_ENTRY:
+    write_status = call @sa_fs_write_file(&CFG_ENV_PATH_BAD, CFG_ENV_PATH_BAD_LEN, &CFG_LINE_BAD_PORT_HIGH, CFG_LINE_BAD_PORT_HIGH_LEN)
+    write_ok = eq write_status, 0
+    call @assert_cfg_contract(write_ok, 988)
+
+    cfg = stack_alloc CFG_SIZE
+    load_status = call @cfg_load(&CFG_ENV_PATH_BAD, CFG_ENV_PATH_BAD_LEN, &cfg)
+    load_rejected = ne load_status, 0
+    call @assert_cfg_contract(load_rejected, 989)
+    port = call @cfg_get_port(&cfg)
+    port_default = eq port, 8787
+    call @assert_cfg_contract(port_default, 990)
+
+    remove_status = call @sa_fs_remove_file(&CFG_ENV_PATH_BAD, CFG_ENV_PATH_BAD_LEN)
+    remove_ok = eq remove_status, 0
+    call @assert_cfg_contract(remove_ok, 991)
+
+    !remove_ok
+    !remove_status
+    !port_default
+    !port
+    !load_rejected
+    !load_status
+    !write_ok
+    !write_status
+    return

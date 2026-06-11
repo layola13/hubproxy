@@ -2072,8 +2072,8 @@ async function forwardWithFallback(
   turnContext?: ProxyTurnContext,
 ): Promise<Response> {
   const useResponses = path.includes('/responses');
-  const responsesTarget = config.responsesBaseUrl;
-  const firstTarget = useResponses && responsesTarget ? responsesTarget : config.chatBaseUrl;
+  const responsesTarget = config.responsesBaseUrl || null;
+  const firstTarget = useResponses ? (responsesTarget ?? config.chatBaseUrl) : config.chatBaseUrl;
   const planModeLike = turnContext?.collaborationModeKind === 'plan' ||
     turnContext?.collaborationModeKind === 'goal' ||
     turnContext?.collaborationModeKind === 'code';
@@ -2110,30 +2110,29 @@ async function forwardWithFallback(
 
   if (!responsesTarget) {
     const fallback = extractChatFallbackFromResponsesBody(responsesRequestBody, planModeLike);
-    if (fallback === null) {
-      throw new Error('upstream unavailable');
+    if (fallback !== null) {
+      const chatResponse = await send(firstTarget, chatPath, JSON.stringify(fallback.request));
+      if (!chatResponse.ok) return chatResponse;
+      const text = await chatResponse.text();
+      writeResponseLog({
+        path,
+        target: firstTarget,
+        status: chatResponse.status,
+        headers: Object.fromEntries(chatResponse.headers.entries()),
+        body: text,
+        fallback: true,
+      });
+      const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
+      const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
+      return responsesFallbackResponseFromChat(
+        text,
+        fallback.stream,
+        namespaces,
+        fallback.planModeLike,
+        allowedTools,
+        turnContext?.collaborationModeKind,
+      );
     }
-    const chatResponse = await send(firstTarget, chatPath, JSON.stringify(fallback.request));
-    if (!chatResponse.ok) return chatResponse;
-    const text = await chatResponse.text();
-    writeResponseLog({
-      path,
-      target: firstTarget,
-      status: chatResponse.status,
-      headers: Object.fromEntries(chatResponse.headers.entries()),
-      body: text,
-      fallback: true,
-    });
-    const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
-    const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
-    return responsesFallbackResponseFromChat(
-      text,
-      fallback.stream,
-      namespaces,
-      fallback.planModeLike,
-      allowedTools,
-      turnContext?.collaborationModeKind,
-    );
   }
 
   const responsesResponse = await send(firstTarget, responsesPath, responsesRequestBody).catch(

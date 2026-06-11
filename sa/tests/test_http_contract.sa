@@ -80,7 +80,7 @@
 @const RPC_ACCOUNT_LOGIN_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":79,\"method\":\"account/login/start\",\"params\":{\"type\":\"apiKey\"}}"
 @const RPC_ENVIRONMENT_ADD_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":80,\"method\":\"environment/add\",\"params\":{\"name\":\"dev\",\"path\":\"/tmp/dev\"}}"
 @const RPC_REVIEW_START_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":81,\"method\":\"review/start\",\"params\":{\"threadId\":\"1\"}}"
-@const RPC_OAUTH_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":82,\"method\":\"mcpServer/oauth/login\",\"params\":{}}"
+@const RPC_OAUTH_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":82,\"method\":\"mcpServer/oauth/login\",\"params\":{\"name\":\"local\"}}"
 @const RPC_MOCK_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":83,\"method\":\"mock/experimentalMethod\",\"params\":{\"value\":\"echo-me\"}}"
 @const RPC_PLUGIN_SHARE_UPDATE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":84,\"method\":\"plugin/share/updateTargets\",\"params\":{}}"
 @const RPC_MARKETPLACE_REMOVE_BODY = utf8:"{\"jsonrpc\":\"2.0\",\"id\":85,\"method\":\"marketplace/remove\",\"params\":{\"marketplaceName\":\"market\"}}"
@@ -190,7 +190,7 @@
 @const NEEDLE_IMPORTED = utf8:"\"imported\":true"
 @const NEEDLE_ALLOY = utf8:"\"id\":\"alloy\""
 @const NEEDLE_AUTH_UNSUPPORTED = utf8:"\"authStatus\":\"unsupported\""
-@const NEEDLE_URI = utf8:"\"uri\":\"file://x\""
+@const NEEDLE_INVALID_PARAMS = utf8:"invalid params"
 @const NEEDLE_CONNECTED = utf8:"\"status\":\"connected\""
 @const NEEDLE_REMOTE_SERVER = utf8:"\"serverName\":\"remote-srv\""
 @const NEEDLE_REMOTE_INSTALL = utf8:"\"installationId\":\"inst-1\""
@@ -209,10 +209,7 @@
 @const NEEDLE_KIND_AUDIO = utf8:"\"kind\":\"audio\""
 @const NEEDLE_KIND_TEXT = utf8:"\"kind\":\"text\""
 @const NEEDLE_STOPPED_TRUE = utf8:"\"stopped\":true"
-@const NEEDLE_STRUCTURED_OK = utf8:"\"structuredContent\":{\"ok\":true"
-@const NEEDLE_MCP_MSG = utf8:"\"text\":\"mcp-msg\""
-@const NEEDLE_MCP_TOOL = utf8:"\"tool\":\"demo\""
-@const NEEDLE_MCP_THREAD = utf8:"\"threadId\":\"1\""
+@const NEEDLE_MCP_FAILED = utf8:"mcp operation failed"
 @const NEEDLE_RESPONSE_OBJECT = utf8:"\"object\":\"response\""
 @const NEEDLE_HTML = utf8:"<html>"
 
@@ -289,7 +286,7 @@
 #def RPC_ACCOUNT_LOGIN_START_BODY_LEN = 83
 #def RPC_ENVIRONMENT_ADD_BODY_LEN = 94
 #def RPC_REVIEW_START_BODY_LEN = 75
-#def RPC_OAUTH_BODY_LEN = 70
+#def RPC_OAUTH_BODY_LEN = 84
 #def RPC_MOCK_BODY_LEN = 89
 #def RPC_PLUGIN_SHARE_UPDATE_BODY_LEN = 75
 #def RPC_MARKETPLACE_REMOVE_BODY_LEN = 93
@@ -399,7 +396,7 @@
 #def NEEDLE_IMPORTED_LEN = 15
 #def NEEDLE_ALLOY_LEN = 12
 #def NEEDLE_AUTH_UNSUPPORTED_LEN = 26
-#def NEEDLE_URI_LEN = 16
+#def NEEDLE_INVALID_PARAMS_LEN = 14
 #def NEEDLE_CONNECTED_LEN = 20
 #def NEEDLE_REMOTE_SERVER_LEN = 25
 #def NEEDLE_REMOTE_INSTALL_LEN = 25
@@ -418,10 +415,7 @@
 #def NEEDLE_KIND_AUDIO_LEN = 14
 #def NEEDLE_KIND_TEXT_LEN = 13
 #def NEEDLE_STOPPED_TRUE_LEN = 14
-#def NEEDLE_STRUCTURED_OK_LEN = 30
-#def NEEDLE_MCP_MSG_LEN = 16
-#def NEEDLE_MCP_TOOL_LEN = 13
-#def NEEDLE_MCP_THREAD_LEN = 14
+#def NEEDLE_MCP_FAILED_LEN = 20
 #def NEEDLE_RESPONSE_OBJECT_LEN = 19
 #def NEEDLE_HTML_LEN = 6
 
@@ -509,6 +503,94 @@ L_RPC_POST_PASS:
     return 1
 
 L_RPC_POST_FAIL:
+    !ok
+    return 0
+
+@ffi_wrapper rpc_post_status_contains(&auth_buf: ptr, auth_len: u64, &body: ptr, body_len: u64, &needle: ptr, needle_len: u64, expected_status: u32) -> u8:
+L_ENTRY:
+    client_slot = stack_alloc 8
+    req_slot = stack_alloc 8
+    resp_slot = stack_alloc 8
+    reader_slot = stack_alloc 8
+    read_len_slot = stack_alloc 8
+    resp_buf = stack_alloc RESP_BUF_SIZE
+
+    client_status = call @sa_http_client_new(0, &client_slot)
+    client = load client_slot+0 as ptr
+    req_status = call @sa_http_client_req_new(client, 2, &URL_RPC, URL_RPC_LEN, &req_slot)
+    req = load req_slot+0 as ptr
+    auth_hdr_status = call @sa_http_client_req_add_header(req, &HDR_AUTH, HDR_AUTH_LEN, &auth_buf, auth_len)
+    ct_status = call @sa_http_client_req_add_header(req, &HDR_CONTENT_TYPE, HDR_CONTENT_TYPE_LEN, &MIME_JSON, MIME_JSON_LEN)
+    body_status = call @sa_http_client_req_set_body(req, &body, body_len)
+    send_status = call @sa_http_client_req_send(req, &resp_slot)
+    resp = load resp_slot+0 as ptr
+    code = call @sa_http_client_resp_status(resp)
+    reader_status = call @sa_http_client_resp_body_reader(resp, &reader_slot)
+    reader = load reader_slot+0 as ptr
+    read_status = call @sa_http_client_resp_read_chunk(reader, &resp_buf, RESP_BUF_SIZE, &read_len_slot)
+    read_len = load read_len_slot+0 as u64
+    needle_idx = call @sa_bytes_find(&resp_buf, read_len, &needle, needle_len)
+
+    client_ok = eq client_status, 0
+    req_ok = eq req_status, 0
+    auth_ok = eq auth_hdr_status, 0
+    ct_ok = eq ct_status, 0
+    body_ok = eq body_status, 0
+    send_ok = eq send_status, 0
+    code_ok = eq code, expected_status
+    reader_ok = eq reader_status, 0
+    read_ok = eq read_status, 0
+    found = sge needle_idx, 0
+    ok = and client_ok, req_ok
+    ok = and ok, auth_ok
+    ok = and ok, ct_ok
+    ok = and ok, body_ok
+    ok = and ok, send_ok
+    ok = and ok, code_ok
+    ok = and ok, reader_ok
+    ok = and ok, read_ok
+    ok = and ok, found
+
+    call @sa_http_client_body_reader_free(^reader)
+    call @sa_http_client_resp_free(^resp)
+    call @sa_http_client_req_free(^req)
+    call @sa_http_client_free(^client)
+
+    !client_status
+    !req_status
+    !auth_hdr_status
+    !ct_status
+    !body_status
+    !send_status
+    !code
+    !reader_status
+    !read_status
+    !read_len
+    !needle_idx
+    !client_ok
+    !req_ok
+    !auth_ok
+    !ct_ok
+    !body_ok
+    !send_ok
+    !code_ok
+    !reader_ok
+    !read_ok
+    !found
+    !expected_status
+    !auth_buf
+    !auth_len
+    !body
+    !body_len
+    !needle
+    !needle_len
+    br ok -> L_RPC_POST_STATUS_PASS, L_RPC_POST_STATUS_FAIL
+
+L_RPC_POST_STATUS_PASS:
+    !ok
+    return 1
+
+L_RPC_POST_STATUS_FAIL:
     !ok
     return 0
 
@@ -1463,7 +1545,7 @@ L_MCP_STATUS_REQ:
 
 L_MCP_RESOURCE_REQ:
     !is_mcp_status_ok
-    mcp_resource_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_RESOURCE_BODY, RPC_MCP_RESOURCE_BODY_LEN, &NEEDLE_URI, NEEDLE_URI_LEN)
+    mcp_resource_ok = call @rpc_post_status_contains(&auth_buf, auth_len, &RPC_MCP_RESOURCE_BODY, RPC_MCP_RESOURCE_BODY_LEN, &NEEDLE_INVALID_PARAMS, NEEDLE_INVALID_PARAMS_LEN, 400)
     is_mcp_resource_ok = eq mcp_resource_ok, 1
     !mcp_resource_ok
     br is_mcp_resource_ok -> L_REMOTE_ENABLE_REQ, L_FAIL_MCP_RESOURCE
@@ -1589,28 +1671,28 @@ L_REALTIME_STOP_REQ:
 
 L_MCP_TOOL_REQ:
     !is_realtime_stop_ok
-    mcp_tool_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_STRUCTURED_OK, NEEDLE_STRUCTURED_OK_LEN)
+    mcp_tool_ok = call @rpc_post_status_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_FAILED, NEEDLE_MCP_FAILED_LEN, 500)
     is_mcp_tool_ok = eq mcp_tool_ok, 1
     !mcp_tool_ok
     br is_mcp_tool_ok -> L_MCP_TOOL_MSG_REQ, L_FAIL_MCP_TOOL
 
 L_MCP_TOOL_MSG_REQ:
     !is_mcp_tool_ok
-    mcp_msg_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_MSG, NEEDLE_MCP_MSG_LEN)
+    mcp_msg_ok = call @rpc_post_status_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_FAILED, NEEDLE_MCP_FAILED_LEN, 500)
     is_mcp_msg_ok = eq mcp_msg_ok, 1
     !mcp_msg_ok
     br is_mcp_msg_ok -> L_MCP_TOOL_NAME_REQ, L_FAIL_MCP_MSG
 
 L_MCP_TOOL_NAME_REQ:
     !is_mcp_msg_ok
-    mcp_tool_name_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_TOOL, NEEDLE_MCP_TOOL_LEN)
+    mcp_tool_name_ok = call @rpc_post_status_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_FAILED, NEEDLE_MCP_FAILED_LEN, 500)
     is_mcp_tool_name_ok = eq mcp_tool_name_ok, 1
     !mcp_tool_name_ok
     br is_mcp_tool_name_ok -> L_MCP_TOOL_THREAD_REQ, L_FAIL_MCP_TOOL_NAME
 
 L_MCP_TOOL_THREAD_REQ:
     !is_mcp_tool_name_ok
-    mcp_thread_ok = call @rpc_post_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_THREAD, NEEDLE_MCP_THREAD_LEN)
+    mcp_thread_ok = call @rpc_post_status_contains(&auth_buf, auth_len, &RPC_MCP_TOOL_BODY, RPC_MCP_TOOL_BODY_LEN, &NEEDLE_MCP_FAILED, NEEDLE_MCP_FAILED_LEN, 500)
     is_mcp_thread_ok = eq mcp_thread_ok, 1
     !mcp_thread_ok
     br is_mcp_thread_ok -> L_COMMAND_EXEC_EXIT_REQ, L_FAIL_MCP_THREAD

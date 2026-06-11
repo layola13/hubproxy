@@ -1,0 +1,349 @@
+// SA native @test coverage for JSON-RPC parser contracts that previously only had runtime-client checks.
+@import "../src/hub_modules.sa"
+
+@const RPC_WS_THREAD_START_BODY_SPACED = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 201, \"method\": \"thread/start\", \"params\": {\"threadId\": \"ws-thread-native\", \"model\": \"mimo-ws\", \"modelProvider\": \"ws-provider\", \"cwd\": \"/tmp/ws-cwd\", \"ephemeral\": false, \"approvalPolicy\": \"on-request\", \"approvalsReviewer\": \"auto\", \"sandbox\": \"workspace-write\"}}"
+@const RPC_STRING_ID_BODY_SPACED = utf8:"{\"jsonrpc\": \"2.0\", \"id\": \"rpc-id-1\", \"method\": \"thread/read\", \"params\": {\"threadId\": \"ws-thread-native\"}}"
+@const RPC_GOAL_SET_BODY_SPACED = utf8:"{\"jsonrpc\": \"2.0\", \"id\": 203, \"method\": \"thread/goal/set\", \"params\": {\"threadId\": \"ws-thread-native\", \"objective\": \"ws objective\", \"tokenBudget\": 456}}"
+
+@const TOKEN_ID_201 = utf8:"201"
+@const TOKEN_ID_STRING_RAW = utf8:"\"rpc-id-1\""
+@const TOKEN_ID_STRING_INNER = utf8:"rpc-id-1"
+@const VALUE_WS_THREAD = utf8:"ws-thread-native"
+@const VALUE_WS_MODEL = utf8:"mimo-ws"
+@const VALUE_WS_PROVIDER = utf8:"ws-provider"
+@const VALUE_WS_CWD = utf8:"/tmp/ws-cwd"
+@const VALUE_APPROVAL = utf8:"on-request"
+@const VALUE_REVIEWER = utf8:"auto"
+@const VALUE_SANDBOX = utf8:"workspace-write"
+@const NEEDLE_MODEL = utf8:"\"model\":\"mimo-ws\""
+@const NEEDLE_PROVIDER = utf8:"\"modelProvider\":\"ws-provider\""
+@const NEEDLE_CWD = utf8:"\"cwd\":\"/tmp/ws-cwd\""
+@const NEEDLE_APPROVAL = utf8:"\"approvalPolicy\":\"on-request\""
+@const NEEDLE_REVIEWER = utf8:"\"approvalsReviewer\":\"auto\""
+@const NEEDLE_SANDBOX = utf8:"\"sandbox\":\"workspace-write\""
+@const CONFIG_TEST_HOST = utf8:"127.0.0.1"
+@const CONFIG_TEST_CHAT = utf8:"https://chat.example"
+@const CONFIG_TEST_MODEL = utf8:"gpt-sa"
+@const CONFIG_TEST_PATH = utf8:"/tmp/hubproxy-config"
+@const NEEDLE_CONFIG_HOST_NATIVE = utf8:"\"host\":\"127.0.0.1\""
+@const NEEDLE_CONFIG_PORT_NATIVE = utf8:"\"port\":28080"
+@const NEEDLE_CONFIG_RESPONSES_NULL = utf8:"\"responsesBaseUrl\":null"
+@const NEEDLE_CONFIG_CHAT_NATIVE = utf8:"\"chatBaseUrl\":\"https://chat.example\""
+@const NEEDLE_CONFIG_MODEL_NATIVE = utf8:"\"defaultModel\":\"gpt-sa\""
+@const NEEDLE_CONFIG_AUTH_NULL = utf8:"\"authToken\":null"
+@const NEEDLE_CONFIG_LAYERS_EMPTY = utf8:"\"layers\":[]"
+@const NEEDLE_CONFIG_ORIGINS_EMPTY = utf8:"\"origins\":{}"
+@const NEEDLE_CONFIG_WRITE_PATH_NATIVE = utf8:"\"filePath\":\"/tmp/hubproxy-config\""
+@const NEEDLE_CONFIG_WRITE_STATUS_NATIVE = utf8:"\"status\":\"ok\""
+@const NEEDLE_CONFIG_WRITE_VERSION_NATIVE = utf8:"\"version\":\"1\""
+
+#def RPC_WS_THREAD_START_BODY_SPACED_LEN = 284
+#def RPC_STRING_ID_BODY_SPACED_LEN = 105
+#def RPC_GOAL_SET_BODY_SPACED_LEN = 151
+#def TOKEN_ID_201_LEN = 3
+#def TOKEN_ID_STRING_RAW_LEN = 10
+#def TOKEN_ID_STRING_INNER_LEN = 8
+#def VALUE_WS_THREAD_LEN = 16
+#def VALUE_WS_MODEL_LEN = 7
+#def VALUE_WS_PROVIDER_LEN = 11
+#def VALUE_WS_CWD_LEN = 11
+#def VALUE_APPROVAL_LEN = 10
+#def VALUE_REVIEWER_LEN = 4
+#def VALUE_SANDBOX_LEN = 15
+#def NEEDLE_MODEL_LEN = 17
+#def NEEDLE_PROVIDER_LEN = 29
+#def NEEDLE_CWD_LEN = 19
+#def NEEDLE_APPROVAL_LEN = 29
+#def NEEDLE_REVIEWER_LEN = 26
+#def NEEDLE_SANDBOX_LEN = 27
+#def CONFIG_TEST_HOST_LEN = 9
+#def CONFIG_TEST_CHAT_LEN = 20
+#def CONFIG_TEST_MODEL_LEN = 6
+#def CONFIG_TEST_PATH_LEN = 20
+#def NEEDLE_CONFIG_HOST_NATIVE_LEN = 18
+#def NEEDLE_CONFIG_PORT_NATIVE_LEN = 12
+#def NEEDLE_CONFIG_RESPONSES_NULL_LEN = 23
+#def NEEDLE_CONFIG_CHAT_NATIVE_LEN = 36
+#def NEEDLE_CONFIG_MODEL_NATIVE_LEN = 23
+#def NEEDLE_CONFIG_AUTH_NULL_LEN = 16
+#def NEEDLE_CONFIG_LAYERS_EMPTY_LEN = 11
+#def NEEDLE_CONFIG_ORIGINS_EMPTY_LEN = 12
+#def NEEDLE_CONFIG_WRITE_PATH_NATIVE_LEN = 33
+#def NEEDLE_CONFIG_WRITE_STATUS_NATIVE_LEN = 13
+#def NEEDLE_CONFIG_WRITE_VERSION_NATIVE_LEN = 13
+#def RPC_PARSE_BUDGET_NULL_SENTINEL = -1
+
+@assert_contract(ok: u8, code: i32):
+L_ENTRY:
+    br ok -> L_PASS, L_FAIL
+
+L_PASS:
+    !ok
+    !code
+    return
+
+L_FAIL:
+    !ok
+    panic(code)
+
+@assert_bytes_eq(&actual_ptr: ptr, actual_len: u64, &expected_ptr: ptr, expected_len: u64, code: i32):
+L_ENTRY:
+    raw = call @sa_bytes_eq(&actual_ptr, actual_len, &expected_ptr, expected_len)
+    ok = eq raw, 1
+    call @assert_contract(ok, code)
+    !ok
+    !raw
+    !actual_ptr
+    !actual_len
+    !expected_ptr
+    !expected_len
+    !code
+    return
+
+@assert_buffer_contains(&buf: ptr, len: u64, &needle: ptr, needle_len: u64, code: i32):
+L_ENTRY:
+    idx = call @sa_bytes_find(&buf, len, &needle, needle_len)
+    ok = sge idx, 0
+    call @assert_contract(ok, code)
+    !ok
+    !idx
+    !buf
+    !len
+    !needle
+    !needle_len
+    !code
+    return
+
+@test "jsonrpc id parser preserves numeric and string ids with serializer whitespace"():
+L_ENTRY:
+    id_buf = stack_alloc 64
+    id_ptr_slot = stack_alloc 8
+    id_len_slot = stack_alloc 8
+    id_status = call @rpc_extract_id_token(&RPC_WS_THREAD_START_BODY_SPACED, RPC_WS_THREAD_START_BODY_SPACED_LEN, &id_buf, 64, &id_ptr_slot, &id_len_slot)
+    id_found = eq id_status, 1
+    call @assert_contract(id_found, 980)
+    id_ptr = load id_ptr_slot+0 as ptr
+    id_len = load id_len_slot+0 as u64
+    call @assert_bytes_eq(&id_ptr, id_len, &TOKEN_ID_201, TOKEN_ID_201_LEN, 981)
+
+    string_buf = stack_alloc 64
+    string_ptr_slot = stack_alloc 8
+    string_len_slot = stack_alloc 8
+    string_status = call @rpc_extract_id_token(&RPC_STRING_ID_BODY_SPACED, RPC_STRING_ID_BODY_SPACED_LEN, &string_buf, 64, &string_ptr_slot, &string_len_slot)
+    string_found = eq string_status, 1
+    call @assert_contract(string_found, 982)
+    string_ptr = load string_ptr_slot+0 as ptr
+    string_len = load string_len_slot+0 as u64
+    call @assert_bytes_eq(&string_ptr, string_len, &TOKEN_ID_STRING_RAW, TOKEN_ID_STRING_RAW_LEN, 983)
+
+    lookup_ptr_slot = stack_alloc 8
+    lookup_len_slot = stack_alloc 8
+    lookup_status = call @rpc_jsonrpc_lookup_key(&string_ptr, string_len, &lookup_ptr_slot, &lookup_len_slot)
+    lookup_ok = eq lookup_status, 1
+    call @assert_contract(lookup_ok, 984)
+    lookup_ptr = load lookup_ptr_slot+0 as ptr
+    lookup_len = load lookup_len_slot+0 as u64
+    call @assert_bytes_eq(&lookup_ptr, lookup_len, &TOKEN_ID_STRING_INNER, TOKEN_ID_STRING_INNER_LEN, 985)
+
+    !lookup_ptr
+    !lookup_len
+    !lookup_status
+    !lookup_ok
+    !string_ptr
+    !string_len
+    !string_status
+    !string_found
+    !id_ptr
+    !id_len
+    !id_status
+    !id_found
+    return
+
+@test "jsonrpc param parser preserves thread start and goal fields with serializer whitespace"():
+L_ENTRY:
+    thread_ptr_slot = stack_alloc 8
+    thread_len_slot = stack_alloc 8
+    thread_status = call @rpc_extract_param_string(&RPC_WS_THREAD_START_BODY_SPACED, RPC_WS_THREAD_START_BODY_SPACED_LEN, &RPC_SESSION_J_THREADID_KEY, RPC_SESSION_J_THREADID_KEY_LEN, &thread_ptr_slot, &thread_len_slot)
+    thread_found = eq thread_status, 1
+    call @assert_contract(thread_found, 990)
+    thread_ptr = load thread_ptr_slot+0 as ptr
+    thread_len = load thread_len_slot+0 as u64
+    call @assert_bytes_eq(&thread_ptr, thread_len, &VALUE_WS_THREAD, VALUE_WS_THREAD_LEN, 991)
+
+    model_ptr_slot = stack_alloc 8
+    model_len_slot = stack_alloc 8
+    model_status = call @rpc_extract_string_or_default(&RPC_WS_THREAD_START_BODY_SPACED, RPC_WS_THREAD_START_BODY_SPACED_LEN, &RPC_SESSION_J_MODEL_KEY, RPC_SESSION_J_MODEL_KEY_LEN, &RPC_SESSION_EMPTY_TEXT, RPC_SESSION_EMPTY_TEXT_LEN, &model_ptr_slot, &model_len_slot)
+    !model_status
+    model_ptr = load model_ptr_slot+0 as ptr
+    model_len = load model_len_slot+0 as u64
+    call @assert_bytes_eq(&model_ptr, model_len, &VALUE_WS_MODEL, VALUE_WS_MODEL_LEN, 992)
+
+    provider_ptr_slot = stack_alloc 8
+    provider_len_slot = stack_alloc 8
+    provider_status = call @rpc_extract_string_or_default(&RPC_WS_THREAD_START_BODY_SPACED, RPC_WS_THREAD_START_BODY_SPACED_LEN, &RPC_SESSION_J_MODEL_PROVIDER_KEY, RPC_SESSION_J_MODEL_PROVIDER_KEY_LEN, &RPC_SESSION_EMPTY_TEXT, RPC_SESSION_EMPTY_TEXT_LEN, &provider_ptr_slot, &provider_len_slot)
+    !provider_status
+    provider_ptr = load provider_ptr_slot+0 as ptr
+    provider_len = load provider_len_slot+0 as u64
+    call @assert_bytes_eq(&provider_ptr, provider_len, &VALUE_WS_PROVIDER, VALUE_WS_PROVIDER_LEN, 993)
+
+    cwd_ptr_slot = stack_alloc 8
+    cwd_len_slot = stack_alloc 8
+    cwd_status = call @rpc_extract_string_or_default(&RPC_WS_THREAD_START_BODY_SPACED, RPC_WS_THREAD_START_BODY_SPACED_LEN, &RPC_SESSION_J_CWD_KEY, RPC_SESSION_J_CWD_KEY_LEN, &RPC_SESSION_EMPTY_TEXT, RPC_SESSION_EMPTY_TEXT_LEN, &cwd_ptr_slot, &cwd_len_slot)
+    !cwd_status
+    cwd_ptr = load cwd_ptr_slot+0 as ptr
+    cwd_len = load cwd_len_slot+0 as u64
+    call @assert_bytes_eq(&cwd_ptr, cwd_len, &VALUE_WS_CWD, VALUE_WS_CWD_LEN, 994)
+
+    ephemeral = call @rpc_extract_bool_after(&RPC_WS_THREAD_START_BODY_SPACED, RPC_WS_THREAD_START_BODY_SPACED_LEN, &RPC_SESSION_JSON_KEY_EPHEMERAL, RPC_SESSION_JSON_KEY_EPHEMERAL_LEN, 1)
+    ephemeral_false = eq ephemeral, 0
+    call @assert_contract(ephemeral_false, 995)
+
+    budget = call @rpc_extract_i64_number_after(&RPC_GOAL_SET_BODY_SPACED, RPC_GOAL_SET_BODY_SPACED_LEN, &RPC_SESSION_J_TOKEN_BUDGET_KEY, RPC_SESSION_J_TOKEN_BUDGET_KEY_LEN, RPC_PARSE_BUDGET_NULL_SENTINEL)
+    budget_ok = eq budget, 456
+    call @assert_contract(budget_ok, 996)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    EXPAND JSON_WRITER_BEGIN_OBJECT begin_status, writer
+    prefix_status = call @json_writer_write_thread_envelope_prefix(writer, &RPC_WS_THREAD_START_BODY_SPACED, RPC_WS_THREAD_START_BODY_SPACED_LEN, &model_ptr, model_len, &provider_ptr, provider_len, &cwd_ptr, cwd_len)
+    EXPAND JSON_WRITER_END_OBJECT end_status, writer
+    buffer_slot = stack_alloc 8
+    data_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_slot, &len_slot)
+    buffer = load buffer_slot+0 as ptr
+    data = load data_slot+0 as ptr
+    data_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_MODEL, NEEDLE_MODEL_LEN, 997)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_PROVIDER, NEEDLE_PROVIDER_LEN, 998)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CWD, NEEDLE_CWD_LEN, 999)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_APPROVAL, NEEDLE_APPROVAL_LEN, 1000)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_REVIEWER, NEEDLE_REVIEWER_LEN, 1001)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_SANDBOX, NEEDLE_SANDBOX_LEN, 1002)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1003)
+
+    !free_status
+    !free_ok
+    !writer
+    !data
+    !data_len
+    !buffer
+    !finish_status
+    !end_status
+    !prefix_status
+    !begin_status
+    !writer_status
+    !budget
+    !budget_ok
+    !ephemeral
+    !ephemeral_false
+    !cwd_ptr
+    !cwd_len
+    !provider_ptr
+    !provider_len
+    !model_ptr
+    !model_len
+    !thread_ptr
+    !thread_len
+    !thread_status
+    !thread_found
+    return
+
+@test "config read writer emits Deno nulls layers origins and numeric port"():
+L_ENTRY:
+    cfg = stack_alloc CFG_SIZE
+    zero_status = call @cfg_zero(&cfg)
+    zero_ok = eq zero_status, 0
+    call @assert_contract(zero_ok, 1004)
+    store cfg+CFG_PORT, 28080 as u16
+    host_store = call @cfg_store_str(&cfg, CFG_HOST_PTR, &CONFIG_TEST_HOST, CONFIG_TEST_HOST_LEN)
+    host_store_ok = eq host_store, 0
+    call @assert_contract(host_store_ok, 1005)
+    chat_store = call @cfg_store_str(&cfg, CFG_CHAT_PTR, &CONFIG_TEST_CHAT, CONFIG_TEST_CHAT_LEN)
+    chat_store_ok = eq chat_store, 0
+    call @assert_contract(chat_store_ok, 1006)
+    model_store = call @cfg_store_str(&cfg, CFG_MODEL_PTR, &CONFIG_TEST_MODEL, CONFIG_TEST_MODEL_LEN)
+    model_store_ok = eq model_store, 0
+    call @assert_contract(model_store_ok, 1007)
+
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_config_read_result(writer, &cfg)
+    write_ok = eq write_status, 0
+    call @assert_contract(write_ok, 1008)
+    buffer_slot = stack_alloc 8
+    data_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_slot, &len_slot)
+    finish_ok = eq finish_status, 0
+    call @assert_contract(finish_ok, 1009)
+    buffer = load buffer_slot+0 as ptr
+    data = load data_slot+0 as ptr
+    data_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_HOST_NATIVE, NEEDLE_CONFIG_HOST_NATIVE_LEN, 1010)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_PORT_NATIVE, NEEDLE_CONFIG_PORT_NATIVE_LEN, 1011)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_RESPONSES_NULL, NEEDLE_CONFIG_RESPONSES_NULL_LEN, 1012)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_CHAT_NATIVE, NEEDLE_CONFIG_CHAT_NATIVE_LEN, 1013)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_MODEL_NATIVE, NEEDLE_CONFIG_MODEL_NATIVE_LEN, 1014)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_AUTH_NULL, NEEDLE_CONFIG_AUTH_NULL_LEN, 1015)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_LAYERS_EMPTY, NEEDLE_CONFIG_LAYERS_EMPTY_LEN, 1016)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_ORIGINS_EMPTY, NEEDLE_CONFIG_ORIGINS_EMPTY_LEN, 1017)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1018)
+
+    !free_ok
+    !free_status
+    !data_len
+    !data
+    !buffer
+    !finish_ok
+    !finish_status
+    !write_ok
+    !write_status
+    !writer
+    !writer_status
+    !model_store_ok
+    !model_store
+    !chat_store_ok
+    !chat_store
+    !host_store_ok
+    !host_store
+    !zero_ok
+    !zero_status
+    return
+
+@test "config write writer emits Deno file status and version result"():
+L_ENTRY:
+    EXPAND JSON_WRITER_NEW_MINIFIED writer_status, writer
+    write_status = call @json_writer_write_config_write_result(writer, &CONFIG_TEST_PATH, CONFIG_TEST_PATH_LEN)
+    write_ok = eq write_status, 0
+    call @assert_contract(write_ok, 1019)
+    buffer_slot = stack_alloc 8
+    data_slot = stack_alloc 8
+    len_slot = stack_alloc 8
+    finish_status = call @json_writer_finish_view(writer, &buffer_slot, &data_slot, &len_slot)
+    finish_ok = eq finish_status, 0
+    call @assert_contract(finish_ok, 1020)
+    buffer = load buffer_slot+0 as ptr
+    data = load data_slot+0 as ptr
+    data_len = load len_slot+0 as u64
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_WRITE_PATH_NATIVE, NEEDLE_CONFIG_WRITE_PATH_NATIVE_LEN, 1021)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_WRITE_STATUS_NATIVE, NEEDLE_CONFIG_WRITE_STATUS_NATIVE_LEN, 1022)
+    call @assert_buffer_contains(&data, data_len, &NEEDLE_CONFIG_WRITE_VERSION_NATIVE, NEEDLE_CONFIG_WRITE_VERSION_NATIVE_LEN, 1023)
+    free_status = call @json_writer_dispose_finished(buffer, writer)
+    free_ok = eq free_status, 0
+    call @assert_contract(free_ok, 1024)
+
+    !free_ok
+    !free_status
+    !data_len
+    !data
+    !buffer
+    !finish_ok
+    !finish_status
+    !write_ok
+    !write_status
+    !writer
+    !writer_status
+    return

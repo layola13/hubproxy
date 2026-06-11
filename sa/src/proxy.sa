@@ -134,11 +134,11 @@ L_HTTP_READ_DONE:
     !out_len
     return 0
 
-@ffi_wrapper normalize_responses_client_json_body(&body: ptr, body_len: u64, &out_len: ptr) -> ^ptr:
+@ffi_wrapper normalize_responses_client_json_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
     norm_ptr_slot = stack_alloc 8
     norm_len_slot = stack_alloc 8
-    norm_status = call @sa_deno_plugin_responses_json_normalize(&body, body_len, &norm_ptr_slot, &norm_len_slot)
+    norm_status = call @sa_deno_plugin_responses_json_normalize_with_request(&body, body_len, &req_body, req_body_len, &norm_ptr_slot, &norm_len_slot)
     norm_ok = eq norm_status, 0
     br norm_ok -> L_RESP_JSON_STD_CHECK_LEN, L_RESP_JSON_STD_COPY_ORIGINAL
 
@@ -157,6 +157,8 @@ L_RESP_JSON_STD_COPY:
     !norm_status
     !body
     !body_len
+    !req_body
+    !req_body_len
     !out_len
     return out_std
 
@@ -170,6 +172,8 @@ L_RESP_JSON_STD_EMPTY_FALLBACK:
     out_copy_empty = call @copy_bytes_owned(&body, body_len, &out_len)
     !body
     !body_len
+    !req_body
+    !req_body_len
     !out_len
     return out_copy_empty
 
@@ -179,6 +183,8 @@ L_RESP_JSON_STD_COPY_ORIGINAL:
     out_copy = call @copy_bytes_owned(&body, body_len, &out_len)
     !body
     !body_len
+    !req_body
+    !req_body_len
     !out_len
     return out_copy
 
@@ -216,11 +222,11 @@ L_CHAT_JSON_STD_COPY_ORIGINAL:
     !out_len
     return out_std_json_orig
 
-@ffi_wrapper normalize_responses_client_sse_body(&body: ptr, body_len: u64, &req_body: ptr, req_body_len: u64, &out_len: ptr) -> ^ptr:
+@ffi_wrapper normalize_responses_client_sse_body(&body: ptr, body_len: u64, &source_req_body: ptr, source_req_body_len: u64, &context_req_body: ptr, context_req_body_len: u64, &out_len: ptr) -> ^ptr:
 L_ENTRY:
     norm_ptr_slot = stack_alloc 8
     norm_len_slot = stack_alloc 8
-    norm_status = call @sa_deno_plugin_responses_sse_normalize(&body, body_len, &norm_ptr_slot, &norm_len_slot)
+    norm_status = call @sa_deno_plugin_responses_sse_normalize_with_request(&body, body_len, &source_req_body, source_req_body_len, &norm_ptr_slot, &norm_len_slot)
     norm_ok = eq norm_status, 0
     br norm_ok -> L_NATIVE_HAVE_NORM, L_NATIVE_COPY_ORIGINAL
 
@@ -229,7 +235,7 @@ L_NATIVE_HAVE_NORM:
     norm_ptr = load norm_ptr_slot+0 as ptr
     norm_len = load norm_len_slot+0 as u64
     out = call @plugin_buffer_to_owned_and_free(norm_ptr, norm_len, &out_len)
-    inject_allowed = call @body_allows_progress_continuation(&req_body, req_body_len)
+    inject_allowed = call @body_allows_progress_continuation(&context_req_body, context_req_body_len)
     should_check_progress = eq inject_allowed, 1
     br should_check_progress -> L_NATIVE_CHECK_PROGRESS, L_NATIVE_RETURN_NORM
 
@@ -267,8 +273,10 @@ L_NATIVE_INJECT_CONTINUATION:
     !norm_ptr
     !norm_len
     !norm_status
-    !req_body
-    !req_body_len
+    !source_req_body
+    !source_req_body_len
+    !context_req_body
+    !context_req_body_len
     !body
     !body_len
     !out_len
@@ -290,8 +298,10 @@ L_NATIVE_RETURN_NORM:
     !norm_ptr
     !norm_len
     !norm_status
-    !req_body
-    !req_body_len
+    !source_req_body
+    !source_req_body_len
+    !context_req_body
+    !context_req_body_len
     !body
     !body_len
     !out_len
@@ -303,8 +313,10 @@ L_NATIVE_COPY_ORIGINAL:
     out_orig = call @copy_bytes_owned(&body, body_len, &out_len)
     !body
     !body_len
-    !req_body
-    !req_body_len
+    !source_req_body
+    !source_req_body_len
+    !context_req_body
+    !context_req_body_len
     !out_len
     return out_orig
 
