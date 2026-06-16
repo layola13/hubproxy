@@ -555,6 +555,22 @@ function hasAntigravityProjectIdError(text: string): boolean {
     lower.includes('no project_id in response');
 }
 
+function hasCfWorkersAiError(parsed: Record<string, unknown>): boolean {
+  if (parsed.success !== false) return false;
+  const errors = parsed.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  return errors.some((e) => {
+    if (typeof e !== 'object' || e === null) return false;
+    const code = (e as Record<string, unknown>).code;
+    if (typeof code === 'number' && code >= 8000 && code <= 8999) return true;
+    const msg = (e as Record<string, unknown>).message;
+    if (typeof msg !== 'string') return false;
+    const lower = msg.toLowerCase();
+    return lower.includes('aierror') || lower.includes('exceeded retry limit') ||
+      lower.includes('429') || lower.includes('rate limit') || lower.includes('too many request');
+  });
+}
+
 async function shouldRetryUpstreamResponse(response: Response): Promise<boolean> {
   if (!response.ok) return true;
   const contentType = response.headers.get('content-type') ?? '';
@@ -566,6 +582,8 @@ async function shouldRetryUpstreamResponse(response: Response): Promise<boolean>
     if (!text) return false;
     if (hasAntigravityProjectIdError(text)) return true;
     const parsed = parseJsonBody(text);
+    if (!parsed) return false;
+    if (hasCfWorkersAiError(parsed as Record<string, unknown>)) return true;
     const error = parsed?.error;
     const message = error && typeof error === 'object' &&
         typeof (error as Record<string, unknown>).message === 'string'
