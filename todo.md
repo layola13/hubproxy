@@ -73,14 +73,9 @@
   `thread/goal/updated`、`thread/goal/cleared`
 
 ### ✅ Phase 6: 测试
-- [x] `tests/test_strings.sa` — 字符串工具单元测试 (6 个测试用例)
-- [x] `tests/test_state.sa` — 状态管理单元测试 (6 个测试用例)
-- [x] `tests/test_http_contract.sa` — SA HTTP client 插件真实请求 `28080`，覆盖 health/auth/RPC/FS contract，
-  包括 `fs/getMetadata`、`fs/copy`、复制后读取、`fs/remove`、`thread/loaded/list`、
-  `thread/turns/items/list`、`thread/inject_items`、`memory/reset`、`hooks/list`、runtime `initialize`、
-  dynamic attestation/realtime shape 和 Responses fallback contract
-- [x] `tests/test_events_contract.sh` — 连接 `/events` 后触发 `thread/start` 和 `turn/start`，
-  断言同一 SSE 流收到 `thread/started` 与 `turn/started`
+- [x] 原生 `sa test` 默认 gate 覆盖字符串、状态、配置、RPC 解析/发射、HTTP 分发、thread/goal/turn/item/MCP、Responses fallback、project tasks 等 Deno parity 合约。
+- [x] `/events` 通知契约已迁入原生通知队列测试，覆盖 `thread/started`、`thread/status/changed`、`thread/goal/updated`、`turn/started`、`turn/completed`、item/MCP/realtime/process/fs/warning 等事件族。
+- [x] 历史 `.sh` 脚本仅作为隔离 runtime probe 记录，不作为单元测试 gate；新增或收口 parity 单元覆盖必须写成 `.sa` 原生 `@test`。
 
 ## 文件清单
 
@@ -104,16 +99,17 @@ sa build main.sa -o hubproxy
 # 运行
 ./hubproxy
 
-# 测试
-sa run tests/test_strings.sa
-sa run tests/test_state.sa
+# 原生单元/contract 测试
+sa test tests/unit_tests.sa --trace-panic
+sa test tests/thread_rpc_contract_test.sa --trace-panic
+sa test tests/goal_rpc_contract_test.sa --trace-panic
+sa test tests/turn_rpc_contract_test.sa --trace-panic
 ```
 
 ## 后续优化
 
 - [x] 完善当前已接入 fs/* RPC 方法的实际文件 I/O 实现（read/write/createDirectory/getMetadata/readDirectory/remove/copy）
 - [x] /events 长连接 + 通知推送
-- [ ] SQLite 持久化状态（通过 sa_plugin_db）
 - [x] JSON-RPC body 入口 canonicalize：`/rpc` 先用 SA std JSON parse/stringify 标准化合法 JSON whitespace，
   再交给既有 extractor；已覆盖 thread_id、turn_id、id、string/number/array/boolean params 的常见 RPC 路径。
   后续优化是继续把剩余业务 helper 从 byte-scan 迁到 JSON DOM/std facade，而不是功能缺口。
@@ -146,5 +142,11 @@ sa run tests/test_state.sa
   `setsid -f ./restart_sa.sh > /tmp/hubproxy_sa_restart/restart_sa.log 2>&1 < /dev/null`；
   不要直接绕过脚本启动 `sa/hubproxy`。最新验证中 SA 监听 `28080`，Deno 监听 `27787`，
   `/healthz`、OpenAI chat curl 和 `codex exec "hello"` 均通过 SA provider。
-- [ ] Token 预算超限自动中断流式转发
-- [ ] 并发连接支持（多线程 reactor）
+
+## 非 Deno Parity 后续优化
+
+以下项目不是当前 Deno 实现已有能力，因此不计入 SA HubProxy Deno parity 剩余工作，也不作为本轮完成条件：
+
+- SQLite 持久化状态（通过 `sa_plugin_db`）：Deno 参考实现当前没有 SQLite 状态持久化。
+- Token 预算超限自动中断流式转发：Deno 当前只保存 `tokenBudget` 并发出 token 使用通知，不在代理层强制中断。
+- 并发连接支持（多线程 reactor）：Deno parity 目标不要求 SA 实现额外 reactor 架构优化。

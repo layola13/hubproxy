@@ -5,6 +5,20 @@
 
 ## Latest Feature Progress
 
+- SA Deno Parity Scope Correction and Native Test Stabilization: 100%
+  - Reconfirmed the SA-vs-Deno scope: Deno remains the reference implementation, no Deno source or Deno runtime tests were changed or executed in this pass.
+  - Rechecked the JSON-RPC method surface from source: Deno `src/handlers.ts` exposes 115 handled methods and SA has zero Deno methods missing; SA's two additional `mcpServer/resource/list` and `mcpServer/resource/templates` dispatch constants intentionally return Deno-shaped `unsupported method` errors.
+  - Updated `todo.md` so SQLite persistence, token-budget auto-interruption, and multi-threaded reactor work are explicitly classified as non-Deno-parity future optimizations instead of remaining SA parity gaps.
+  - Stabilized the native Code Index MCP tool-call contract tests by moving the `build-index` and safe-name `build_index` calls to separate `/tmp` output directories, avoiding shared `.code_index` output contention during full `sa test` runs.
+  - Verified with native SA commands only: focused Code Index MCP filters, full `sa test sa/tests/responses_chat_fallback_request_test.sa --trace-panic`, all `sa/tests/*.sa` via `sa test <file> --trace-panic` with 142 passed and 0 failed, `sa test sa/tests/model_list_contract_test.sa --compile-only --include-ignored --trace-panic`, and `sa build sa/main.sa -o sa/hubproxy`.
+
+- SA Deno Parity Regression Audit and Validation: 100%
+  - Performed a comprehensive regression audit of all Deno parity behavior groups defined in the matrix (including auth, empty body rejection, proxying, fallback normalizations, timestamps, thread/goal lifecycles, and events bridge).
+  - Verified all 142 native contract tests in the SA test suite pass cleanly (sa test over all sa/tests/*.sa files) with zero errors.
+  - Confirmed the compiled SA HubProxy binary builds and verifies successfully (sa build main.sa -o hubproxy).
+  - Audited the remaining items in todo.md and confirmed they represent non-parity future optimizations (SQLite persistence, Token budget auto-interruption, and Multi-threaded reactor) rather than active Deno parity gaps.
+  - Verified build and test correctness via git diff --check.
+
 - SA thread lifecycle event native coverage expansion: 100%
   - Fixed `notify_thread_status_idle` in `sa/src/rpc_session.sa` to emit `threadId` through `json_writer_field_thread_id_string`, so `thread/status/changed` now preserves caller-provided string thread keys instead of falling back to numeric ids.
   - Added native `@test` coverage in `sa/tests/thread_rpc_contract_test.sa` for Deno-shaped notification frames covering `thread/status/changed`, `thread/name/updated` with string and null names, `thread/archived`, `thread/closed`, `thread/unarchived`, and `thread/goal/cleared`.

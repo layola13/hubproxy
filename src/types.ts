@@ -17,8 +17,13 @@ export type ProxyConfig = {
   accountPlanType: string | null;
   responsesBaseUrl: string | null;
   chatBaseUrl: string;
+  forceChatCompletions: boolean;
+  isCloudflare: boolean;
   defaultModel: string;
   defaultApiKey: string;
+  apiKeys: string[];
+  requestIntervalMs: number;
+  needRetry: boolean;
   dataDir: string;
 };
 

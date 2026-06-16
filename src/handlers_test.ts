@@ -12,8 +12,13 @@ const config: ProxyConfig = {
   accountPlanType: 'plus',
   responsesBaseUrl: 'http://127.0.0.1:1',
   chatBaseUrl: 'http://127.0.0.1:1',
+  forceChatCompletions: false,
+  isCloudflare: false,
   defaultModel: 'gpt-4.1',
   defaultApiKey: '',
+  apiKeys: [],
+  requestIntervalMs: 0,
+  needRetry: false,
   dataDir: '/tmp',
 };
 
@@ -723,6 +728,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
         port: number;
         authToken: string | null;
         responsesBaseUrl: string;
+        forceChatCompletions: boolean;
+        isCloudflare: boolean;
+        requestIntervalMs: number;
+        needRetry: boolean;
+        apiKeyCount: number;
       };
     };
   };
@@ -730,6 +740,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(configReadJson.result.config.port, config.port);
   assertEquals(configReadJson.result.config.authToken, config.authToken);
   assertEquals(configReadJson.result.config.responsesBaseUrl, config.responsesBaseUrl);
+  assertEquals(configReadJson.result.config.forceChatCompletions, false);
+  assertEquals(configReadJson.result.config.isCloudflare, false);
+  assertEquals(configReadJson.result.config.requestIntervalMs, 0);
+  assertEquals(configReadJson.result.config.needRetry, false);
+  assertEquals(configReadJson.result.config.apiKeyCount, 0);
 
   const configRequirements = await handleHttpWithState(
     new Request('http://localhost/rpc', {

@@ -10,20 +10,35 @@ try {
 }
 
 const config = loadConfig();
-console.log(JSON.stringify({
-  kind: 'startup',
-  dotenvPath,
-  port: config.port,
-  host: config.host,
-  authToken: config.authToken ? `${config.authToken.slice(0, 3)}...${config.authToken.slice(-3)} (len=${config.authToken.length})` : 'none',
-  accountEmail: config.accountEmail,
-  accountName: config.accountName,
-  accountPlanType: config.accountPlanType,
-  responsesBaseUrl: config.responsesBaseUrl,
-  chatBaseUrl: config.chatBaseUrl,
-  defaultModel: config.defaultModel,
-  defaultApiKey: `${config.defaultApiKey.slice(0, 3)}...${config.defaultApiKey.slice(-3)} (len=${config.defaultApiKey.length})`,
-}, null, 2));
+console.log(JSON.stringify(
+  {
+    kind: 'startup',
+    dotenvPath,
+    port: config.port,
+    host: config.host,
+    authToken: config.authToken
+      ? `${config.authToken.slice(0, 3)}...${
+        config.authToken.slice(-3)
+      } (len=${config.authToken.length})`
+      : 'none',
+    accountEmail: config.accountEmail,
+    accountName: config.accountName,
+    accountPlanType: config.accountPlanType,
+    responsesBaseUrl: config.responsesBaseUrl,
+    chatBaseUrl: config.chatBaseUrl,
+    forceChatCompletions: config.forceChatCompletions,
+    isCloudflare: config.isCloudflare,
+    requestIntervalMs: config.requestIntervalMs,
+    needRetry: config.needRetry,
+    apiKeyCount: config.apiKeys.length,
+    defaultModel: config.defaultModel,
+    defaultApiKey: `${config.defaultApiKey.slice(0, 3)}...${
+      config.defaultApiKey.slice(-3)
+    } (len=${config.defaultApiKey.length})`,
+  },
+  null,
+  2,
+));
 const state = new HubState();
 
 Deno.serve(

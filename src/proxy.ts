@@ -31,8 +31,93 @@ const forwardHeaders = (headers: Headers, apiKey: string, localAuthToken: string
   return out;
 };
 
+const apiKeyRotationIndexes = new WeakMap<ProxyConfig, number>();
+let requestIntervalGate: Promise<void> = Promise.resolve();
+let nextUpstreamRequestAt = 0;
+
+function nextApiKey(config: ProxyConfig): string {
+  const keys = Array.isArray(config.apiKeys) && config.apiKeys.length > 0
+    ? config.apiKeys
+    : config.defaultApiKey
+    ? [config.defaultApiKey]
+    : [];
+  if (keys.length === 0) return '';
+  const index = apiKeyRotationIndexes.get(config) ?? 0;
+  apiKeyRotationIndexes.set(config, (index + 1) % keys.length);
+  return keys[index % keys.length];
+}
+
+function abortError(): DOMException {
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function throwIfAborted(signal?: AbortSignal | null): void {
+  if (signal?.aborted) throw abortError();
+}
+
+function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(done, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(abortError());
+    };
+    function done() {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function retryDelayMs(config: ProxyConfig): number {
+  return config.requestIntervalMs > 0 ? config.requestIntervalMs : 10_000;
+}
+
+async function waitForRequestInterval(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (ms <= 0) return;
+  let release!: () => void;
+  const previous = requestIntervalGate;
+  requestIntervalGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => {});
+  try {
+    throwIfAborted(signal);
+    const waitMs = Math.max(0, nextUpstreamRequestAt - Date.now());
+    await sleep(waitMs, signal);
+    throwIfAborted(signal);
+    nextUpstreamRequestAt = Date.now() + ms;
+  } finally {
+    release();
+  }
+}
+
 export function normalizeModelListResponseBody(body: string): string {
   return body;
+}
+
+const CLOUDFLARE_MODELS = [
+  '@cf/moonshotai/kimi-k2.7-code',
+  '@cf/openai/gpt-oss-120b',
+  '@cf/moonshotai/kimi-k2.6',
+];
+
+function cloudflareModelListResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      object: 'list',
+      data: CLOUDFLARE_MODELS.map((id) => ({
+        id,
+        object: 'model',
+        created: 0,
+        owned_by: 'cloudflare',
+      })),
+    }),
+    { headers: { 'content-type': 'application/json; charset=utf-8' } },
+  );
 }
 
 function proxyLogSummary(
@@ -464,6 +549,34 @@ async function forwardJson(url: string, init: RequestInit): Promise<Response> {
   return resp;
 }
 
+function hasAntigravityProjectIdError(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.includes('antigravity auth missing project_id') ||
+    lower.includes('no project_id in response');
+}
+
+async function shouldRetryUpstreamResponse(response: Response): Promise<boolean> {
+  if (!response.ok) return true;
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
+    return false;
+  }
+  try {
+    const text = await response.clone().text();
+    if (!text) return false;
+    if (hasAntigravityProjectIdError(text)) return true;
+    const parsed = parseJsonBody(text);
+    const error = parsed?.error;
+    const message = error && typeof error === 'object' &&
+        typeof (error as Record<string, unknown>).message === 'string'
+      ? (error as Record<string, string>).message
+      : '';
+    return hasAntigravityProjectIdError(message);
+  } catch {
+    return false;
+  }
+}
+
 function isJsonWriteMethod(method: string): boolean {
   return method === 'POST' || method === 'PUT' || method === 'PATCH';
 }
@@ -474,6 +587,22 @@ function emptyJsonBodyResponse(): Response {
       error: {
         code: '400',
         message: 'Request body must be a non-empty JSON document.',
+        type: 'BadRequest',
+      },
+    }),
+    {
+      status: 400,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    },
+  );
+}
+
+function unconvertibleResponsesRequestResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: '400',
+        message: 'Responses request cannot be converted to Chat Completions.',
         type: 'BadRequest',
       },
     }),
@@ -769,13 +898,14 @@ function toolOutputText(record: Record<string, unknown>): string {
 function extractChatFallbackFromResponsesBody(
   body: string | undefined,
   planModeLike = false,
+  allowUnsafeGeminiToolHistory = false,
 ): ChatFallbackRequest | null {
   if (!body) return null;
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const input = Array.isArray(parsed.input) ? normalizeResponseInputItems(parsed.input) : [];
     const model = typeof parsed.model === 'string' ? parsed.model : '';
-    if (isUnsafeGeminiChatFallback(model, input)) return null;
+    if (!allowUnsafeGeminiToolHistory && isUnsafeGeminiChatFallback(model, input)) return null;
     const messages: Array<Record<string, unknown>> = [];
     const systemTexts: string[] = [];
     const instructions = typeof parsed.instructions === 'string' ? parsed.instructions : '';
@@ -1353,7 +1483,12 @@ function normalizeResponsesSseBody(
   });
   if (
     !hasToolCall &&
-    shouldInjectContinuationTool(state.messageText, planModeLike, allowedTools, collaborationModeKind)
+    shouldInjectContinuationTool(
+      state.messageText,
+      planModeLike,
+      allowedTools,
+      collaborationModeKind,
+    )
   ) {
     events.push(normalizeResponsesEvent({
       type: 'response.output_item.done',
@@ -1881,7 +2016,12 @@ function collectResponsesEventsFromChatChunkText(
   }
   if (
     sawStopWithoutToolCall &&
-    shouldInjectContinuationTool(messageState.text, planModeLike, allowedTools, collaborationModeKind)
+    shouldInjectContinuationTool(
+      messageState.text,
+      planModeLike,
+      allowedTools,
+      collaborationModeKind,
+    )
   ) {
     events.push(normalizeResponsesEvent({
       type: 'response.output_item.done',
@@ -2059,7 +2199,20 @@ function responsesFallbackStreamFromChat(chatBody: string): Response {
 }
 
 function chatPathFromResponsesPath(path: string): string {
-  return path.replace('/responses', '/chat/completions');
+  const queryIndex = path.indexOf('?');
+  const query = queryIndex === -1 ? '' : path.slice(queryIndex);
+  return `/v1/chat/completions${query}`;
+}
+
+function buildUpstreamUrl(target: string, requestPath: string, preserveBasePath: boolean): string {
+  if (!preserveBasePath) return new URL(requestPath, target).toString();
+  const baseUrl = new URL(target.endsWith('/') ? target : `${target}/`);
+  const basePath = baseUrl.pathname.replace(/\/+$/, '');
+  let relativePath = requestPath.replace(/^\/+/, '');
+  if (basePath.endsWith('/v1') && relativePath.startsWith('v1/')) {
+    relativePath = relativePath.slice('v1/'.length);
+  }
+  return new URL(relativePath, baseUrl).toString();
 }
 
 async function forwardWithFallback(
@@ -2067,7 +2220,7 @@ async function forwardWithFallback(
   req: Request,
   config: ProxyConfig,
   body: string | undefined,
-  headers: Headers,
+  baseHeaders: Headers,
   rawBody?: string,
   turnContext?: ProxyTurnContext,
 ): Promise<Response> {
@@ -2078,12 +2231,21 @@ async function forwardWithFallback(
     turnContext?.collaborationModeKind === 'goal' ||
     turnContext?.collaborationModeKind === 'code';
 
-  const send = async (target: string, requestPath: string, requestBody: string | undefined) => {
+  const sendOnce = async (
+    target: string,
+    requestPath: string,
+    requestBody: string | undefined,
+    retryAttempt = 0,
+  ) => {
+    const headers = forwardHeaders(baseHeaders, nextApiKey(config), config.authToken);
+    await waitForRequestInterval(config.requestIntervalMs, req.signal);
+    const upstreamUrl = buildUpstreamUrl(target, requestPath, config.isCloudflare);
     writeUpstreamLog({
       path,
-      target: new URL(requestPath, target).toString(),
+      target: upstreamUrl,
       requestPath,
       method: req.method,
+      retryAttempt,
       headers: {
         authorization: redactToken(headers.get('authorization')),
         'x-api-key': redactToken(headers.get('x-api-key')),
@@ -2092,12 +2254,34 @@ async function forwardWithFallback(
       },
       body: requestBody,
     });
-    return await forwardJson(new URL(requestPath, target).toString(), {
+    return await forwardJson(upstreamUrl, {
       method: req.method,
       headers,
       body: requestBody,
       signal: req.signal,
     });
+  };
+
+  const send = async (target: string, requestPath: string, requestBody: string | undefined) => {
+    const maxRetries = 5;
+    let response = await sendOnce(target, requestPath, requestBody);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (!config.needRetry || !(await shouldRetryUpstreamResponse(response))) {
+        return response;
+      }
+      const delayMs = retryDelayMs(config);
+      writeUpstreamLog({
+        path: 'internal/upstream-retry',
+        target: buildUpstreamUrl(target, requestPath, config.isCloudflare),
+        requestPath,
+        status: response.status,
+        delayMs,
+        retryAttempt: attempt,
+      });
+      await sleep(delayMs, req.signal);
+      response = await sendOnce(target, requestPath, requestBody, attempt);
+    }
+    return response;
   };
 
   if (!useResponses) {
@@ -2108,31 +2292,47 @@ async function forwardWithFallback(
   const responsesPath = '/v1/responses';
   const chatPath = chatPathFromResponsesPath(path);
 
+  const sendChatFallback = async (
+    target: string,
+    allowUnsafeGeminiToolHistory = false,
+  ): Promise<Response | null> => {
+    const fallback = extractChatFallbackFromResponsesBody(
+      responsesRequestBody,
+      planModeLike,
+      allowUnsafeGeminiToolHistory,
+    );
+    if (fallback === null) return null;
+    const chatResponse = await send(target, chatPath, JSON.stringify(fallback.request));
+    if (!chatResponse.ok) return chatResponse;
+    const text = await chatResponse.text();
+    writeResponseLog({
+      path,
+      target,
+      status: chatResponse.status,
+      headers: Object.fromEntries(chatResponse.headers.entries()),
+      body: text,
+      fallback: true,
+    });
+    const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
+    const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
+    return responsesFallbackResponseFromChat(
+      text,
+      fallback.stream,
+      namespaces,
+      fallback.planModeLike,
+      allowedTools,
+      turnContext?.collaborationModeKind,
+    );
+  };
+
+  if (config.forceChatCompletions) {
+    return await sendChatFallback(config.chatBaseUrl, true) ??
+      unconvertibleResponsesRequestResponse();
+  }
+
   if (!responsesTarget) {
-    const fallback = extractChatFallbackFromResponsesBody(responsesRequestBody, planModeLike);
-    if (fallback !== null) {
-      const chatResponse = await send(firstTarget, chatPath, JSON.stringify(fallback.request));
-      if (!chatResponse.ok) return chatResponse;
-      const text = await chatResponse.text();
-      writeResponseLog({
-        path,
-        target: firstTarget,
-        status: chatResponse.status,
-        headers: Object.fromEntries(chatResponse.headers.entries()),
-        body: text,
-        fallback: true,
-      });
-      const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
-      const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
-      return responsesFallbackResponseFromChat(
-        text,
-        fallback.stream,
-        namespaces,
-        fallback.planModeLike,
-        allowedTools,
-        turnContext?.collaborationModeKind,
-      );
-    }
+    const fallbackResponse = await sendChatFallback(firstTarget);
+    if (fallbackResponse) return fallbackResponse;
   }
 
   const responsesResponse = await send(firstTarget, responsesPath, responsesRequestBody).catch(
@@ -2160,10 +2360,19 @@ async function forwardWithFallback(
     const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
     const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
     if (contentType.includes('text/event-stream')) {
-      return new Response(normalizeResponsesSseBody(text, namespaces, planModeLike, allowedTools, turnContext?.collaborationModeKind), {
-        status: responsesResponse.status,
-        headers: rewrittenBodyHeaders(responsesResponse.headers),
-      });
+      return new Response(
+        normalizeResponsesSseBody(
+          text,
+          namespaces,
+          planModeLike,
+          allowedTools,
+          turnContext?.collaborationModeKind,
+        ),
+        {
+          status: responsesResponse.status,
+          headers: rewrittenBodyHeaders(responsesResponse.headers),
+        },
+      );
     }
     const parsed = parseJsonBody(text);
     if (!parsed) {
@@ -2238,34 +2447,12 @@ async function forwardWithFallback(
     });
   }
 
-  const fallback = extractChatFallbackFromResponsesBody(responsesRequestBody, planModeLike);
-  if (fallback === null) {
+  const fallbackResponse = await sendChatFallback(config.chatBaseUrl);
+  if (fallbackResponse === null) {
     if (responsesResponse) return responsesResponse;
     throw new Error('upstream unavailable');
   }
-  const chatResponse = await send(config.chatBaseUrl, chatPath, JSON.stringify(fallback.request));
-  if (!chatResponse.ok) {
-    return chatResponse;
-  }
-  const text = await chatResponse.text();
-  writeResponseLog({
-    path,
-    target: config.chatBaseUrl,
-    status: chatResponse.status,
-    headers: Object.fromEntries(chatResponse.headers.entries()),
-    body: text,
-    fallback: true,
-  });
-  const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
-  const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
-  return responsesFallbackResponseFromChat(
-    text,
-    fallback.stream,
-    namespaces,
-    fallback.planModeLike,
-    allowedTools,
-    turnContext?.collaborationModeKind,
-  );
+  return fallbackResponse;
 }
 
 export async function proxyOpenAI(
@@ -2274,6 +2461,9 @@ export async function proxyOpenAI(
   config: ProxyConfig,
   turnContext?: ProxyTurnContext,
 ): Promise<Response> {
+  if ((path === '/v1/models' || path.startsWith('/v1/models?')) && config.isCloudflare) {
+    return cloudflareModelListResponse();
+  }
   const rawBody = req.method === 'GET' || req.method === 'HEAD'
     ? undefined
     : await req.clone().text();
@@ -2286,13 +2476,12 @@ export async function proxyOpenAI(
     return emptyJsonBodyResponse();
   }
   const body = maybeRewriteRequestBody(path, rawBody);
-  const headers = forwardHeaders(req.headers, config.defaultApiKey, config.authToken);
   const upstream = await forwardWithFallback(
     path,
     req,
     config,
     body,
-    headers,
+    req.headers,
     rawBody,
     turnContext,
   );

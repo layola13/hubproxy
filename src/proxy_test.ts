@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch } from 'jsr:@std/assert@1';
+import { assert, assertEquals, assertMatch } from 'jsr:@std/assert@1';
 import {
   normalizeChatToolCall,
   normalizeModelListResponseBody,
@@ -17,8 +17,13 @@ const config: ProxyConfig = {
   accountPlanType: 'plus',
   responsesBaseUrl: 'http://127.0.0.1:8788/v1',
   chatBaseUrl: 'http://127.0.0.1:8789/v1',
+  forceChatCompletions: false,
+  isCloudflare: false,
   defaultModel: 'models/gemma-4-31b-it',
   defaultApiKey: 'secret-token',
+  apiKeys: ['secret-token'],
+  requestIntervalMs: 0,
+  needRetry: false,
   dataDir: '/tmp',
 };
 
@@ -67,6 +72,194 @@ Deno.test('proxyOpenAI forwards auth and base url', async () => {
     assertMatch(seen.url ?? '', /^http:\/\/127\.0\.0\.1:8789\/v1\/chat\/completions$/);
     assertEquals((seen.init?.headers as Headers).get('authorization'), 'Bearer secret-token');
     assertEquals((seen.init?.headers as Headers).get('x-api-key'), 'secret-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI rotates configured api keys between upstream requests', async () => {
+  const seenKeys: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seenKeys.push((init?.headers as Headers).get('x-api-key') ?? '');
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const rotatingConfig: ProxyConfig = {
+    ...config,
+    defaultApiKey: 'key-a',
+    apiKeys: ['key-a', 'key-b'],
+  };
+
+  try {
+    for (let i = 0; i < 3; i++) {
+      const resp = await proxyOpenAI(
+        '/v1/chat/completions',
+        new Request('http://localhost/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: 'models/gemma-4-31b-it',
+            messages: [{ role: 'user', content: `hello ${i}` }],
+          }),
+        }),
+        rotatingConfig,
+      );
+      assertEquals(resp.status, 200);
+    }
+    assertEquals(seenKeys, ['key-a', 'key-b', 'key-a']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI waits between upstream requests when request interval is configured', async () => {
+  const starts: number[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    starts.push(performance.now());
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const throttledConfig: ProxyConfig = { ...config, requestIntervalMs: 25 };
+    for (let i = 0; i < 2; i++) {
+      const resp = await proxyOpenAI(
+        '/v1/chat/completions',
+        new Request('http://localhost/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: 'models/gemma-4-31b-it',
+            messages: [{ role: 'user', content: `hello ${i}` }],
+          }),
+        }),
+        throttledConfig,
+      );
+      assertEquals(resp.status, 200);
+    }
+    assertEquals(starts.length, 2);
+    assert(starts[1] - starts[0] >= 20);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI does not retry upstream errors when NEED_RETRY is disabled', async () => {
+  let calls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+      status: 429,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemma-4-31b-it',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      { ...config, requestIntervalMs: 5, needRetry: false },
+    );
+    assertEquals(resp.status, 429);
+    assertEquals(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI retries non-ok upstream responses when NEED_RETRY is enabled', async () => {
+  const starts: number[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    starts.push(performance.now());
+    if (starts.length === 1) {
+      return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemma-4-31b-it',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      { ...config, requestIntervalMs: 5, needRetry: true },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(starts.length, 2);
+    assert(starts[1] - starts[0] >= 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI retries antigravity project_id errors when NEED_RETRY is enabled', async () => {
+  let calls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'antigravity auth missing project_id: no project_id in response',
+            type: 'invalid_request_error',
+            param: '',
+            code: null,
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemma-4-31b-it',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      { ...config, requestIntervalMs: 5, needRetry: true },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(calls, 2);
+    assertEquals(await resp.json(), { ok: true });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -176,6 +369,34 @@ Deno.test('normalizeModelListResponseBody returns the original body', () => {
   });
   const body = normalizeModelListResponseBody(input);
   assertEquals(body, input);
+});
+
+Deno.test('proxyOpenAI returns fixed Cloudflare model list locally', async () => {
+  let called = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    called = true;
+    return new Response('unexpected', { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/models',
+      new Request('http://localhost/v1/models'),
+      { ...config, isCloudflare: true },
+    );
+    assertEquals(called, false);
+    assertEquals(resp.status, 200);
+    const body = await resp.json() as { object?: string; data?: Array<{ id?: string }> };
+    assertEquals(body.object, 'list');
+    assertEquals(body.data?.map((model) => model.id), [
+      '@cf/moonshotai/kimi-k2.7-code',
+      '@cf/openai/gpt-oss-120b',
+      '@cf/moonshotai/kimi-k2.6',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test('proxyOpenAI preserves model name when forwarding request body', async () => {
@@ -471,10 +692,10 @@ Deno.test('proxyOpenAI de-normalizes server names and normalizes dot-notation to
     );
 
     const text = await resp.text();
-    const dataLine = text.split('\n').find(line => line.startsWith('data: '));
+    const dataLine = text.split('\n').find((line) => line.startsWith('data: '));
     const data = JSON.parse(dataLine!.slice(6));
     const mcpItem = data.item;
-    
+
     // 1. Verify that server name is de-normalized back to 'code-index' for the client
     const args = JSON.parse(mcpItem.arguments);
     assertEquals(args.server, 'code-index');
@@ -486,7 +707,6 @@ Deno.test('proxyOpenAI de-normalizes server names and normalizes dot-notation to
     globalThis.fetch = originalFetch;
   }
 });
-
 
 Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () => {
   const seen: { body?: string } = {};
@@ -706,6 +926,243 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing in 
     );
     const userMessage = body.messages?.find((message) => message.role === 'user');
     assertEquals(userMessage?.content, 'hello');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI force-routes responses to chat when responses base url is configured', async () => {
+  const seen: { url?: string; body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/v1/responses')) {
+      throw new Error(`unexpected responses upstream call: ${url}`);
+    }
+    seen.url = url;
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(seen.url, 'http://127.0.0.1:8789/v1/chat/completions');
+    const upstreamBody = JSON.parse(seen.body ?? '{}') as {
+      input?: unknown;
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    assertEquals(upstreamBody.input, undefined);
+    assertEquals(
+      upstreamBody.messages?.find((message) => message.role === 'user')?.content,
+      'hello',
+    );
+    const clientBody = await resp.json() as { output_text?: string };
+    assertEquals(clientBody.output_text, 'ok');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI keeps Cloudflare base path when IS_CF is enabled', async () => {
+  const seen: { url?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    seen.url = String(input);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: '@cf/moonshotai/kimi-k2.7-code',
+          stream: false,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        chatBaseUrl: 'https://api.cloudflare.com/client/v4/accounts/acct/ai/v1',
+        forceChatCompletions: true,
+        isCloudflare: true,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(
+      seen.url,
+      'https://api.cloudflare.com/client/v4/accounts/acct/ai/v1/chat/completions',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI force-routes responses compact to chat completions path', async () => {
+  const seen: { url?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/v1/responses')) {
+      throw new Error(`unexpected responses upstream call: ${url}`);
+    }
+    seen.url = url;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'compact ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses/compact?trace=1',
+      new Request('http://localhost/v1/responses/compact?trace=1', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'compact' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(seen.url, 'http://127.0.0.1:8789/v1/chat/completions?trace=1');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI force-routes Gemini tool history to chat fallback best effort', async () => {
+  const seen: { url?: string; body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/v1/responses')) {
+      throw new Error(`unexpected responses upstream call: ${url}`);
+    }
+    seen.url = url;
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemini-3-flash-preview',
+          stream: false,
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call-1',
+              name: 'exec_command',
+              arguments: '{"cmd":"date"}',
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-1',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(seen.url, 'http://127.0.0.1:8789/v1/chat/completions');
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{ role?: string; tool_calls?: unknown; name?: string }>;
+    };
+    assertEquals(body.messages?.[0]?.role, 'assistant');
+    assertEquals(Array.isArray(body.messages?.[0]?.tool_calls), true);
+    assertEquals(body.messages?.[1]?.role, 'tool');
+    assertEquals(body.messages?.[1]?.name, 'exec_command');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI force mode rejects unconvertible responses requests without upstream', async () => {
+  let called = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    called = true;
+    return new Response('unexpected', { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{',
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+      },
+    );
+    assertEquals(resp.status, 400);
+    assertEquals(called, false);
+    const body = await resp.json() as { error?: { message?: string } };
+    assertEquals(body.error?.message, 'Responses request cannot be converted to Chat Completions.');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2124,7 +2581,10 @@ Deno.test('robustDenormalizeServerName handles various formats', () => {
   assertEquals(robustDenormalizeServerName('mcp__secure_coder__'), 'secure-coder');
   assertEquals(robustDenormalizeServerName('mcp__hello_world__'), 'hello-world');
   assertEquals(robustDenormalizeServerName('non_mcp_name'), 'non-mcp-name');
-  assertEquals(robustDenormalizeServerName('mcp__my_custom_server_name__'), 'my-custom-server-name');
+  assertEquals(
+    robustDenormalizeServerName('mcp__my_custom_server_name__'),
+    'my-custom-server-name',
+  );
 
   // Verify that raw and partially normalized server names resolve properly too
   assertEquals(robustDenormalizeServerName('code_index'), 'code-index');

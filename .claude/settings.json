@@ -1,0 +1,11 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://capi.aerolink.lat",
+    "ANTHROPIC_AUTH_TOKEN": "aero_live_d8RUs-eL8mOpriF_8U1rSpxmod6Ce9TOxCG3i-jtSaU",
+    
+   "ANTHROPIC_MODEL": "claude-opus-4-7",
+
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-7"
+  
+  }
+}
