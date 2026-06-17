@@ -585,11 +585,24 @@ async function shouldRetryUpstreamResponse(response: Response): Promise<boolean>
     if (!parsed) return false;
     if (hasCfWorkersAiError(parsed as Record<string, unknown>)) return true;
     const error = parsed?.error;
-    const message = error && typeof error === 'object' &&
-        typeof (error as Record<string, unknown>).message === 'string'
-      ? (error as Record<string, string>).message
-      : '';
-    return hasAntigravityProjectIdError(message);
+    if (error && typeof error === 'object') {
+      const e = error as Record<string, unknown>;
+      const message = typeof e.message === 'string' ? e.message : '';
+      if (hasAntigravityProjectIdError(message)) return true;
+      const code = typeof e.code === 'string' ? e.code.toLowerCase() : '';
+      const type = typeof e.type === 'string' ? e.type.toLowerCase() : '';
+      const lowerMsg = message.toLowerCase();
+      if (
+        code === 'access_denied' ||
+        type === 'new_api_error' ||
+        lowerMsg.includes('only codex clients') ||
+        lowerMsg.includes('exceeded retry limit') ||
+        lowerMsg.includes('rate limit') ||
+        lowerMsg.includes('too many request') ||
+        lowerMsg.includes('429')
+      ) return true;
+    }
+    return false;
   } catch {
     return false;
   }
