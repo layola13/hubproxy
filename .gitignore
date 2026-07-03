@@ -12,3 +12,9 @@ logs/
 codex-relay/
 .sa_cache
 .sa.bc
+tokens/
+*.json
+.env_*
+restart_*
+keys/
+tmp/

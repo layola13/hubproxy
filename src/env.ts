@@ -35,8 +35,49 @@ function parseNonNegativeIntegerEnv(name: string, raw: string | undefined): numb
   return value;
 }
 
+function parseIntervalMsEnv(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined || !raw.trim()) return fallback;
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function parseOptionalPositiveIntegerEnv(name: string, raw: string | undefined): number | null {
+  if (raw === undefined || !raw.trim()) return null;
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function parseThresholdPercentEnv(name: string, raw: string | undefined): number {
+  if (raw === undefined || !raw.trim()) return 90;
+  const value = Number(raw.trim());
+  if (!Number.isFinite(value) || value <= 0 || value >= 100) {
+    throw new Error(`${name} must be a number greater than 0 and less than 100`);
+  }
+  return value;
+}
+
+function isTextFilePath(raw: string): boolean {
+  return raw.trim().toLowerCase().endsWith('.txt');
+}
+
+function normalizeApiKeyEntry(raw: string): string {
+  return raw.trim().replace(/,+$/, '').trim();
+}
+
 function parseApiKeys(raw: string | undefined): string[] {
-  const keys = (raw ?? '').split(',').map((key) => key.trim()).filter(Boolean);
+  const source = raw?.trim() ?? '';
+  const keys = isTextFilePath(source)
+    ? Deno.readTextFileSync(source)
+      .split(/\r?\n/)
+      .map(normalizeApiKeyEntry)
+      .filter(Boolean)
+    : source.split(',').map(normalizeApiKeyEntry).filter(Boolean);
   if (keys.length === 0) throw new Error('OPENAI_API_KEY is required');
   return keys;
 }
@@ -87,6 +128,7 @@ export function loadConfig(): ProxyConfig {
       'HUBPROXY_FORCE_CHAT_COMPLETIONS',
       Deno.env.get('HUBPROXY_FORCE_CHAT_COMPLETIONS'),
     ),
+    nvidiaCompat: parseBoolEnv('HUBPROXY_NVIDIA_COMPAT', Deno.env.get('HUBPROXY_NVIDIA_COMPAT')),
     isCloudflare: parseBoolEnv('IS_CF', Deno.env.get('IS_CF')),
     defaultModel,
     defaultApiKey: apiKeys[0],
@@ -96,6 +138,30 @@ export function loadConfig(): ProxyConfig {
       Deno.env.get('HUBPROXY_REQUEST_INTERVAL_MS'),
     ),
     needRetry: parseBoolEnv('NEED_RETRY', Deno.env.get('NEED_RETRY')),
+    glmTryGetKey: parseBoolEnv('GLM_TRY_GET_KEY', Deno.env.get('GLM_TRY_GET_KEY')),
+    glmKeyRefreshIntervalMs: parseIntervalMsEnv(
+      'GLM_KEY_REFRESH_INTERVAL_MS',
+      Deno.env.get('GLM_KEY_REFRESH_INTERVAL_MS'),
+      600000,
+    ),
+    glmKeyFetchRetryCount: parseIntervalMsEnv(
+      'GLM_KEY_FETCH_RETRY_COUNT',
+      Deno.env.get('GLM_KEY_FETCH_RETRY_COUNT'),
+      100,
+    ),
+    glmKeyFetchRetryDelayMs: parseIntervalMsEnv(
+      'GLM_KEY_FETCH_RETRY_DELAY_MS',
+      Deno.env.get('GLM_KEY_FETCH_RETRY_DELAY_MS'),
+      30000,
+    ),
     dataDir,
+    customContextWindowTokens: parseOptionalPositiveIntegerEnv(
+      'HUBPROXY_CONTEXT_WINDOW_TOKENS',
+      Deno.env.get('HUBPROXY_CONTEXT_WINDOW_TOKENS'),
+    ),
+    contextCompactThresholdPercent: parseThresholdPercentEnv(
+      'HUBPROXY_CONTEXT_COMPACT_THRESHOLD_PERCENT',
+      Deno.env.get('HUBPROXY_CONTEXT_COMPACT_THRESHOLD_PERCENT'),
+    ),
   };
 }

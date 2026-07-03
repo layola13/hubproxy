@@ -266,9 +266,9 @@ function logSummary(entry: Record<string, unknown>, file: string): Record<string
 
 function logDirFromEnv(): string | null {
   const value = Deno.env.get('HUBPROXY_LOG_DIR');
-  if (!value) return null;
+  if (!value) return 'logs';
   const normalized = value.trim();
-  return normalized ? normalized : null;
+  return normalized ? normalized : 'logs';
 }
 
 function writeRequestLog(entry: Record<string, unknown>): void {
@@ -1278,6 +1278,7 @@ export async function handleRpc(
             responsesBaseUrl: config.responsesBaseUrl,
             chatBaseUrl: config.chatBaseUrl,
             forceChatCompletions: config.forceChatCompletions,
+            nvidiaCompat: config.nvidiaCompat,
             isCloudflare: config.isCloudflare,
             requestIntervalMs: config.requestIntervalMs,
             needRetry: config.needRetry,

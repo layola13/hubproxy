@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-env_file=".env_gemini"
+env_file=".env_mine"
 port=""
 log_dir=""
 

@@ -18,12 +18,17 @@ const config: ProxyConfig = {
   responsesBaseUrl: 'http://127.0.0.1:8788/v1',
   chatBaseUrl: 'http://127.0.0.1:8789/v1',
   forceChatCompletions: false,
+  nvidiaCompat: false,
   isCloudflare: false,
   defaultModel: 'models/gemma-4-31b-it',
   defaultApiKey: 'secret-token',
   apiKeys: ['secret-token'],
   requestIntervalMs: 0,
   needRetry: false,
+  glmTryGetKey: false,
+  glmKeyRefreshIntervalMs: 600000,
+  glmKeyFetchRetryCount: 100,
+  glmKeyFetchRetryDelayMs: 30000,
   dataDir: '/tmp',
 };
 
@@ -113,6 +118,55 @@ Deno.test('proxyOpenAI rotates configured api keys between upstream requests', a
     assertEquals(seenKeys, ['key-a', 'key-b', 'key-a']);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI prefers refreshed GLM key from dotenv at request time', async () => {
+  const dotenvFile = await Deno.makeTempFile({ suffix: '.env' });
+  const originalDotenvPath = Deno.env.get('DOTENV_PATH');
+  const originalOpenAiKey = Deno.env.get('OPENAI_API_KEY');
+  const seenKeys: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seenKeys.push((init?.headers as Headers).get('x-api-key') ?? '');
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await Deno.writeTextFile(dotenvFile, 'OPENAI_API_KEY=babeltown-new-key\n');
+    Deno.env.set('DOTENV_PATH', dotenvFile);
+    Deno.env.delete('OPENAI_API_KEY');
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-5.2',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        defaultModel: 'glm-5.2',
+        chatBaseUrl: 'https://api.babel.town/v1',
+        glmTryGetKey: true,
+        defaultApiKey: 'stale-key',
+        apiKeys: ['stale-key'],
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(seenKeys, ['babeltown-new-key']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDotenvPath === undefined) Deno.env.delete('DOTENV_PATH');
+    else Deno.env.set('DOTENV_PATH', originalDotenvPath);
+    if (originalOpenAiKey === undefined) Deno.env.delete('OPENAI_API_KEY');
+    else Deno.env.set('OPENAI_API_KEY', originalOpenAiKey);
+    await Deno.remove(dotenvFile).catch(() => {});
   }
 });
 
@@ -220,6 +274,355 @@ Deno.test('proxyOpenAI retries non-ok upstream responses when NEED_RETRY is enab
   }
 });
 
+Deno.test('proxyOpenAI retries GLM quota errors when GLM_TRY_GET_KEY is enabled', async () => {
+  let calls = 0;
+  const originalTrigger = Deno.env.get('GLM_TRIGGER_KEY_REFRESH');
+  const originalDotenvPath = Deno.env.get('DOTENV_PATH');
+  const originalOpenAiKey = Deno.env.get('OPENAI_API_KEY');
+  const dotenvFile = await Deno.makeTempFile({ suffix: '.env' });
+  Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (String(input) === 'https://glm.babel.town/api/get_api_key') {
+      return new Response(JSON.stringify({ success: true, api_key: 'babeltown-refreshed-key' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    calls++;
+    if (calls === 1) {
+      return new Response(JSON.stringify({ error: { message: '额度不足，请稍后再试' } }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await Deno.writeTextFile(dotenvFile, 'OPENAI_API_KEY=babeltown-old-key\n');
+    Deno.env.set('DOTENV_PATH', dotenvFile);
+    Deno.env.delete('OPENAI_API_KEY');
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-5.2',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        defaultModel: 'glm-5.2',
+        chatBaseUrl: 'https://api.babel.town/v1',
+        needRetry: true,
+        glmTryGetKey: true,
+        requestIntervalMs: 5,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(calls, 2);
+    assertEquals(Deno.env.get('GLM_TRIGGER_KEY_REFRESH'), '1');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalTrigger === undefined) Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+    else Deno.env.set('GLM_TRIGGER_KEY_REFRESH', originalTrigger);
+    if (originalDotenvPath === undefined) Deno.env.delete('DOTENV_PATH');
+    else Deno.env.set('DOTENV_PATH', originalDotenvPath);
+    if (originalOpenAiKey === undefined) Deno.env.delete('OPENAI_API_KEY');
+    else Deno.env.set('OPENAI_API_KEY', originalOpenAiKey);
+    await Deno.remove(dotenvFile).catch(() => {});
+  }
+});
+
+Deno.test('proxyOpenAI triggers immediate GLM key refresh on 403 expired key', async () => {
+  const originalTrigger = Deno.env.get('GLM_TRIGGER_KEY_REFRESH');
+  Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    return new Response('This API key has expired.', {
+      status: 403,
+      headers: { 'content-type': 'text/plain' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-5.2',
+          stream: false,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        defaultModel: 'glm-5.2',
+        chatBaseUrl: 'https://api.babel.town/v1',
+        needRetry: true,
+        glmTryGetKey: true,
+        requestIntervalMs: 5,
+        glmKeyFetchRetryCount: 3,
+        glmKeyFetchRetryDelayMs: 1,
+      },
+    );
+    assertEquals(resp.status, 403);
+    assertEquals(Deno.env.get('GLM_TRIGGER_KEY_REFRESH'), '1');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalTrigger === undefined) Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+    else Deno.env.set('GLM_TRIGGER_KEY_REFRESH', originalTrigger);
+  }
+});
+
+Deno.test('proxyOpenAI triggers immediate GLM key refresh on 403 revoked key', async () => {
+  const originalTrigger = Deno.env.get('GLM_TRIGGER_KEY_REFRESH');
+  Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    return new Response('This API key has been revoked.', {
+      status: 403,
+      headers: { 'content-type': 'text/plain' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-5.2',
+          stream: false,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        defaultModel: 'glm-5.2',
+        chatBaseUrl: 'https://api.babel.town/v1',
+        needRetry: true,
+        glmTryGetKey: true,
+        requestIntervalMs: 5,
+        glmKeyFetchRetryCount: 3,
+        glmKeyFetchRetryDelayMs: 1,
+      },
+    );
+    assertEquals(resp.status, 403);
+    assertEquals(Deno.env.get('GLM_TRIGGER_KEY_REFRESH'), '1');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalTrigger === undefined) Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+    else Deno.env.set('GLM_TRIGGER_KEY_REFRESH', originalTrigger);
+  }
+});
+
+Deno.test('proxyOpenAI fetches and uses a fresh GLM key inside the Deno process', async () => {
+  const dotenvFile = await Deno.makeTempFile({ suffix: '.env' });
+  const originalDotenvPath = Deno.env.get('DOTENV_PATH');
+  const originalOpenAiKey = Deno.env.get('OPENAI_API_KEY');
+  const seenKeys: string[] = [];
+  let glmKeyFetches = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === 'https://glm.babel.town/api/get_api_key') {
+      glmKeyFetches++;
+      return new Response(
+        JSON.stringify({ success: true, api_key: 'babeltown-fresh-key', minutes_left: 60 }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    seenKeys.push((init?.headers as Headers).get('x-api-key') ?? '');
+    if (seenKeys.length === 1) {
+      return new Response('This API key has expired.', {
+        status: 403,
+        headers: { 'content-type': 'text/plain' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await Deno.writeTextFile(dotenvFile, 'OPENAI_API_KEY=babeltown-old-key\n');
+    Deno.env.set('DOTENV_PATH', dotenvFile);
+    Deno.env.delete('OPENAI_API_KEY');
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-5.2',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        defaultModel: 'glm-5.2',
+        chatBaseUrl: 'https://api.babel.town/v1',
+        glmTryGetKey: true,
+        needRetry: true,
+        requestIntervalMs: 1,
+        glmKeyFetchRetryCount: 3,
+        glmKeyFetchRetryDelayMs: 1,
+        defaultApiKey: 'stale-key',
+        apiKeys: ['stale-key'],
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(glmKeyFetches, 1);
+    assertEquals(seenKeys, ['babeltown-old-key', 'babeltown-fresh-key']);
+    assertEquals(Deno.env.get('OPENAI_API_KEY'), 'babeltown-fresh-key');
+    const dotenvText = await Deno.readTextFile(dotenvFile);
+    assertMatch(dotenvText, /OPENAI_API_KEY=babeltown-fresh-key/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDotenvPath === undefined) Deno.env.delete('DOTENV_PATH');
+    else Deno.env.set('DOTENV_PATH', originalDotenvPath);
+    if (originalOpenAiKey === undefined) Deno.env.delete('OPENAI_API_KEY');
+    else Deno.env.set('OPENAI_API_KEY', originalOpenAiKey);
+    await Deno.remove(dotenvFile).catch(() => {});
+  }
+});
+
+Deno.test('proxyOpenAI retries fetching GLM key when refresh endpoint is flaky', async () => {
+  const dotenvFile = await Deno.makeTempFile({ suffix: '.env' });
+  const originalDotenvPath = Deno.env.get('DOTENV_PATH');
+  const originalOpenAiKey = Deno.env.get('OPENAI_API_KEY');
+  const seenKeys: string[] = [];
+  let glmKeyFetches = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === 'https://glm.babel.town/api/get_api_key') {
+      glmKeyFetches++;
+      if (glmKeyFetches < 3) {
+        return new Response('temporary overload', { status: 503 });
+      }
+      return new Response(
+        JSON.stringify({ success: true, api_key: 'babeltown-retry-key', minutes_left: 60 }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    seenKeys.push((init?.headers as Headers).get('x-api-key') ?? '');
+    if (seenKeys.length === 1) {
+      return new Response('This API key has expired.', {
+        status: 403,
+        headers: { 'content-type': 'text/plain' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await Deno.writeTextFile(dotenvFile, 'OPENAI_API_KEY=babeltown-old-key\n');
+    Deno.env.set('DOTENV_PATH', dotenvFile);
+    Deno.env.delete('OPENAI_API_KEY');
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-5.2',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        defaultModel: 'glm-5.2',
+        chatBaseUrl: 'https://api.babel.town/v1',
+        glmTryGetKey: true,
+        needRetry: true,
+        requestIntervalMs: 1,
+        glmKeyFetchRetryCount: 3,
+        glmKeyFetchRetryDelayMs: 1,
+        defaultApiKey: 'stale-key',
+        apiKeys: ['stale-key'],
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(glmKeyFetches, 3);
+    assertEquals(seenKeys, ['babeltown-old-key', 'babeltown-retry-key']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDotenvPath === undefined) Deno.env.delete('DOTENV_PATH');
+    else Deno.env.set('DOTENV_PATH', originalDotenvPath);
+    if (originalOpenAiKey === undefined) Deno.env.delete('OPENAI_API_KEY');
+    else Deno.env.set('OPENAI_API_KEY', originalOpenAiKey);
+    await Deno.remove(dotenvFile).catch(() => {});
+  }
+});
+
+Deno.test('proxyOpenAI does not treat non-babel GLM channels as auto-refresh targets', async () => {
+  let calls = 0;
+  const originalTrigger = Deno.env.get('GLM_TRIGGER_KEY_REFRESH');
+  Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: { message: '额度不足，请稍后再试' } }), {
+      status: 429,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'glm-5.2',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        defaultModel: 'glm-5.2',
+        chatBaseUrl: 'https://some-other-proxy.example/v1',
+        needRetry: true,
+        glmTryGetKey: true,
+        requestIntervalMs: 5,
+      },
+    );
+    assertEquals(resp.status, 429);
+    assertEquals(calls > 0, true);
+    assertEquals(Deno.env.get('GLM_TRIGGER_KEY_REFRESH'), undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalTrigger === undefined) Deno.env.delete('GLM_TRIGGER_KEY_REFRESH');
+    else Deno.env.set('GLM_TRIGGER_KEY_REFRESH', originalTrigger);
+  }
+});
+
 Deno.test('proxyOpenAI retries antigravity project_id errors when NEED_RETRY is enabled', async () => {
   let calls = 0;
   const originalFetch = globalThis.fetch;
@@ -301,6 +704,314 @@ Deno.test('proxyOpenAI does not forward client x-api-key to upstream', async () 
     if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
     else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
     await Deno.remove(logDir).catch(() => {});
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI logs raw fallback chat and final client responses separately', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'goal' },
+    );
+
+    assertEquals(resp.status, 200);
+    const logEntries = Array.from(Deno.readDirSync(logDir))
+      .filter((entry) => entry.isFile)
+      .map((entry) =>
+        JSON.parse(Deno.readTextFileSync(`${logDir}/${entry.name}`)) as Record<string, unknown>
+      )
+      .filter((entry) => entry.path === '/v1/responses');
+
+    const rawFallback = logEntries.find((entry) => entry.stage === 'upstream_chat_fallback_raw');
+    const finalClient = logEntries.find((entry) => entry.stage === 'client_response_final');
+    const rawFallbackStream = logEntries.find((entry) =>
+      entry.stage === 'upstream_chat_fallback_stream_raw'
+    );
+    const finalClientStream = logEntries.find((entry) =>
+      entry.stage === 'client_response_stream_final'
+    );
+    assert(rawFallback);
+    assertEquals(rawFallback?.fallback, true);
+    assertEquals(typeof rawFallback?.body, 'string');
+    assert((rawFallback?.body as string).includes('data: {"choices"'));
+    assert((rawFallback?.body as string).includes('data: [DONE]'));
+    assert(rawFallbackStream);
+    assertEquals(typeof rawFallbackStream?.body, 'string');
+    assert((rawFallbackStream?.body as string).includes('data: [DONE]'));
+
+    assert(finalClient);
+    assertEquals(finalClient?.target, 'client');
+    assertEquals(typeof finalClient?.body, 'string');
+    assert((finalClient?.body as string).includes('event: response.output_text.delta'));
+    assert((finalClient?.body as string).includes('event: response.completed'));
+    assert(finalClientStream);
+    assertEquals(typeof finalClientStream?.body, 'string');
+    assert((finalClientStream?.body as string).includes('event: response.completed'));
+  } finally {
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true }).catch(() => {});
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI logs raw native responses SSE streams', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":"hello"}',
+        '',
+        'event: response.completed',
+        'data: {"type":"response.completed","response":{"id":"resp_1"}}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      config,
+      { collaborationModeKind: 'goal' },
+    );
+
+    assertEquals(resp.status, 200);
+    const logEntries = Array.from(Deno.readDirSync(logDir))
+      .filter((entry) => entry.isFile)
+      .map((entry) =>
+        JSON.parse(Deno.readTextFileSync(`${logDir}/${entry.name}`)) as Record<string, unknown>
+      )
+      .filter((entry) => entry.path === '/v1/responses');
+
+    const upstreamStream = logEntries.find((entry) => entry.stage === 'upstream_responses_stream_raw');
+    const finalClientStream = logEntries.find((entry) =>
+      entry.stage === 'client_response_stream_final'
+    );
+
+    assert(upstreamStream);
+    assertEquals(typeof upstreamStream?.body, 'string');
+    assert((upstreamStream?.body as string).includes('event: response.output_text.delta'));
+    assert((upstreamStream?.body as string).includes('event: response.completed'));
+
+    assert(finalClientStream);
+    assertEquals(typeof finalClientStream?.body, 'string');
+    assert((finalClientStream?.body as string).includes('event: response.output_text.delta'));
+  } finally {
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true }).catch(() => {});
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves logged native responses SSE tail content', async () => {
+  const originalFetch = globalThis.fetch;
+  const upstreamDoneText = [
+    '现在默认会写到 `logs/` 了，不需要再显式传 `--logs` 或设置 `HUBPROXY_LOG_DIR`。',
+    '',
+    '我改了这两个地方：',
+    '- [src/handlers.ts](/home/vscode/projects/hubproxy/src/handlers.ts:267)',
+    '- [src/proxy.ts](/home/vscode/projects/hubproxy/src/proxy.ts:355)',
+    '',
+    '逻辑变成：',
+    '- 如果设置了 `HUBPROXY_LOG_DIR`，继续用它',
+    '- 如果没设置，默认用仓库根下的 `logs`',
+    '',
+    '我也重启了 Deno 服务，并做了本地验证。刚才对 `http://127.0.0.1:27787/v1/models` 发请求后，`logs/` 里已经自动新增了：',
+    '- `models-2026-06-30T10-55-11-470Z-...json`',
+    '- `request-2026-06-30T10-55-11-036Z-...json`',
+    '- `upstream-2026-06-30T10-55-11-040Z-...json`',
+    '',
+    '所以“默认写到 `logs/`”这件事已经生效了。',
+    '',
+    '还差一点要说明：',
+    '- `stream-*` 只有在真正经过 SSE 响应路径时才会出现',
+    '- 你刚才这次验证打的是 `/v1/models`，所以不会有 `stream-*`',
+    '',
+    '如果你要，我下一步可以直接帮你打一条 `/v1/responses` 的流式请求，确认 `stream-*` 也会落出来。',
+  ].join('\n');
+  const tailDeltas = [
+    '不会有',
+    ' `',
+    'stream',
+    '-*',
+    '`\n\n',
+    '如果',
+    '你',
+    '要',
+    '，我',
+    '下一',
+    '步',
+    '可以',
+    '直接',
+    '帮',
+    '你',
+    '打一',
+    '条',
+    ' `/',
+    'v',
+    '1',
+    '/res',
+    'ponses',
+    '`',
+    ' 的',
+    '流',
+    '式',
+    '请求',
+    '，',
+    '确认',
+    ' `',
+    'stream',
+    '-*',
+    '`',
+    ' ',
+    '也',
+    '会',
+    '落',
+    '出来',
+    '。',
+  ];
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'event: response.created',
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        '',
+        'event: response.output_item.added',
+        'data: {"type":"response.output_item.added","item":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":""}]}}',
+        '',
+        ...tailDeltas.flatMap((delta) => [
+          'event: response.output_text.delta',
+          `data: ${JSON.stringify({ type: 'response.output_text.delta', delta })}`,
+          '',
+        ]),
+        'event: response.output_item.done',
+        `data: ${JSON.stringify({
+          type: 'response.output_item.done',
+          item: {
+            id: 'msg_1',
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: upstreamDoneText }],
+          },
+        })}`,
+        '',
+        'event: response.completed',
+        'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      config,
+      { collaborationModeKind: 'goal' },
+    );
+
+    assertEquals(resp.status, 200);
+    const events = parseSseEvents(await resp.text());
+    const deltas = events
+      .filter((event) => event.event === 'response.output_text.delta')
+      .map((event) => String(event.data.delta ?? ''));
+    const done = events.find((event) => event.event === 'response.output_item.done');
+    const item = done?.data.item as {
+      content?: Array<{ text?: string }>;
+    } | undefined;
+
+    const expectedTailText =
+      '不会有 `stream-*`\n\n如果你要，我下一步可以直接帮你打一条 `/v1/responses` 的流式请求，确认 `stream-*` 也会落出来。';
+
+    assertEquals(deltas, tailDeltas);
+    assertEquals(deltas.join(''), expectedTailText);
+    assertEquals(item?.content?.[0]?.text, expectedTailText);
+    assert(upstreamDoneText.includes(expectedTailText));
+  } finally {
     globalThis.fetch = originalFetch;
   }
 });
@@ -573,6 +1284,136 @@ Deno.test('proxyOpenAI preserves tool names in chat fallback tool messages', asy
     const toolMessage = body.messages?.find((message) => message.role === 'tool');
     assertEquals(toolMessage?.tool_call_id, 'call-1');
     assertEquals(toolMessage?.name, 'exec_command');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI merges assistant text into tool-call message before tool outputs', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'mistralai/mistral-large-3-675b-instruct-2512',
+          stream: false,
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call-1',
+              name: 'exec_command',
+              arguments: '{"cmd":"pwd"}',
+            },
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'I will inspect the repo.' }],
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-1',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        nvidiaCompat: true,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{
+        role?: string;
+        content?: string | Array<{ type?: string; text?: string }> | null;
+        tool_calls?: Array<{ id?: string }>;
+        tool_call_id?: string;
+      }>;
+    };
+    assertEquals(body.messages?.length, 2);
+    assertEquals(body.messages?.[0]?.role, 'assistant');
+    assertEquals(body.messages?.[0]?.tool_calls?.[0]?.id, 'call-1');
+    assertEquals(
+      typeof body.messages?.[0]?.content === 'string'
+        ? body.messages?.[0]?.content
+        : (body.messages?.[0]?.content as Array<{ text?: string }>)[0]?.text,
+      'I will inspect the repo.',
+    );
+    assertEquals(body.messages?.[1]?.role, 'tool');
+    assertEquals(body.messages?.[1]?.tool_call_id, 'call-1');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI repairs malformed function-call arguments for NVIDIA chat fallback', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'moonshotai/kimi-k2.6',
+          stream: false,
+          input: [
+            {
+              type: 'function_call',
+              call_id: 'call-1',
+              name: 'exec_command',
+              arguments: '{"cmd":"cat > /tmp/demo << \'EOF\'\nunterminated"',
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-1',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        forceChatCompletions: true,
+        nvidiaCompat: true,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{
+        role?: string;
+        tool_calls?: Array<{ function?: { arguments?: string } }>;
+      }>;
+    };
+    const args = JSON.parse(body.messages?.[0]?.tool_calls?.[0]?.function?.arguments ?? '{}') as {
+      cmd?: string;
+    };
+    assertEquals(typeof args.cmd, 'string');
+    assertMatch(args.cmd ?? '', /malformed_tool_arguments/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -988,6 +1829,53 @@ Deno.test('proxyOpenAI force-routes responses to chat when responses base url is
   }
 });
 
+Deno.test('proxyOpenAI strips NVIDIA-incompatible client metadata in chat fallback', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'z-ai/glm-5.1',
+          stream: false,
+          client_metadata: { thread_id: 'thread-1' },
+          prompt_cache_key: 'cache-1',
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        nvidiaCompat: true,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const upstreamBody = JSON.parse(seen.body ?? '{}') as Record<string, unknown>;
+    assertEquals(upstreamBody.client_metadata, undefined);
+    assertEquals(upstreamBody.prompt_cache_key, undefined);
+    assertEquals(upstreamBody.messages instanceof Array, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI keeps Cloudflare base path when IS_CF is enabled', async () => {
   const seen: { url?: string } = {};
   const originalFetch = globalThis.fetch;
@@ -1079,6 +1967,222 @@ Deno.test('proxyOpenAI force-routes responses compact to chat completions path',
   }
 });
 
+Deno.test('proxyOpenAI auto-compacts oversized custom-context responses requests before forwarding', async () => {
+  const seen: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    seen.push({ url, body });
+    if (body?.includes('Produce a compact continuation summary')) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'summary: keep only key state' } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const longText = 'x'.repeat(5000);
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: longText }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        forceChatCompletions: true,
+        customContextWindowTokens: 1024,
+        contextCompactThresholdPercent: 90,
+      },
+    );
+    assertEquals(resp.status, 200);
+    assertEquals(seen.length, 2);
+    assertEquals(seen[0].url, 'http://127.0.0.1:8789/v1/chat/completions');
+    assertEquals(seen[1].url, 'http://127.0.0.1:8789/v1/chat/completions');
+    const forwarded = JSON.parse(seen[1].body ?? '{}') as { messages?: Array<{ content?: unknown }> };
+    const serialized = JSON.stringify(forwarded);
+    assertEquals(serialized.includes('Compressed prior context summary'), true);
+    assertEquals(serialized.includes('summary: keep only key state'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI compacts on upstream context-length overflow 400 and retries once', async () => {
+  const seen: Array<{ url: string; body?: string; status?: number }> = [];
+  const originalFetch = globalThis.fetch;
+  let mainCallCount = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    seen.push({ url, body });
+
+    if (body?.includes('Produce a compact continuation summary')) {
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'summary: condense prior turns' } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
+    mainCallCount += 1;
+    if (mainCallCount === 1) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message:
+              "This model's maximum context length is 202752 tokens. However, your messages resulted in 203774 tokens. Please reduce the length of the messages.",
+            type: 'BadRequest',
+            code: '400',
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const longText = 'x'.repeat(500);
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'z-ai/glm-5.2',
+          stream: false,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: longText }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        forceChatCompletions: true,
+        customContextWindowTokens: 200000,
+        contextCompactThresholdPercent: 85,
+      },
+    );
+    assertEquals(resp.status, 200);
+    // Expect: 1 compact handshake + 1 original main call + 1 retried main call = 3 total.
+    const chatCalls = seen.filter((e) => e.url === 'http://127.0.0.1:8789/v1/chat/completions');
+    assertEquals(chatCalls.length, 3);
+    const handshake = chatCalls.filter((e) => (e.body ?? '').includes('Produce a compact continuation summary'));
+    assertEquals(handshake.length, 1);
+    const mainCalls = chatCalls.filter((e) => !(e.body ?? '').includes('Produce a compact continuation summary'));
+    assertEquals(mainCalls.length, 2);
+    const retried = JSON.parse(mainCalls[1].body ?? '{}') as { input?: unknown };
+    const serialized = JSON.stringify(retried);
+    assertEquals(serialized.includes('Compressed prior context summary'), true);
+    assertEquals(serialized.includes('summary: condense prior turns'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI compacts overflow 400 on direct chat/completions path too', async () => {
+  const seen: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  let mainCallCount = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    seen.push({ url, body });
+    if (body?.includes('Produce a compact continuation summary')) {
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'summary: prior goals condensed' } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    mainCallCount += 1;
+    if (mainCallCount === 1) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message:
+              "This model's maximum context length is 202752 tokens. However, your messages resulted in 203807 tokens. Please reduce the length of the messages.",
+            type: 'BadRequest',
+            code: '400',
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const longHistory: Array<{ role: string; content: string }> = [];
+    for (let i = 0; i < 200; i++) longHistory.push({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(200) });
+    longHistory.push({ role: 'user', content: 'final question about the task' });
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'z-ai/glm-5.2',
+          stream: false,
+          messages: longHistory,
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        forceChatCompletions: true,
+        nvidiaCompat: true,
+        customContextWindowTokens: 200000,
+        contextCompactThresholdPercent: 85,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const chatCalls = seen.filter((e) => e.url === 'http://127.0.0.1:8789/v1/chat/completions');
+    assertEquals(chatCalls.length, 3);
+    const handshake = chatCalls.filter((e) => (e.body ?? '').includes('Produce a compact continuation summary'));
+    assertEquals(handshake.length, 1);
+    const mainCalls = chatCalls.filter((e) => !(e.body ?? '').includes('Produce a compact continuation summary'));
+    assertEquals(mainCalls.length, 2);
+    // Retried body must shrink: messages replaced with [system summary, last user turn]
+    const retried = JSON.parse(mainCalls[1].body ?? '{}') as { messages: Array<{ role: string; content: string }> };
+    assertEquals(retried.messages.length, 2);
+    assertEquals(retried.messages[0].role, 'system');
+    assertEquals(retried.messages[0].content.includes('Compressed prior context summary'), true);
+    assertEquals(retried.messages[0].content.includes('summary: prior goals condensed'), true);
+    assertEquals(retried.messages[1].role, 'user');
+    assertEquals(retried.messages[1].content, 'final question about the task');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 Deno.test('proxyOpenAI force-routes Gemini tool history to chat fallback best effort', async () => {
   const seen: { url?: string; body?: string } = {};
   const originalFetch = globalThis.fetch;
@@ -1987,6 +3091,69 @@ Deno.test('proxyOpenAI preserves namespaced chat fallback tool calls', async () 
   }
 });
 
+Deno.test('proxyOpenAI repairs collapsed namespaced tool calls from NVIDIA stream', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_mcp","type":"function","function":{"name":"mcp__code_indexsearch","arguments":"{\\"query\\":\\"obvious remaining work\\"}"},"index":0}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'moonshotai/kimi-k2.6',
+          stream: true,
+          tools: [
+            {
+              type: 'namespace',
+              name: 'mcp__code_index__',
+              tools: [
+                {
+                  type: 'function',
+                  name: 'search',
+                  parameters: { type: 'object', properties: {} },
+                },
+              ],
+            },
+          ],
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const toolEvent = events.find((event) => event.event === 'response.output_item.done');
+    assertEquals((toolEvent?.data.item as { namespace?: string }).namespace, 'mcp__code_index__');
+    assertEquals((toolEvent?.data.item as { name?: string }).name, 'search');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI falls back to chat JSON when stream is false', async () => {
   const calls: string[] = [];
   const originalFetch = globalThis.fetch;
@@ -2134,6 +3301,78 @@ Deno.test('proxyOpenAI maps thought tags into reasoning output items', async () 
   }
 });
 
+Deno.test('proxyOpenAI maps think tags into reasoning output items', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    const body = JSON.parse(String(init?.body ?? '{}')) as { stream?: boolean };
+    assertEquals(body.stream, false);
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: '<think>internal think</think>Hello think',
+          },
+        }],
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 2,
+          total_tokens: 5,
+        },
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const body = await resp.json() as {
+      output?: Array<{
+        type?: string;
+        role?: string;
+        content?: Array<{ type?: string; text?: string }>;
+        summary?: Array<{ type?: string; text?: string }>;
+      }>;
+      output_text?: string;
+    };
+    assertEquals(body.output?.[0]?.type, 'reasoning');
+    assertEquals(body.output?.[0]?.summary?.[0]?.text, 'internal think');
+    assertEquals(body.output?.[1]?.type, 'message');
+    assertEquals(body.output?.[1]?.content?.[0]?.text, 'Hello think');
+    assertEquals(body.output_text, 'Hello think');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI maps chat stream thinking fields into reasoning events', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
@@ -2209,6 +3448,242 @@ Deno.test('proxyOpenAI maps chat stream thinking fields into reasoning events', 
       summary?: Array<{ text?: string }>;
     };
     assertEquals(doneItem.summary?.[0]?.text, 'think one and two');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI maps think tags in chat stream into reasoning events', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"<think>internal "},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"stream</think>answer"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const summaryDeltas = events
+      .filter((event) => event.event === 'response.reasoning_summary_text.delta')
+      .map((event) => event.data.delta);
+    assertEquals(summaryDeltas, ['internal ', '\nstream']);
+    const answerDelta = events.find((event) =>
+      event.event === 'response.output_text.delta' && event.data.delta === 'answer'
+    );
+    assert(answerDelta);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI strips orphan think closing tags from chat stream output', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"plan step one"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"。 </think> final answer"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const outputText = events
+      .filter((event) => event.event === 'response.output_text.delta')
+      .map((event) => event.data.delta)
+      .join('');
+    assertEquals(outputText.includes('</think>'), false);
+    assertEquals(outputText.includes('plan step one。 final answer'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI strips standalone think closing tag chunks from chat stream output', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"before"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"</think>"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"after"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const outputDeltas = events
+      .filter((event) => event.event === 'response.output_text.delta')
+      .map((event) => event.data.delta);
+    const outputText = outputDeltas.join('');
+    assertEquals(outputDeltas.includes('</think>'), false);
+    assertEquals(outputText, 'beforeafter');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI strips standalone think closing tags from chat JSON output', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes('/v1/chat/completions')) {
+      throw new Error(`unexpected upstream url: ${url}`);
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: 'before</think>after',
+          },
+        }],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = await resp.json() as {
+      output_text?: string;
+      output?: Array<{ content?: Array<{ text?: string }> }>;
+    };
+    assertEquals(body.output_text, 'beforeafter');
+    assertEquals(body.output?.[0]?.content?.[0]?.text?.includes('</think>'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

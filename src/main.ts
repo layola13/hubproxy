@@ -1,5 +1,6 @@
 import { loadConfig, loadDotenvIntoEnv } from './env.ts';
 import { handleHttpWithState } from './handlers.ts';
+import { initProxyRuntime } from './proxy.ts';
 import { HubState } from './state.ts';
 
 const dotenvPath = Deno.env.get('DOTENV_PATH') ?? '.env';
@@ -27,9 +28,16 @@ console.log(JSON.stringify(
     responsesBaseUrl: config.responsesBaseUrl,
     chatBaseUrl: config.chatBaseUrl,
     forceChatCompletions: config.forceChatCompletions,
+    nvidiaCompat: config.nvidiaCompat,
     isCloudflare: config.isCloudflare,
     requestIntervalMs: config.requestIntervalMs,
     needRetry: config.needRetry,
+    glmTryGetKey: config.glmTryGetKey,
+    glmKeyRefreshIntervalMs: config.glmKeyRefreshIntervalMs,
+    glmKeyFetchRetryCount: config.glmKeyFetchRetryCount,
+    glmKeyFetchRetryDelayMs: config.glmKeyFetchRetryDelayMs,
+    customContextWindowTokens: config.customContextWindowTokens,
+    contextCompactThresholdPercent: config.contextCompactThresholdPercent,
     apiKeyCount: config.apiKeys.length,
     defaultModel: config.defaultModel,
     defaultApiKey: `${config.defaultApiKey.slice(0, 3)}...${
@@ -40,6 +48,8 @@ console.log(JSON.stringify(
   2,
 ));
 const state = new HubState();
+
+initProxyRuntime(config);
 
 Deno.serve(
   { hostname: config.host, port: config.port },

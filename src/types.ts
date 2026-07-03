@@ -18,13 +18,20 @@ export type ProxyConfig = {
   responsesBaseUrl: string | null;
   chatBaseUrl: string;
   forceChatCompletions: boolean;
+  nvidiaCompat: boolean;
   isCloudflare: boolean;
   defaultModel: string;
   defaultApiKey: string;
   apiKeys: string[];
   requestIntervalMs: number;
   needRetry: boolean;
+  glmTryGetKey: boolean;
+  glmKeyRefreshIntervalMs: number;
+  glmKeyFetchRetryCount: number;
+  glmKeyFetchRetryDelayMs: number;
   dataDir: string;
+  customContextWindowTokens?: number | null;
+  contextCompactThresholdPercent?: number;
 };
 
 export type ThreadStatus =

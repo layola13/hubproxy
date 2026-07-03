@@ -12,6 +12,13 @@ export type ProxyTurnContext = {
   collaborationModeKind?: string | null;
 };
 
+type ContextWindowState = {
+  enabled: boolean;
+  maxTokens: number;
+  thresholdPercent: number;
+  thresholdTokens: number;
+};
+
 const forwardHeaders = (headers: Headers, apiKey: string, localAuthToken: string | null) => {
   const out = new Headers(headers);
   // Never let client auth headers reach the upstream.
@@ -34,8 +41,191 @@ const forwardHeaders = (headers: Headers, apiKey: string, localAuthToken: string
 const apiKeyRotationIndexes = new WeakMap<ProxyConfig, number>();
 let requestIntervalGate: Promise<void> = Promise.resolve();
 let nextUpstreamRequestAt = 0;
+let cachedGlmRuntimeKey: string | null = null;
+let glmKeyRefreshPromise: Promise<string | null> | null = null;
+let glmKeyRefreshTimer: number | null = null;
+
+function normalizeRuntimeKey(raw: string): string {
+  return raw.trim().replace(/,+$/, '').trim();
+}
+
+function isExactGlmBabelChannel(config: ProxyConfig): boolean {
+  return config.chatBaseUrl.trim().toLowerCase() === 'https://api.babel.town/v1';
+}
+
+function isGlmKeyRefreshEnabled(config: ProxyConfig): boolean {
+  if (!config.glmTryGetKey) return false;
+  return isExactGlmBabelChannel(config);
+}
+
+function scheduleGlmKeyRefresh(config: ProxyConfig): void {
+  if (!isGlmKeyRefreshEnabled(config)) return;
+  if (glmKeyRefreshTimer !== null) return;
+  const intervalMs = Math.max(60_000, config.glmKeyRefreshIntervalMs || 0);
+  glmKeyRefreshTimer = setInterval(() => {
+    void refreshGlmKeyIfNeeded(config);
+  }, intervalMs) as unknown as number;
+}
+
+function glmKeyFetchBackoffDelayMs(config: ProxyConfig, attempt: number): number {
+  if (attempt <= 0) return 0;
+  const baseDelayMs = Math.max(0, config.glmKeyFetchRetryDelayMs || 0);
+  const step = Math.max(0, attempt - 1) * 5000;
+  return Math.min(60_000, baseDelayMs + step);
+}
+
+function glmDotenvPath(): string {
+  return Deno.env.get('DOTENV_PATH') ?? '.env';
+}
+
+function readGlmRuntimeKeyFromDotenv(path: string): string | null {
+  try {
+    const text = Deno.readTextFileSync(path);
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      if (key !== 'OPENAI_API_KEY') continue;
+      const value = normalizeRuntimeKey(line.slice(eq + 1));
+      return value || null;
+    }
+  } catch {
+    // Ignore read errors and fall back to in-memory keys.
+  }
+  return null;
+}
+
+function currentGlmRuntimeKey(config: ProxyConfig): string | null {
+  if (!config.glmTryGetKey || !isExactGlmBabelChannel(config)) return null;
+  const envKey = normalizeRuntimeKey(Deno.env.get('OPENAI_API_KEY') ?? '');
+  if (envKey) {
+    cachedGlmRuntimeKey = envKey;
+    return envKey;
+  }
+  const dotenvKey = readGlmRuntimeKeyFromDotenv(glmDotenvPath());
+  if (dotenvKey) {
+    cachedGlmRuntimeKey = dotenvKey;
+    return dotenvKey;
+  }
+  return cachedGlmRuntimeKey;
+}
+
+function writeGlmRuntimeKeyToDotenv(path: string, apiKey: string): void {
+  const normalizedKey = normalizeRuntimeKey(apiKey);
+  const text = Deno.readTextFileSync(path);
+  const lines = text.split(/\r?\n/);
+  let updated = false;
+  const nextLines = lines.map((rawLine) => {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) return rawLine;
+    const eq = rawLine.indexOf('=');
+    if (eq <= 0) return rawLine;
+    const key = rawLine.slice(0, eq).trim();
+    if (key !== 'OPENAI_API_KEY') return rawLine;
+    updated = true;
+    return `OPENAI_API_KEY=${normalizedKey}`;
+  });
+  if (!updated) nextLines.push(`OPENAI_API_KEY=${normalizedKey}`);
+  Deno.writeTextFileSync(path, `${nextLines.join('\n').replace(/\n+$/, '')}\n`);
+}
+
+async function fetchFreshGlmApiKey(config: ProxyConfig): Promise<string | null> {
+  if (!isGlmKeyRefreshEnabled(config)) return null;
+  let lastStatus = 0;
+  let lastBodySnippet = '';
+  let apiKey = '';
+  const retryCount = Math.max(1, config.glmKeyFetchRetryCount || 0);
+  for (let attempt = 1; attempt <= retryCount; attempt++) {
+    try {
+      const response = await fetch('https://glm.babel.town/api/get_api_key', {
+        method: 'GET',
+        headers: { 'user-agent': 'Mozilla/5.0', accept: 'application/json' },
+      });
+      lastStatus = response.status;
+      const text = await response.text();
+      lastBodySnippet = text.slice(0, 300);
+      if (response.ok) {
+        const payload = parseJsonBody(text) as Record<string, unknown> | null;
+        apiKey = payload && typeof payload.api_key === 'string'
+          ? normalizeRuntimeKey(payload.api_key)
+          : '';
+        if (apiKey) break;
+      }
+    } catch (error) {
+      lastStatus = -1;
+      lastBodySnippet = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < retryCount) {
+      const backoffDelayMs = glmKeyFetchBackoffDelayMs(config, attempt);
+      writeUpstreamLog({
+        path: 'internal/glm-key-refresh-retry',
+        target: config.chatBaseUrl,
+        status: lastStatus,
+        retryAttempt: attempt,
+        delayMs: backoffDelayMs,
+        bodySnippet: lastBodySnippet,
+      });
+      await sleep(backoffDelayMs);
+    }
+  }
+  if (!apiKey) {
+    writeUpstreamLog({
+      path: 'internal/glm-key-refresh-failed',
+      target: config.chatBaseUrl,
+      status: lastStatus,
+      bodySnippet: lastBodySnippet,
+    });
+    return null;
+  }
+  cachedGlmRuntimeKey = apiKey;
+  Deno.env.set('OPENAI_API_KEY', apiKey);
+  try {
+    writeGlmRuntimeKeyToDotenv(glmDotenvPath(), apiKey);
+  } catch {
+    // Keep runtime key even if dotenv persistence fails.
+  }
+  writeUpstreamLog({
+    path: 'internal/glm-key-refresh-success',
+    target: config.chatBaseUrl,
+    keyPreview: redactToken(apiKey),
+  });
+  return apiKey;
+}
+
+async function refreshGlmKeyFromErrorResponse(
+  response: Response,
+  config: ProxyConfig,
+): Promise<string | null> {
+  if (!(await shouldTriggerImmediateGlmKeyRefresh(response, config))) return null;
+  try {
+    Deno.env.set('GLM_TRIGGER_KEY_REFRESH', '1');
+  } catch {
+    // Ignore env write failures.
+  }
+  writeUpstreamLog({
+    path: 'internal/glm-key-refresh-trigger',
+    target: config.chatBaseUrl,
+    status: response.status,
+  });
+  return await refreshGlmKeyIfNeeded(config);
+}
+
+async function refreshGlmKeyIfNeeded(config: ProxyConfig): Promise<string | null> {
+  if (!isGlmKeyRefreshEnabled(config)) return null;
+  if (glmKeyRefreshPromise) return await glmKeyRefreshPromise;
+  glmKeyRefreshPromise = fetchFreshGlmApiKey(config)
+    .catch(() => null)
+    .finally(() => {
+      glmKeyRefreshPromise = null;
+    });
+  return await glmKeyRefreshPromise;
+}
 
 function nextApiKey(config: ProxyConfig): string {
+  const runtimeGlmKey = currentGlmRuntimeKey(config);
+  if (runtimeGlmKey) return runtimeGlmKey;
   const keys = Array.isArray(config.apiKeys) && config.apiKeys.length > 0
     ? config.apiKeys
     : config.defaultApiKey
@@ -45,6 +235,10 @@ function nextApiKey(config: ProxyConfig): string {
   const index = apiKeyRotationIndexes.get(config) ?? 0;
   apiKeyRotationIndexes.set(config, (index + 1) % keys.length);
   return keys[index % keys.length];
+}
+
+export function initProxyRuntime(config: ProxyConfig): void {
+  scheduleGlmKeyRefresh(config);
 }
 
 function abortError(): DOMException {
@@ -74,6 +268,25 @@ function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
 
 function retryDelayMs(config: ProxyConfig): number {
   return config.requestIntervalMs > 0 ? config.requestIntervalMs : 10_000;
+}
+
+function contextWindowState(config: ProxyConfig): ContextWindowState {
+  const maxTokens = config.customContextWindowTokens ?? null;
+  const thresholdPercent = config.contextCompactThresholdPercent ?? 90;
+  if (!maxTokens || maxTokens <= 0) {
+    return {
+      enabled: false,
+      maxTokens: 0,
+      thresholdPercent,
+      thresholdTokens: 0,
+    };
+  }
+  return {
+    enabled: true,
+    maxTokens,
+    thresholdPercent,
+    thresholdTokens: Math.floor(maxTokens * (thresholdPercent / 100)),
+  };
 }
 
 async function waitForRequestInterval(ms: number, signal?: AbortSignal | null): Promise<void> {
@@ -141,9 +354,9 @@ function proxyLogSummary(
 
 function logDirFromEnv(): string | null {
   const value = getEnvOrNull('HUBPROXY_LOG_DIR');
-  if (!value) return null;
+  if (!value) return 'logs';
   const normalized = value.trim();
-  return normalized ? normalized : null;
+  return normalized ? normalized : 'logs';
 }
 
 function writeModelListLog(entry: Record<string, unknown>): void {
@@ -230,6 +443,11 @@ const REASONING_TEXT_FIELDS = [
   'reason',
   'text',
 ];
+const THOUGHT_TAG_PAIRS = [
+  { openTag: '<thought>', closeTag: '</thought>' },
+  { openTag: '<think>', closeTag: '</think>' },
+] as const;
+const THOUGHT_TAG_TOKENS = THOUGHT_TAG_PAIRS.flatMap((pair) => [pair.openTag, pair.closeTag]);
 
 function isReasoningType(type: unknown): boolean {
   return typeof type === 'string' && REASONING_ITEM_TYPES.has(type);
@@ -276,7 +494,7 @@ function normalizeReasoningContent(
 }
 
 function normalizeReasoningTextValue(text: string): string {
-  if (!text.includes('<thought>')) return text;
+  if (!THOUGHT_TAG_TOKENS.some((tag) => text.includes(tag))) return text;
   const split = extractThoughtSegments(text);
   return split.reasoningText || split.visibleText;
 }
@@ -536,6 +754,50 @@ function writeResponseLog(entry: Record<string, unknown>): void {
   }
 }
 
+function writeStreamLog(entry: Record<string, unknown>): void {
+  const logDir = logDirFromEnv();
+  const text = JSON.stringify(entry, null, 2) + '\n';
+  console.log(text.trimEnd());
+  if (!logDir) return;
+  try {
+    Deno.mkdirSync(logDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = `${logDir}/stream-${stamp}-${crypto.randomUUID()}.json`;
+    Deno.writeTextFileSync(file, text);
+  } catch {
+    // Ignore
+  }
+}
+
+async function writeFinalClientResponseLog(path: string, response: Response): Promise<void> {
+  if (!logDirFromEnv()) return;
+  let body = '';
+  try {
+    body = await response.clone().text();
+  } catch {
+    body = '';
+  }
+  writeResponseLog({
+    path,
+    target: 'client',
+    status: response.status,
+    headers: Object.fromEntries(response.headers.entries()),
+    body,
+    stage: 'client_response_final',
+  });
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.includes('text/event-stream')) {
+    writeStreamLog({
+      path,
+      target: 'client',
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body,
+      stage: 'client_response_stream_final',
+    });
+  }
+}
+
 function rewrittenBodyHeaders(headers: Headers): Headers {
   const out = new Headers(headers);
   out.delete('content-length');
@@ -571,8 +833,153 @@ function hasCfWorkersAiError(parsed: Record<string, unknown>): boolean {
   });
 }
 
+function hasGlmQuotaOrKeyErrorText(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.includes('insufficient_quota') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('quota exceeded for this key') ||
+    lower.includes('quota exceeded for this api key') ||
+    lower.includes('余额不足') ||
+    lower.includes('额度不足') ||
+    lower.includes('配额不足') ||
+    lower.includes('令牌不足') ||
+    lower.includes('has expired') ||
+    lower.includes('key expired') ||
+    lower.includes('api key expired') ||
+    lower.includes('invalid api key') ||
+    lower.includes('api key is invalid') ||
+    lower.includes('key not found') ||
+    lower.includes('key revoked') ||
+    lower.includes('has been revoked') ||
+    lower.includes('api key has been revoked');
+}
+
+async function shouldTriggerImmediateGlmKeyRefresh(
+  response: Response,
+  config: ProxyConfig,
+): Promise<boolean> {
+  if (!isGlmKeyRefreshEnabled(config)) return false;
+  if (response.status !== 401 && response.status !== 403 && response.status !== 429) return false;
+  try {
+    const text = await response.clone().text();
+    return hasGlmQuotaOrKeyErrorText(text);
+  } catch {
+    return false;
+  }
+}
+
+async function maybeTriggerImmediateGlmKeyRefresh(
+  response: Response,
+  config: ProxyConfig,
+): Promise<void> {
+  if (!(await shouldTriggerImmediateGlmKeyRefresh(response, config))) return;
+  void refreshGlmKeyIfNeeded(config);
+}
+
+/**
+ * Detects upstream "context too long" errors (HTTP 400). These satisfy the OpenAI-style
+ * message: "This model's maximum context length is N tokens. However, your messages
+ * resulted in M tokens. Please reduce the length of the messages." We also accept a looser
+ * match on "maximum context length" / "context length" + "reduce the length".
+ */
+function isContextLengthOverflowResponse(response: Response, text: string): boolean {
+  if (response.status !== 400) return false;
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  if (!lower.includes('context length')) return false;
+  return lower.includes('maximum context length') ||
+    lower.includes('reduce the length') ||
+    lower.includes('maximum context') ||
+    lower.includes(' resulted in ');
+}
+
+async function compactAndRetryOnOverflow(
+  path: string,
+  req: Request,
+  config: ProxyConfig,
+  body: string | undefined,
+  baseHeaders: Headers,
+  rawBody: string | undefined,
+  turnContext: ProxyTurnContext | undefined,
+  upstream: Response,
+): Promise<Response> {
+  const state = contextWindowState(config);
+  let overflowText = '';
+  try {
+    overflowText = await upstream.clone().text();
+  } catch {
+    return upstream;
+  }
+  if (!isContextLengthOverflowResponse(upstream, overflowText)) {
+    return upstream;
+  }
+  writeUpstreamLog({
+    path: 'internal/context-overflow-compact-retry',
+    requestPath: path,
+    maxTokens: state.maxTokens,
+    thresholdPercent: config.contextCompactThresholdPercent ?? 90,
+    upstreamStatus: upstream.status,
+    upstreamBody: overflowText,
+  });
+  const compactBody = buildContextCompactionRequestBody(
+    body,
+    state.maxTokens,
+    config.contextCompactThresholdPercent ?? 90,
+  );
+  if (!compactBody) return upstream;
+  const compactResponse = await forwardWithFallback(
+    '/v1/responses/compact',
+    req,
+    config,
+    compactBody,
+    baseHeaders,
+    compactBody,
+    turnContext,
+  );
+  if (!compactResponse.ok) return upstream;
+  const summaryText = extractCompactionSummaryText(await compactResponse.text());
+  if (!summaryText) return upstream;
+  // Replace the oversized conversation with [summary + latest user turn] so the retried
+  // request actually shrinks; appending a summary on top of the original oversized body
+  // would just hit the context limit a second time.
+  const retriedBody = compressRequestsBodyForRetry(body, summaryText);
+  if (!retriedBody || retriedBody === body) return upstream;
+  return await forwardWithFallback(
+    path,
+    req,
+    config,
+    retriedBody,
+    baseHeaders,
+    rawBody,
+    turnContext,
+  );
+}
+
 async function shouldRetryUpstreamResponse(response: Response): Promise<boolean> {
-  if (!response.ok) return true;
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json') && !contentType.includes('text/plain') &&
+      !contentType.includes('text/event-stream')) {
+      return true;
+    }
+    try {
+      const text = await response.clone().text();
+      const lower = text.toLowerCase();
+      if (
+        lower.includes('prefill failed') ||
+        lower.includes('unexpected character: line 1 column') ||
+        lower.includes("expecting ',' delimiter") ||
+        lower.includes('unsupported parameter(s): `client_metadata`') ||
+        lower.includes('not the same number of function calls and responses')
+      ) {
+        return false;
+      }
+      if (hasGlmQuotaOrKeyErrorText(text)) return true;
+    } catch {
+      return true;
+    }
+    return true;
+  }
   const contentType = response.headers.get('content-type') ?? '';
   if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
     return false;
@@ -595,6 +1002,7 @@ async function shouldRetryUpstreamResponse(response: Response): Promise<boolean>
       if (
         code === 'access_denied' ||
         type === 'new_api_error' ||
+        hasGlmQuotaOrKeyErrorText(message) ||
         lowerMsg.includes('only codex clients') ||
         lowerMsg.includes('exceeded retry limit') ||
         lowerMsg.includes('rate limit') ||
@@ -683,6 +1091,267 @@ function maybeRewriteRequestBody(path: string, body: string | undefined): string
   }
 }
 
+function contextWindowUsageFromBody(body: string | undefined): {
+  inputTokens: number;
+  totalTokens: number;
+} | null {
+  if (!body) return null;
+  const parsed = parseJsonBody(body);
+  if (!parsed) return null;
+  const usage = parsed.usage;
+  if (!usage || typeof usage !== 'object') return null;
+  const record = usage as Record<string, unknown>;
+  const inputTokens = typeof record.input_tokens === 'number'
+    ? record.input_tokens
+    : typeof record.prompt_tokens === 'number'
+    ? record.prompt_tokens
+    : 0;
+  const totalTokens = typeof record.total_tokens === 'number'
+    ? record.total_tokens
+    : inputTokens + (typeof record.output_tokens === 'number'
+      ? record.output_tokens
+      : typeof record.completion_tokens === 'number'
+      ? record.completion_tokens
+      : 0);
+  if (inputTokens <= 0 && totalTokens <= 0) return null;
+  return { inputTokens, totalTokens };
+}
+
+function estimateRequestInputTokens(body: string | undefined): number {
+  if (!body) return 0;
+  const parsed = parseJsonBody(body);
+  if (!parsed) return 0;
+  const direct = contextWindowUsageFromBody(body);
+  if (direct) return direct.inputTokens;
+
+  const texts: string[] = [];
+  const addText = (value: unknown) => {
+    if (typeof value === 'string' && value) texts.push(value);
+  };
+
+  addText(parsed.instructions);
+  addText(parsed.system);
+
+  const input = Array.isArray(parsed.input) ? parsed.input : [];
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    addText(record.text);
+    const content = Array.isArray(record.content) ? record.content : [];
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue;
+      addText((part as Record<string, unknown>).text);
+      addText((part as Record<string, unknown>).input_text);
+    }
+    if (typeof record.arguments === 'string') addText(record.arguments);
+    if (typeof record.output === 'string') addText(record.output);
+  }
+
+  const totalChars = texts.reduce((sum, text) => sum + text.length, 0);
+  if (totalChars <= 0) return 0;
+  return Math.max(1, Math.ceil(totalChars / 4));
+}
+
+function requestNeedsContextCompaction(
+  path: string,
+  body: string | undefined,
+  config: ProxyConfig,
+): {
+  shouldCompact: boolean;
+  estimatedInputTokens: number;
+  thresholdTokens: number;
+  maxTokens: number;
+} {
+  const state = contextWindowState(config);
+  if (!state.enabled || !path.includes('/responses') || path.includes('/responses/compact')) {
+    return {
+      shouldCompact: false,
+      estimatedInputTokens: 0,
+      thresholdTokens: state.thresholdTokens,
+      maxTokens: state.maxTokens,
+    };
+  }
+  const estimatedInputTokens = estimateRequestInputTokens(body);
+  return {
+    shouldCompact: estimatedInputTokens >= state.thresholdTokens,
+    estimatedInputTokens,
+    thresholdTokens: state.thresholdTokens,
+    maxTokens: state.maxTokens,
+  };
+}
+
+/**
+ * Extracts the last user-authored message from a responses-style body (input[]) or a
+ * chat-style body (messages[]). Returns the text or null. Used when we must shrink an
+ * overflowing conversation to [summary + latest user turn] before retrying upstream.
+ */
+function lastUserTurnText(body: string | undefined): string | null {
+  if (!body) return null;
+  const parsed = parseJsonBody(body);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const record = parsed as Record<string, unknown>;
+
+  const pickFromMessages = (items: unknown[]): string | null => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (!item || typeof item !== 'object') continue;
+      const r = item as Record<string, unknown>;
+      const role = typeof r.role === 'string' ? r.role : '';
+      let text = '';
+      const content = r.content;
+      if (typeof content === 'string') {
+        text = content;
+      } else if (Array.isArray(content)) {
+        text = content
+          .map((part) => {
+            if (!part || typeof part !== 'object') return '';
+            const pr = part as Record<string, unknown>;
+            return typeof pr.text === 'string' ? pr.text
+              : typeof pr.input_text === 'string' ? pr.input_text : '';
+          })
+          .join('\n');
+      }
+      if (typeof r.text === 'string' && !text) text = r.text;
+      if (typeof r.input_text === 'string' && !text) text = r.input_text;
+      if (role === 'user' && text.trim()) return text.trim();
+    }
+    return null;
+  };
+
+  const responsesInput = Array.isArray(record.input) ? record.input : null;
+  if (responsesInput) {
+    const found = pickFromMessages(responsesInput as unknown[]);
+    if (found) return found;
+  }
+  const chatMessages = Array.isArray(record.messages) ? record.messages : null;
+  if (chatMessages) {
+    const found = pickFromMessages(chatMessages as unknown[]);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Replaces an oversized request body with a compressed form: [developer/system summary
+ * message, last user turn], preserving model/stream/tools/instructions where present.
+ * Unlike appendCompactionSummaryInput (which only prepends and leaves the original
+ * oversized input intact), this actually shrinks the body so a retried request can fit
+ * within the upstream context window. Detects responses-style (input[]) and chat-style
+ * (messages[]) bodies; returns null if the body cannot be reshaped.
+ */
+function compressRequestsBodyForRetry(
+  requestBody: string | undefined,
+  summaryText: string,
+): string | null {
+  if (!requestBody) return null;
+  const parsed = parseJsonBody(requestBody);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const record = parsed as Record<string, unknown>;
+  const summaryIntro =
+    `Compressed prior context summary. Treat this as authoritative prior state and continue from it:\n\n${summaryText}`;
+  const lastUser = lastUserTurnText(requestBody);
+
+  const chatMessages = Array.isArray(record.messages) ? record.messages : null;
+  if (chatMessages) {
+    const messages: unknown[] = [{ role: 'system', content: summaryIntro }];
+    if (lastUser) messages.push({ role: 'user', content: lastUser });
+    record.messages = messages;
+    return JSON.stringify(parsed);
+  }
+  const responsesInput = Array.isArray(record.input) ? record.input : null;
+  if (responsesInput) {
+    const input: unknown[] = [
+      {
+        type: 'message',
+        role: 'developer',
+        content: [{ type: 'input_text', text: summaryIntro }],
+      },
+    ];
+    if (lastUser) {
+      input.push({
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: lastUser }],
+      });
+    }
+    record.input = input;
+    return JSON.stringify(parsed);
+  }
+  return null;
+}
+
+function appendCompactionSummaryInput(
+  requestBody: string | undefined,
+  summaryText: string,
+): string | undefined {
+  if (!requestBody) return requestBody;
+  const parsed = parseJsonBody(requestBody);
+  if (!parsed) return requestBody;
+  const originalInput = Array.isArray(parsed.input) ? parsed.input : [];
+  parsed.input = [
+    {
+      type: 'message',
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text:
+          `Compressed prior context summary. Treat this as authoritative prior state and continue from it:\n\n${summaryText}`,
+      }],
+    },
+    ...originalInput,
+  ];
+  return JSON.stringify(parsed);
+}
+
+function buildContextCompactionRequestBody(
+  originalBody: string | undefined,
+  maxTokens: number,
+  thresholdPercent: number,
+): string | null {
+  if (!originalBody) return null;
+  const parsed = parseJsonBody(originalBody);
+  if (!parsed) return null;
+  const input = Array.isArray(parsed.input)
+    ? parsed.input
+    : Array.isArray(parsed.messages) ? parsed.messages : [];
+  const model = typeof parsed.model === 'string' ? parsed.model : '';
+  return JSON.stringify({
+    model,
+    stream: false,
+    input,
+    tools: [],
+    instructions:
+      `The upstream context window is limited to ${maxTokens} tokens and the current request is approaching ${thresholdPercent}% of that limit. ` +
+      'Produce a compact continuation summary that preserves only the state needed to continue the task. ' +
+      'Include: user objective, constraints, files already touched, confirmed findings, unresolved risks, and the exact next step. ' +
+      'Be concise and omit repetition.',
+  });
+}
+
+function extractCompactionSummaryText(responseText: string): string {
+  const parsed = parseJsonBody(responseText);
+  if (!parsed) return responseText.trim();
+  if (typeof parsed.output_text === 'string' && parsed.output_text.trim()) {
+    return parsed.output_text.trim();
+  }
+  const output = Array.isArray(parsed.output) ? parsed.output : [];
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    if (record.type !== 'message') continue;
+    const content = Array.isArray(record.content) ? record.content : [];
+    const text = content
+      .flatMap((part) => {
+        if (!part || typeof part !== 'object') return [];
+        const value = (part as Record<string, unknown>).text;
+        return typeof value === 'string' && value.trim() ? [value.trim()] : [];
+      })
+      .join('\n');
+    if (text) return text;
+  }
+  return responseText.trim();
+}
+
 function isGeminiModel(model: string): boolean {
   return model === 'gemini' || model.startsWith('gemini-') || model.startsWith('models/gemini-');
 }
@@ -690,6 +1359,43 @@ function isGeminiModel(model: string): boolean {
 function sanitizeToolName(name: unknown): string {
   if (typeof name !== 'string') return '';
   return name.trim();
+}
+
+function repairCollapsedNamespacedToolName(
+  name: string,
+  namespaces?: Set<string>,
+): string {
+  if (!name || !namespaces || namespaces.size === 0) return name;
+  for (const ns of namespaces) {
+    if (!name.startsWith(ns)) continue;
+    return name;
+  }
+  for (const ns of namespaces) {
+    if (!ns.startsWith('mcp__') || !ns.endsWith('__')) continue;
+    const stem = ns.slice(0, -2);
+    if (!name.startsWith(stem) || name.length <= stem.length) continue;
+    return `${ns}${name.slice(stem.length)}`;
+  }
+  return name;
+}
+
+function normalizeFunctionCallArguments(
+  argumentsText: string,
+): string {
+  if (typeof argumentsText !== 'string') return '{}';
+  try {
+    const args = JSON.parse(argumentsText) as Record<string, unknown>;
+    if (typeof args.server === 'string') {
+      const original = args.server;
+      const normalized = robustNormalizeServerName(original);
+      if (normalized !== original) {
+        args.server = normalized;
+      }
+    }
+    return JSON.stringify(args);
+  } catch {
+    return JSON.stringify({ cmd: unsupportedToolNoticeCommand('malformed_tool_arguments') });
+  }
 }
 
 function normalizeResponseInputItems(input: unknown): unknown[] {
@@ -729,14 +1435,14 @@ function normalizeResponseInputItems(input: unknown): unknown[] {
         const args = JSON.parse(record.arguments);
         if (typeof args.server === 'string') {
           const original = args.server;
-          const normalized = robustNormalizeServerName(original);
-          if (normalized !== original) {
-            args.server = normalized;
-            record.arguments = JSON.stringify(args);
-          }
+        const normalized = robustNormalizeServerName(original);
+        if (normalized !== original) {
+          args.server = normalized;
+          record.arguments = JSON.stringify(args);
         }
-      } catch {
-        // Ignore
+      }
+    } catch {
+      // Ignore
       }
     }
 
@@ -844,11 +1550,14 @@ function extractAllowedChatToolNames(tools: unknown): Set<string> {
   return names;
 }
 
-function sanitizeResponsesFallbackRequest(request: Record<string, unknown>): void {
+function sanitizeResponsesFallbackRequest(
+  request: Record<string, unknown>,
+): void {
   delete request.store;
   delete request.prompt_cache_key;
   delete request.include;
   delete request.reasoning;
+  delete request.client_metadata;
 }
 
 function isFallbackEligibleStatus(status: number): boolean {
@@ -911,6 +1620,30 @@ function contentToChatContent(content: unknown): unknown {
   return parts.map(mapContentPartForChat);
 }
 
+function mergeChatContents(current: unknown, next: unknown): unknown {
+  const currentIsEmpty = current === undefined || current === null || current === '' ||
+    (Array.isArray(current) && current.length === 0);
+  if (currentIsEmpty) return next;
+
+  const nextIsEmpty = next === undefined || next === null || next === '' ||
+    (Array.isArray(next) && next.length === 0);
+  if (nextIsEmpty) return current;
+
+  if (typeof current === 'string' && typeof next === 'string') {
+    return `${current}\n${next}`;
+  }
+
+  const toParts = (value: unknown): Array<Record<string, unknown>> => {
+    if (typeof value === 'string') return [{ type: 'text', text: value }];
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((part) =>
+      part && typeof part === 'object' ? [part as Record<string, unknown>] : []
+    );
+  };
+
+  return [...toParts(current), ...toParts(next)];
+}
+
 function pushSystemMessage(
   messages: Array<Record<string, unknown>>,
   systemTexts: string[],
@@ -930,6 +1663,7 @@ function extractChatFallbackFromResponsesBody(
   body: string | undefined,
   planModeLike = false,
   allowUnsafeGeminiToolHistory = false,
+  nvidiaCompat = false,
 ): ChatFallbackRequest | null {
   if (!body) return null;
   try {
@@ -937,6 +1671,7 @@ function extractChatFallbackFromResponsesBody(
     const input = Array.isArray(parsed.input) ? normalizeResponseInputItems(parsed.input) : [];
     const model = typeof parsed.model === 'string' ? parsed.model : '';
     if (!allowUnsafeGeminiToolHistory && isUnsafeGeminiChatFallback(model, input)) return null;
+    const namespaces = extractNamespacesFromBody(body);
     const messages: Array<Record<string, unknown>> = [];
     const systemTexts: string[] = [];
     const instructions = typeof parsed.instructions === 'string' ? parsed.instructions : '';
@@ -950,6 +1685,7 @@ function extractChatFallbackFromResponsesBody(
       const type = typeof record.type === 'string' ? record.type : '';
       if (type === 'function_call') {
         const toolCalls: Array<Record<string, unknown>> = [];
+        let mergedAssistantContent: unknown = null;
         while (index < input.length) {
           const current = input[index];
           if (!current || typeof current !== 'object') break;
@@ -958,8 +1694,13 @@ function extractChatFallbackFromResponsesBody(
           const callId = typeof currentRecord.call_id === 'string'
             ? currentRecord.call_id
             : `call_${crypto.randomUUID().replace(/-/g, '')}`;
-          const name = sanitizeToolName(currentRecord.name);
-          const args = typeof currentRecord.arguments === 'string' ? currentRecord.arguments : '{}';
+          const name = repairCollapsedNamespacedToolName(
+            sanitizeToolName(currentRecord.name),
+            namespaces,
+          );
+          const args = typeof currentRecord.arguments === 'string'
+            ? normalizeFunctionCallArguments(currentRecord.arguments)
+            : '{}';
           if (name) {
             toolCalls.push({
               id: callId,
@@ -969,9 +1710,29 @@ function extractChatFallbackFromResponsesBody(
           }
           index++;
         }
+        while (index < input.length) {
+          const current = input[index];
+          if (!current || typeof current !== 'object') break;
+          const currentRecord = current as Record<string, unknown>;
+          const currentType = typeof currentRecord.type === 'string' ? currentRecord.type : '';
+          if (currentType !== 'message' && currentType !== 'assistant_message') break;
+          const rawRole = typeof currentRecord.role === 'string'
+            ? currentRecord.role
+            : (currentType === 'assistant_message' ? 'assistant' : 'user');
+          if (rawRole !== 'assistant') break;
+          mergedAssistantContent = mergeChatContents(
+            mergedAssistantContent,
+            contentToChatContent(currentRecord.content),
+          );
+          index++;
+        }
         index--;
         if (toolCalls.length > 0) {
-          messages.push({ role: 'assistant', content: null, tool_calls: toolCalls });
+          const content = mergedAssistantContent === '' ||
+              (Array.isArray(mergedAssistantContent) && mergedAssistantContent.length === 0)
+            ? null
+            : mergedAssistantContent;
+          messages.push({ role: 'assistant', content, tool_calls: toolCalls });
         }
         continue;
       }
@@ -998,7 +1759,7 @@ function extractChatFallbackFromResponsesBody(
       ) {
         const output = toolOutputText(record);
         const name = typeof record.name === 'string' ? record.name : '';
-        if (output) {
+        if (output || 'output' in record || 'content' in record) {
           const message: Record<string, unknown> = {
             role: 'tool',
             content: output,
@@ -1103,14 +1864,19 @@ function parseJsonBody(body: string): Record<string, unknown> | null {
   }
 }
 
+function sseFieldValue(line: string, prefixLength: number): string {
+  const raw = line.slice(prefixLength);
+  return raw.startsWith(' ') ? raw.slice(1) : raw;
+}
+
 function parseSseBlock(block: string): { event: string; data: string } | null {
   let event = '';
   const dataParts: string[] = [];
   for (const line of block.split(/\r?\n/)) {
     if (line.startsWith('event:')) {
-      event = line.slice(6).trimStart();
+      event = sseFieldValue(line, 6);
     } else if (line.startsWith('data:')) {
-      dataParts.push(line.slice(5).trimStart());
+      dataParts.push(sseFieldValue(line, 5));
     }
   }
   if (!event || dataParts.length === 0) return null;
@@ -1443,9 +2209,9 @@ function normalizeResponsesSseBody(
 
   for (const line of lines) {
     if (line.startsWith('event:')) {
-      currentEvent = line.slice(6).trim();
+      currentEvent = sseFieldValue(line, 6);
     } else if (line.startsWith('data:')) {
-      currentData += line.slice(5).trim();
+      currentData += sseFieldValue(line, 5);
     } else if (line.trim() === '' || line === 'data: [DONE]') {
       if (currentData) {
         const payload = parseJsonBody(currentData);
@@ -1551,31 +2317,74 @@ function extractThoughtSegments(text: string): {
   visibleText: string;
   reasoningText: string;
 } {
-  const openTag = '<thought>';
-  const closeTag = '</thought>';
   const parts: string[] = [];
   const thoughts: string[] = [];
   let cursor = 0;
   while (cursor < text.length) {
-    const openIndex = text.indexOf(openTag, cursor);
-    if (openIndex === -1) {
+    let nextMatch: { openIndex: number; openTag: string; closeTag: string } | null = null;
+    let nextCloseMatch: { closeIndex: number; closeTag: string } | null = null;
+    for (const pair of THOUGHT_TAG_PAIRS) {
+      const openIndex = text.indexOf(pair.openTag, cursor);
+      if (openIndex === -1) continue;
+      if (!nextMatch || openIndex < nextMatch.openIndex) {
+        nextMatch = { openIndex, openTag: pair.openTag, closeTag: pair.closeTag };
+      }
+    }
+    for (const pair of THOUGHT_TAG_PAIRS) {
+      const closeIndex = text.indexOf(pair.closeTag, cursor);
+      if (closeIndex === -1) continue;
+      if (!nextCloseMatch || closeIndex < nextCloseMatch.closeIndex) {
+        nextCloseMatch = { closeIndex, closeTag: pair.closeTag };
+      }
+    }
+    if (nextCloseMatch && (!nextMatch || nextCloseMatch.closeIndex < nextMatch.openIndex)) {
+      parts.push(text.slice(cursor, nextCloseMatch.closeIndex));
+      cursor = nextCloseMatch.closeIndex + nextCloseMatch.closeTag.length;
+      continue;
+    }
+    if (!nextMatch) {
       parts.push(text.slice(cursor));
       break;
     }
-    parts.push(text.slice(cursor, openIndex));
-    const contentStart = openIndex + openTag.length;
-    const closeIndex = text.indexOf(closeTag, contentStart);
+    parts.push(text.slice(cursor, nextMatch.openIndex));
+    const contentStart = nextMatch.openIndex + nextMatch.openTag.length;
+    const closeIndex = text.indexOf(nextMatch.closeTag, contentStart);
     if (closeIndex === -1) {
       thoughts.push(text.slice(contentStart).trim());
       break;
     }
     thoughts.push(text.slice(contentStart, closeIndex).trim());
-    cursor = closeIndex + closeTag.length;
+    cursor = closeIndex + nextMatch.closeTag.length;
   }
   return {
-    visibleText: parts.join('').trim(),
+    visibleText: stripResidualThoughtTags(joinVisibleThoughtParts(parts)).trim(),
     reasoningText: thoughts.filter(Boolean).join('\n').trim(),
   };
+}
+
+function joinVisibleThoughtParts(parts: string[]): string {
+  let current = '';
+  for (const part of parts) {
+    if (!part) continue;
+    if (!current) {
+      current = part;
+      continue;
+    }
+    if (/[^\S\r\n]$/.test(current) && /^[^\S\r\n]/.test(part)) {
+      current = `${current.replace(/[^\S\r\n]+$/, ' ')}${part.replace(/^[^\S\r\n]+/, '')}`;
+      continue;
+    }
+    current += part;
+  }
+  return current;
+}
+
+function stripResidualThoughtTags(text: string): string {
+  let current = text;
+  for (const token of THOUGHT_TAG_TOKENS) {
+    current = current.split(token).join('');
+  }
+  return current;
 }
 
 function longestSuffixPrefix(text: string, token: string): number {
@@ -1589,10 +2398,46 @@ function longestSuffixPrefix(text: string, token: string): number {
 }
 
 function createThoughtStreamSplitter() {
-  const openTag = '<thought>';
-  const closeTag = '</thought>';
   let pending = '';
-  let inThought = false;
+  let activeCloseTag: string | null = null;
+
+  const longestPartialThoughtTag = (text: string): number => {
+    let longest = 0;
+    for (const token of THOUGHT_TAG_TOKENS) {
+      longest = Math.max(longest, longestSuffixPrefix(text, token));
+    }
+    return longest;
+  };
+
+  const earliestOpenTag = (text: string): { index: number; openTag: string; closeTag: string } | null => {
+    let nextMatch: { index: number; openTag: string; closeTag: string } | null = null;
+    for (const pair of THOUGHT_TAG_PAIRS) {
+      const index = text.indexOf(pair.openTag);
+      if (index === -1) continue;
+      if (!nextMatch || index < nextMatch.index) {
+        nextMatch = { index, openTag: pair.openTag, closeTag: pair.closeTag };
+      }
+    }
+    return nextMatch;
+  };
+
+  const earliestCloseTag = (text: string): { index: number; closeTag: string } | null => {
+    let nextMatch: { index: number; closeTag: string } | null = null;
+    for (const pair of THOUGHT_TAG_PAIRS) {
+      const index = text.indexOf(pair.closeTag);
+      if (index === -1) continue;
+      if (!nextMatch || index < nextMatch.index) {
+        nextMatch = { index, closeTag: pair.closeTag };
+      }
+    }
+    return nextMatch;
+  };
+
+  const trimTrailingPartialThoughtTag = (text: string): string => {
+    const partial = longestPartialThoughtTag(text);
+    return partial > 0 ? text.slice(0, text.length - partial) : text;
+  };
+
   return {
     consume(chunk: string): { visibleText: string; reasoningText: string } {
       pending += chunk;
@@ -1600,26 +2445,34 @@ function createThoughtStreamSplitter() {
       const reasoning: string[] = [];
 
       while (pending) {
-        if (!inThought) {
-          const openIndex = pending.indexOf(openTag);
-          if (openIndex === -1) {
-            const keep = longestSuffixPrefix(pending, openTag);
+        if (!activeCloseTag) {
+          const nextTag = earliestOpenTag(pending);
+          const nextClose = earliestCloseTag(pending);
+          if (nextClose && (!nextTag || nextClose.index < nextTag.index)) {
+            if (nextClose.index > 0) {
+              visible.push(pending.slice(0, nextClose.index));
+            }
+            pending = pending.slice(nextClose.index + nextClose.closeTag.length);
+            continue;
+          }
+          if (!nextTag) {
+            const keep = longestPartialThoughtTag(pending);
             const emit = pending.slice(0, pending.length - keep);
             if (emit) visible.push(emit);
             pending = pending.slice(pending.length - keep);
             break;
           }
-          if (openIndex > 0) {
-            visible.push(pending.slice(0, openIndex));
+          if (nextTag.index > 0) {
+            visible.push(pending.slice(0, nextTag.index));
           }
-          pending = pending.slice(openIndex + openTag.length);
-          inThought = true;
+          pending = pending.slice(nextTag.index + nextTag.openTag.length);
+          activeCloseTag = nextTag.closeTag;
           continue;
         }
 
-        const closeIndex = pending.indexOf(closeTag);
+        const closeIndex = pending.indexOf(activeCloseTag);
         if (closeIndex === -1) {
-          const keep = longestSuffixPrefix(pending, closeTag);
+          const keep = longestSuffixPrefix(pending, activeCloseTag);
           const emit = pending.slice(0, pending.length - keep);
           if (emit) reasoning.push(emit);
           pending = pending.slice(pending.length - keep);
@@ -1628,21 +2481,21 @@ function createThoughtStreamSplitter() {
         if (closeIndex > 0) {
           reasoning.push(pending.slice(0, closeIndex));
         }
-        pending = pending.slice(closeIndex + closeTag.length);
-        inThought = false;
+        pending = pending.slice(closeIndex + activeCloseTag.length);
+        activeCloseTag = null;
       }
 
       return {
-        visibleText: visible.join(''),
+        visibleText: stripResidualThoughtTags(joinVisibleThoughtParts(visible)),
         reasoningText: reasoning.join(''),
       };
     },
     flush(): { visibleText: string; reasoningText: string } {
       const remaining = pending;
       pending = '';
-      const visibleText = inThought ? '' : remaining;
-      const reasoningText = inThought ? remaining : '';
-      inThought = false;
+      const visibleText = activeCloseTag ? '' : stripResidualThoughtTags(trimTrailingPartialThoughtTag(remaining));
+      const reasoningText = activeCloseTag ? trimTrailingPartialThoughtTag(remaining) : '';
+      activeCloseTag = null;
       return {
         visibleText,
         reasoningText,
@@ -1751,7 +2604,8 @@ export function normalizeChatToolCall(
   namespaces?: Set<string>,
   allowedTools?: Set<string>,
 ): ChatToolCall | null {
-  let name = call.name;
+  let name = repairCollapsedNamespacedToolName(call.name, namespaces);
+  call = { ...call, name };
 
   // Support robust dot-notation mapping for any raw/partially normalized namespace (e.g. "code_index.read_mcp_resource" -> "mcp__code_index__read_mcp_resource")
   if (name.includes('.')) {
@@ -1916,7 +2770,7 @@ function collectResponsesEventsFromChatChunkText(
   let dataBuffer = '';
   for (const line of chatText.split(/\r?\n/)) {
     if (line.startsWith('data:')) {
-      const data = line.slice(5).trimStart();
+      const data = sseFieldValue(line, 5);
       if (data === '[DONE]') continue;
       dataBuffer += data;
       continue;
@@ -2296,6 +3150,13 @@ async function forwardWithFallback(
   const send = async (target: string, requestPath: string, requestBody: string | undefined) => {
     const maxRetries = 5;
     let response = await sendOnce(target, requestPath, requestBody);
+    const refreshedKey = await refreshGlmKeyFromErrorResponse(response, config);
+    if (refreshedKey) {
+      response = await sendOnce(target, requestPath, requestBody, 0);
+      await maybeTriggerImmediateGlmKeyRefresh(response, config);
+    } else {
+      await maybeTriggerImmediateGlmKeyRefresh(response, config);
+    }
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       if (!config.needRetry || !(await shouldRetryUpstreamResponse(response))) {
         return response;
@@ -2311,6 +3172,7 @@ async function forwardWithFallback(
       });
       await sleep(delayMs, req.signal);
       response = await sendOnce(target, requestPath, requestBody, attempt);
+      await maybeTriggerImmediateGlmKeyRefresh(response, config);
     }
     return response;
   };
@@ -2331,6 +3193,7 @@ async function forwardWithFallback(
       responsesRequestBody,
       planModeLike,
       allowUnsafeGeminiToolHistory,
+      config.nvidiaCompat,
     );
     if (fallback === null) return null;
     const chatResponse = await send(target, chatPath, JSON.stringify(fallback.request));
@@ -2343,7 +3206,19 @@ async function forwardWithFallback(
       headers: Object.fromEntries(chatResponse.headers.entries()),
       body: text,
       fallback: true,
+      stage: 'upstream_chat_fallback_raw',
     });
+    if ((chatResponse.headers.get('content-type') ?? '').includes('text/event-stream')) {
+      writeStreamLog({
+        path,
+        target,
+        status: chatResponse.status,
+        headers: Object.fromEntries(chatResponse.headers.entries()),
+        body: text,
+        fallback: true,
+        stage: 'upstream_chat_fallback_stream_raw',
+      });
+    }
     const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
     const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
     return responsesFallbackResponseFromChat(
@@ -2387,7 +3262,18 @@ async function forwardWithFallback(
       status: responsesResponse.status,
       headers: Object.fromEntries(responsesResponse.headers.entries()),
       body: text,
+      stage: 'upstream_responses_raw',
     });
+    if (contentType.includes('text/event-stream')) {
+      writeStreamLog({
+        path,
+        target: firstTarget,
+        status: responsesResponse.status,
+        headers: Object.fromEntries(responsesResponse.headers.entries()),
+        body: text,
+        stage: 'upstream_responses_stream_raw',
+      });
+    }
     const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
     const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
     if (contentType.includes('text/event-stream')) {
@@ -2506,8 +3392,40 @@ export async function proxyOpenAI(
   ) {
     return emptyJsonBodyResponse();
   }
-  const body = maybeRewriteRequestBody(path, rawBody);
-  const upstream = await forwardWithFallback(
+  let body = maybeRewriteRequestBody(path, rawBody);
+  const compactState = requestNeedsContextCompaction(path, body, config);
+  if (compactState.shouldCompact) {
+    const compactBody = buildContextCompactionRequestBody(
+      body,
+      compactState.maxTokens,
+      config.contextCompactThresholdPercent ?? 90,
+    );
+    if (compactBody) {
+      writeUpstreamLog({
+        path: 'internal/context-compact-trigger',
+        requestPath: path,
+        estimatedInputTokens: compactState.estimatedInputTokens,
+        thresholdTokens: compactState.thresholdTokens,
+        maxTokens: compactState.maxTokens,
+      });
+      const compactResponse = await forwardWithFallback(
+        '/v1/responses/compact',
+        req,
+        config,
+        compactBody,
+        req.headers,
+        compactBody,
+        turnContext,
+      );
+      if (compactResponse.ok) {
+        const summaryText = extractCompactionSummaryText(await compactResponse.text());
+        if (summaryText) {
+          body = appendCompactionSummaryInput(body, summaryText);
+        }
+      }
+    }
+  }
+  let upstream = await forwardWithFallback(
     path,
     req,
     config,
@@ -2516,6 +3434,23 @@ export async function proxyOpenAI(
     rawBody,
     turnContext,
   );
+  if (
+    !upstream.ok &&
+    !path.includes('/responses/compact') &&
+    (path.includes('/responses') || path.includes('/chat/completions')) &&
+    config.customContextWindowTokens
+  ) {
+    upstream = await compactAndRetryOnOverflow(
+      path,
+      req,
+      config,
+      body,
+      req.headers,
+      rawBody,
+      turnContext,
+      upstream,
+    );
+  }
   if (path === '/v1/models' && upstream.ok) {
     const text = await upstream.clone().text();
     void writeModelListLog({
@@ -2558,6 +3493,9 @@ export async function proxyOpenAI(
         body: text,
       },
     });
+  }
+  if (path.includes('/responses')) {
+    await writeFinalClientResponseLog(path, upstream);
   }
   return upstream;
 }

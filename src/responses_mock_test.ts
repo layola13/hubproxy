@@ -14,6 +14,7 @@ const config: ProxyConfig = {
   responsesBaseUrl: 'http://127.0.0.1:8788/v1',
   chatBaseUrl: 'http://127.0.0.1:8789/v1',
   forceChatCompletions: false,
+  nvidiaCompat: false,
   isCloudflare: false,
   defaultModel: 'gpt-4.1',
   defaultApiKey: 'secret-token',

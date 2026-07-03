@@ -13,6 +13,7 @@ const config: ProxyConfig = {
   responsesBaseUrl: 'http://127.0.0.1:1',
   chatBaseUrl: 'http://127.0.0.1:1',
   forceChatCompletions: false,
+  nvidiaCompat: false,
   isCloudflare: false,
   defaultModel: 'gpt-4.1',
   defaultApiKey: '',
@@ -729,6 +730,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
         authToken: string | null;
         responsesBaseUrl: string;
         forceChatCompletions: boolean;
+        nvidiaCompat: boolean;
         isCloudflare: boolean;
         requestIntervalMs: number;
         needRetry: boolean;
@@ -741,6 +743,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(configReadJson.result.config.authToken, config.authToken);
   assertEquals(configReadJson.result.config.responsesBaseUrl, config.responsesBaseUrl);
   assertEquals(configReadJson.result.config.forceChatCompletions, false);
+  assertEquals(configReadJson.result.config.nvidiaCompat, false);
   assertEquals(configReadJson.result.config.isCloudflare, false);
   assertEquals(configReadJson.result.config.requestIntervalMs, 0);
   assertEquals(configReadJson.result.config.needRetry, false);
