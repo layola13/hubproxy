@@ -266,9 +266,9 @@ function logSummary(entry: Record<string, unknown>, file: string): Record<string
 
 function logDirFromEnv(): string | null {
   const value = Deno.env.get('HUBPROXY_LOG_DIR');
-  if (!value) return 'logs';
+  if (!value) return null;
   const normalized = value.trim();
-  return normalized ? normalized : 'logs';
+  return normalized ? normalized : null;
 }
 
 function writeRequestLog(entry: Record<string, unknown>): void {

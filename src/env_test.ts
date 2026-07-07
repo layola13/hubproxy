@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1';
-import { loadConfig, loadDotenvIntoEnv } from './env.ts';
+import { applyLogArgsToEnv, loadConfig, loadDotenvIntoEnv } from './env.ts';
 
 const FORCE_CHAT_COMPLETIONS = 'HUBPROXY_FORCE_CHAT_COMPLETIONS';
 const NVIDIA_COMPAT = 'HUBPROXY_NVIDIA_COMPAT';
@@ -12,6 +12,7 @@ const GLM_KEY_FETCH_RETRY_COUNT = 'GLM_KEY_FETCH_RETRY_COUNT';
 const GLM_KEY_FETCH_RETRY_DELAY_MS = 'GLM_KEY_FETCH_RETRY_DELAY_MS';
 const CONTEXT_WINDOW_TOKENS = 'HUBPROXY_CONTEXT_WINDOW_TOKENS';
 const CONTEXT_COMPACT_THRESHOLD_PERCENT = 'HUBPROXY_CONTEXT_COMPACT_THRESHOLD_PERCENT';
+const LOG_DIR = 'HUBPROXY_LOG_DIR';
 
 function setRequiredConfigEnv(): void {
   Deno.env.set('RESPONSES_BASE_URL', 'http://127.0.0.1:1/v1');
@@ -50,6 +51,27 @@ Deno.test('loadDotenvIntoEnv loads plain keys and skips CODEX_ keys', async () =
   } finally {
     Deno.env.delete('HUBPROXY_LOG_DIR');
     await Deno.remove(file).catch(() => {});
+  }
+});
+
+Deno.test('applyLogArgsToEnv only enables logs when startup args request them', () => {
+  const original = Deno.env.get(LOG_DIR);
+  try {
+    Deno.env.set(LOG_DIR, 'logs');
+    applyLogArgsToEnv([]);
+    assertEquals(Deno.env.get(LOG_DIR), undefined);
+
+    applyLogArgsToEnv(['--logs']);
+    assertEquals(Deno.env.get(LOG_DIR), 'logs');
+
+    applyLogArgsToEnv(['--logs', 'custom-logs']);
+    assertEquals(Deno.env.get(LOG_DIR), 'custom-logs');
+
+    applyLogArgsToEnv(['--log-dir', 'explicit-logs']);
+    assertEquals(Deno.env.get(LOG_DIR), 'explicit-logs');
+  } finally {
+    if (original === undefined) Deno.env.delete(LOG_DIR);
+    else Deno.env.set(LOG_DIR, original);
   }
 });
 

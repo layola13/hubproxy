@@ -354,9 +354,9 @@ function proxyLogSummary(
 
 function logDirFromEnv(): string | null {
   const value = getEnvOrNull('HUBPROXY_LOG_DIR');
-  if (!value) return 'logs';
+  if (!value) return null;
   const normalized = value.trim();
-  return normalized ? normalized : 'logs';
+  return normalized ? normalized : null;
 }
 
 function writeModelListLog(entry: Record<string, unknown>): void {
@@ -893,6 +893,24 @@ function isContextLengthOverflowResponse(response: Response, text: string): bool
     lower.includes(' resulted in ');
 }
 
+function isResponsesToolHistoryErrorResponse(response: Response, text: string): boolean {
+  if (response.status !== 400 || !text) return false;
+  const lower = text.toLowerCase();
+  return lower.includes('no tool call found for function call output') ||
+    lower.includes('function_call_output requires item_reference') ||
+    lower.includes('item_reference ids matching each call_id') ||
+    lower.includes('continuation via previous_response_id') ||
+    lower.includes('not the same number of function calls and responses');
+}
+
+async function isResponsesToolHistoryError(response: Response): Promise<boolean> {
+  try {
+    return isResponsesToolHistoryErrorResponse(response, await response.clone().text());
+  } catch {
+    return false;
+  }
+}
+
 async function compactAndRetryOnOverflow(
   path: string,
   req: Request,
@@ -958,8 +976,10 @@ async function compactAndRetryOnOverflow(
 async function shouldRetryUpstreamResponse(response: Response): Promise<boolean> {
   if (!response.ok) {
     const contentType = response.headers.get('content-type') ?? '';
-    if (!contentType.includes('application/json') && !contentType.includes('text/plain') &&
-      !contentType.includes('text/event-stream')) {
+    if (
+      !contentType.includes('application/json') && !contentType.includes('text/plain') &&
+      !contentType.includes('text/event-stream')
+    ) {
       return true;
     }
     try {
@@ -1206,8 +1226,11 @@ function lastUserTurnText(body: string | undefined): string | null {
           .map((part) => {
             if (!part || typeof part !== 'object') return '';
             const pr = part as Record<string, unknown>;
-            return typeof pr.text === 'string' ? pr.text
-              : typeof pr.input_text === 'string' ? pr.input_text : '';
+            return typeof pr.text === 'string'
+              ? pr.text
+              : typeof pr.input_text === 'string'
+              ? pr.input_text
+              : '';
           })
           .join('\n');
       }
@@ -1313,7 +1336,9 @@ function buildContextCompactionRequestBody(
   if (!parsed) return null;
   const input = Array.isArray(parsed.input)
     ? parsed.input
-    : Array.isArray(parsed.messages) ? parsed.messages : [];
+    : Array.isArray(parsed.messages)
+    ? parsed.messages
+    : [];
   const model = typeof parsed.model === 'string' ? parsed.model : '';
   return JSON.stringify({
     model,
@@ -1407,6 +1432,7 @@ function normalizeResponseInputItems(input: unknown): unknown[] {
     const type = typeof record.type === 'string' ? record.type : '';
     if (isToolCallType(type)) {
       const callId = typeof record.call_id === 'string' ? record.call_id : '';
+      const itemId = typeof record.id === 'string' ? record.id : '';
       let name = sanitizeToolName(record.name);
       if (type === 'mcp_tool_call' && typeof record.server === 'string' && record.server) {
         if (!name.startsWith(record.server)) {
@@ -1414,20 +1440,34 @@ function normalizeResponseInputItems(input: unknown): unknown[] {
         }
       }
       if (callId && name) callNames.set(callId, name);
+      if (itemId && name) callNames.set(itemId, name);
     }
   }
 
-  return input.map((item) => {
-    if (!item || typeof item !== 'object') return item;
+  const seenToolReferences = new Set<string>();
+  const normalized: unknown[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== 'object') {
+      normalized.push(item);
+      continue;
+    }
     const record = item as Record<string, unknown>;
     const type = typeof record.type === 'string' ? record.type : '';
+    if (type === 'item_reference') {
+      const id = typeof record.id === 'string' ? record.id : '';
+      if (id) seenToolReferences.add(id);
+      normalized.push(record);
+      continue;
+    }
+
+    let outRecord: Record<string, unknown> = record;
 
     if (type === 'mcp_tool_call' && typeof record.server === 'string' && record.server) {
       let name = sanitizeToolName(record.name);
       if (!name.startsWith(record.server)) {
         name = `${record.server}${name}`;
       }
-      return { ...record, type: 'function_call', name };
+      outRecord = { ...record, type: 'function_call', name };
     }
 
     if (type === 'function_call' && typeof record.arguments === 'string') {
@@ -1435,15 +1475,24 @@ function normalizeResponseInputItems(input: unknown): unknown[] {
         const args = JSON.parse(record.arguments);
         if (typeof args.server === 'string') {
           const original = args.server;
-        const normalized = robustNormalizeServerName(original);
-        if (normalized !== original) {
-          args.server = normalized;
-          record.arguments = JSON.stringify(args);
+          const normalized = robustNormalizeServerName(original);
+          if (normalized !== original) {
+            args.server = normalized;
+            record.arguments = JSON.stringify(args);
+          }
         }
+      } catch {
+        // Ignore
       }
-    } catch {
-      // Ignore
-      }
+    }
+
+    if (isToolCallType(type) || isToolCallType(String(outRecord.type ?? ''))) {
+      const callId = typeof outRecord.call_id === 'string' ? outRecord.call_id : '';
+      const itemId = typeof outRecord.id === 'string' ? outRecord.id : '';
+      if (callId) seenToolReferences.add(callId);
+      if (itemId) seenToolReferences.add(itemId);
+      normalized.push(outRecord);
+      continue;
     }
 
     if (
@@ -1454,10 +1503,16 @@ function normalizeResponseInputItems(input: unknown): unknown[] {
     ) {
       const callId = typeof record.call_id === 'string' ? record.call_id : '';
       const name = sanitizeToolName(record.name) || (callId ? callNames.get(callId) ?? '' : '');
-      return name ? { ...record, name } : record;
+      if (callId && !seenToolReferences.has(callId)) {
+        normalized.push({ type: 'item_reference', id: callId });
+        seenToolReferences.add(callId);
+      }
+      normalized.push(name ? { ...record, name } : record);
+      continue;
     }
-    return item;
-  });
+    normalized.push(item);
+  }
+  return normalized;
 }
 
 function normalizeChatToolsValue(tools: unknown, wrap = true): unknown[] {
@@ -1674,6 +1729,7 @@ function extractChatFallbackFromResponsesBody(
     const namespaces = extractNamespacesFromBody(body);
     const messages: Array<Record<string, unknown>> = [];
     const systemTexts: string[] = [];
+    const emittedToolCallIds = new Set<string>();
     const instructions = typeof parsed.instructions === 'string' ? parsed.instructions : '';
     if (planModeLike) systemTexts.push(CHAT_FALLBACK_SYSTEM_NOTICE);
     if (instructions) systemTexts.push(instructions);
@@ -1707,6 +1763,7 @@ function extractChatFallbackFromResponsesBody(
               type: 'function',
               function: { name, arguments: args },
             });
+            emittedToolCallIds.add(callId);
           }
           index++;
         }
@@ -1759,11 +1816,24 @@ function extractChatFallbackFromResponsesBody(
       ) {
         const output = toolOutputText(record);
         const name = typeof record.name === 'string' ? record.name : '';
+        const callId = typeof record.call_id === 'string' ? record.call_id : '';
         if (output || 'output' in record || 'content' in record) {
+          if (callId && !emittedToolCallIds.has(callId)) {
+            messages.push({
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: callId,
+                type: 'function',
+                function: { name: sanitizeToolName(name) || 'unknown_tool', arguments: '{}' },
+              }],
+            });
+            emittedToolCallIds.add(callId);
+          }
           const message: Record<string, unknown> = {
             role: 'tool',
             content: output,
-            tool_call_id: typeof record.call_id === 'string' ? record.call_id : undefined,
+            tool_call_id: callId || undefined,
           };
           if (name) message.name = name;
           messages.push(message);
@@ -2409,7 +2479,9 @@ function createThoughtStreamSplitter() {
     return longest;
   };
 
-  const earliestOpenTag = (text: string): { index: number; openTag: string; closeTag: string } | null => {
+  const earliestOpenTag = (
+    text: string,
+  ): { index: number; openTag: string; closeTag: string } | null => {
     let nextMatch: { index: number; openTag: string; closeTag: string } | null = null;
     for (const pair of THOUGHT_TAG_PAIRS) {
       const index = text.indexOf(pair.openTag);
@@ -2493,7 +2565,9 @@ function createThoughtStreamSplitter() {
     flush(): { visibleText: string; reasoningText: string } {
       const remaining = pending;
       pending = '';
-      const visibleText = activeCloseTag ? '' : stripResidualThoughtTags(trimTrailingPartialThoughtTag(remaining));
+      const visibleText = activeCloseTag
+        ? ''
+        : stripResidualThoughtTags(trimTrailingPartialThoughtTag(remaining));
       const reasoningText = activeCloseTag ? trimTrailingPartialThoughtTag(remaining) : '';
       activeCloseTag = null;
       return {
@@ -3251,6 +3325,15 @@ async function forwardWithFallback(
     responsesResponse && !responsesResponse.ok &&
     !isFallbackEligibleStatus(responsesResponse.status)
   ) {
+    if (await isResponsesToolHistoryError(responsesResponse)) {
+      writeUpstreamLog({
+        path: 'internal/responses-tool-history-fallback',
+        requestPath: responsesPath,
+        status: responsesResponse.status,
+      });
+      const fallbackResponse = await sendChatFallback(config.chatBaseUrl, true);
+      if (fallbackResponse) return fallbackResponse;
+    }
     return responsesResponse;
   }
   if (responsesResponse && responsesResponse.ok) {

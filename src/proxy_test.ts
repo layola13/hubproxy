@@ -848,7 +848,9 @@ Deno.test('proxyOpenAI logs raw native responses SSE streams', async () => {
       )
       .filter((entry) => entry.path === '/v1/responses');
 
-    const upstreamStream = logEntries.find((entry) => entry.stage === 'upstream_responses_stream_raw');
+    const upstreamStream = logEntries.find((entry) =>
+      entry.stage === 'upstream_responses_stream_raw'
+    );
     const finalClientStream = logEntries.find((entry) =>
       entry.stage === 'client_response_stream_final'
     );
@@ -951,15 +953,17 @@ Deno.test('proxyOpenAI preserves logged native responses SSE tail content', asyn
           '',
         ]),
         'event: response.output_item.done',
-        `data: ${JSON.stringify({
-          type: 'response.output_item.done',
-          item: {
-            id: 'msg_1',
-            type: 'message',
-            role: 'assistant',
-            content: [{ type: 'output_text', text: upstreamDoneText }],
-          },
-        })}`,
+        `data: ${
+          JSON.stringify({
+            type: 'response.output_item.done',
+            item: {
+              id: 'msg_1',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: upstreamDoneText }],
+            },
+          })
+        }`,
         '',
         'event: response.completed',
         'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}',
@@ -1975,10 +1979,13 @@ Deno.test('proxyOpenAI auto-compacts oversized custom-context responses requests
     const body = typeof init?.body === 'string' ? init.body : undefined;
     seen.push({ url, body });
     if (body?.includes('Produce a compact continuation summary')) {
-      return new Response(JSON.stringify({ choices: [{ message: { content: 'summary: keep only key state' } }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'summary: keep only key state' } }] }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
     }
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
@@ -2017,7 +2024,9 @@ Deno.test('proxyOpenAI auto-compacts oversized custom-context responses requests
     assertEquals(seen.length, 2);
     assertEquals(seen[0].url, 'http://127.0.0.1:8789/v1/chat/completions');
     assertEquals(seen[1].url, 'http://127.0.0.1:8789/v1/chat/completions');
-    const forwarded = JSON.parse(seen[1].body ?? '{}') as { messages?: Array<{ content?: unknown }> };
+    const forwarded = JSON.parse(seen[1].body ?? '{}') as {
+      messages?: Array<{ content?: unknown }>;
+    };
     const serialized = JSON.stringify(forwarded);
     assertEquals(serialized.includes('Compressed prior context summary'), true);
     assertEquals(serialized.includes('summary: keep only key state'), true);
@@ -2093,9 +2102,13 @@ Deno.test('proxyOpenAI compacts on upstream context-length overflow 400 and retr
     // Expect: 1 compact handshake + 1 original main call + 1 retried main call = 3 total.
     const chatCalls = seen.filter((e) => e.url === 'http://127.0.0.1:8789/v1/chat/completions');
     assertEquals(chatCalls.length, 3);
-    const handshake = chatCalls.filter((e) => (e.body ?? '').includes('Produce a compact continuation summary'));
+    const handshake = chatCalls.filter((e) =>
+      (e.body ?? '').includes('Produce a compact continuation summary')
+    );
     assertEquals(handshake.length, 1);
-    const mainCalls = chatCalls.filter((e) => !(e.body ?? '').includes('Produce a compact continuation summary'));
+    const mainCalls = chatCalls.filter((e) =>
+      !(e.body ?? '').includes('Produce a compact continuation summary')
+    );
     assertEquals(mainCalls.length, 2);
     const retried = JSON.parse(mainCalls[1].body ?? '{}') as { input?: unknown };
     const serialized = JSON.stringify(retried);
@@ -2142,7 +2155,9 @@ Deno.test('proxyOpenAI compacts overflow 400 on direct chat/completions path too
 
   try {
     const longHistory: Array<{ role: string; content: string }> = [];
-    for (let i = 0; i < 200; i++) longHistory.push({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(200) });
+    for (let i = 0; i < 200; i++) {
+      longHistory.push({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(200) });
+    }
     longHistory.push({ role: 'user', content: 'final question about the task' });
     const resp = await proxyOpenAI(
       '/v1/chat/completions',
@@ -2167,12 +2182,18 @@ Deno.test('proxyOpenAI compacts overflow 400 on direct chat/completions path too
     assertEquals(resp.status, 200);
     const chatCalls = seen.filter((e) => e.url === 'http://127.0.0.1:8789/v1/chat/completions');
     assertEquals(chatCalls.length, 3);
-    const handshake = chatCalls.filter((e) => (e.body ?? '').includes('Produce a compact continuation summary'));
+    const handshake = chatCalls.filter((e) =>
+      (e.body ?? '').includes('Produce a compact continuation summary')
+    );
     assertEquals(handshake.length, 1);
-    const mainCalls = chatCalls.filter((e) => !(e.body ?? '').includes('Produce a compact continuation summary'));
+    const mainCalls = chatCalls.filter((e) =>
+      !(e.body ?? '').includes('Produce a compact continuation summary')
+    );
     assertEquals(mainCalls.length, 2);
     // Retried body must shrink: messages replaced with [system summary, last user turn]
-    const retried = JSON.parse(mainCalls[1].body ?? '{}') as { messages: Array<{ role: string; content: string }> };
+    const retried = JSON.parse(mainCalls[1].body ?? '{}') as {
+      messages: Array<{ role: string; content: string }>;
+    };
     assertEquals(retried.messages.length, 2);
     assertEquals(retried.messages[0].role, 'system');
     assertEquals(retried.messages[0].content.includes('Compressed prior context summary'), true);
@@ -2237,6 +2258,123 @@ Deno.test('proxyOpenAI force-routes Gemini tool history to chat fallback best ef
     assertEquals(Array.isArray(body.messages?.[0]?.tool_calls), true);
     assertEquals(body.messages?.[1]?.role, 'tool');
     assertEquals(body.messages?.[1]?.name, 'exec_command');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI adds item_reference for orphan responses tool outputs', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ output: [], status: 'completed' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.5',
+          stream: false,
+          previous_response_id: 'resp_prev',
+          input: [
+            {
+              type: 'function_call_output',
+              call_id: 'fc_D5r5P067SiGnDt3BAKbSKnJF',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+    assertEquals(resp.status, 200);
+    const body = JSON.parse(seen.body ?? '{}') as {
+      input?: Array<Record<string, unknown>>;
+      previous_response_id?: string;
+    };
+    assertEquals(body.previous_response_id, 'resp_prev');
+    assertEquals(body.input?.[0], {
+      type: 'item_reference',
+      id: 'fc_D5r5P067SiGnDt3BAKbSKnJF',
+    });
+    assertEquals(body.input?.[1]?.type, 'function_call_output');
+    assertEquals(body.input?.[1]?.call_id, 'fc_D5r5P067SiGnDt3BAKbSKnJF');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI handles responses tool-history 400 with chat fallback', async () => {
+  const calls: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    calls.push({ url, body });
+    if (url.includes('/v1/responses')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message:
+              'function_call_output requires item_reference ids matching each call_id on HTTP requests; continuation via previous_response_id is only supported on Responses WebSocket v2',
+            type: 'invalid_request_error',
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.5',
+          stream: false,
+          previous_response_id: 'resp_prev',
+          input: [
+            {
+              type: 'function_call_output',
+              call_id: 'fc_D5r5P067SiGnDt3BAKbSKnJF',
+              output: 'ok',
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+    assertEquals(resp.status, 200);
+    const text = await resp.text();
+    assertEquals(text.includes('function_call_output requires item_reference'), false);
+    const chatCall = calls.find((call) => call.url.includes('/v1/chat/completions'));
+    const chatBody = JSON.parse(chatCall?.body ?? '{}') as {
+      messages?: Array<{ role?: string; tool_calls?: unknown; tool_call_id?: string }>;
+    };
+    assertEquals(chatBody.messages?.[0]?.role, 'assistant');
+    assertEquals(Array.isArray(chatBody.messages?.[0]?.tool_calls), true);
+    assertEquals(chatBody.messages?.[1]?.role, 'tool');
+    assertEquals(chatBody.messages?.[1]?.tool_call_id, 'fc_D5r5P067SiGnDt3BAKbSKnJF');
   } finally {
     globalThis.fetch = originalFetch;
   }

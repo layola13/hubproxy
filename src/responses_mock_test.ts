@@ -21,6 +21,10 @@ const config: ProxyConfig = {
   apiKeys: ['secret-token'],
   requestIntervalMs: 0,
   needRetry: false,
+  glmTryGetKey: false,
+  glmKeyRefreshIntervalMs: 600000,
+  glmKeyFetchRetryCount: 100,
+  glmKeyFetchRetryDelayMs: 30000,
   dataDir: '/tmp',
 };
 

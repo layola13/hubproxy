@@ -74,4 +74,8 @@ else
   unset HUBPROXY_LOG_DIR || true
 fi
 
-exec deno run -A src/main.ts
+if [[ -n "$log_dir" ]]; then
+  exec deno run -A src/main.ts --log-dir "$log_dir"
+else
+  exec deno run -A src/main.ts
+fi

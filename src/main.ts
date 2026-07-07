@@ -1,4 +1,4 @@
-import { loadConfig, loadDotenvIntoEnv } from './env.ts';
+import { applyLogArgsToEnv, loadConfig, loadDotenvIntoEnv } from './env.ts';
 import { handleHttpWithState } from './handlers.ts';
 import { initProxyRuntime } from './proxy.ts';
 import { HubState } from './state.ts';
@@ -9,6 +9,7 @@ try {
 } catch {
   // Optional local env file.
 }
+applyLogArgsToEnv(Deno.args);
 
 const config = loadConfig();
 console.log(JSON.stringify(

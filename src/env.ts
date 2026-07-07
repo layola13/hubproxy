@@ -102,6 +102,43 @@ export function loadDotenvIntoEnv(path: string): void {
   }
 }
 
+export function applyLogArgsToEnv(args: string[]): void {
+  let logDir: string | null = null;
+  let sawLogArg = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--logs') {
+      sawLogArg = true;
+      const next = args[i + 1];
+      if (next && !next.startsWith('--')) {
+        logDir = next;
+        i++;
+      } else {
+        logDir = 'logs';
+      }
+      continue;
+    }
+    if (arg === '--log-dir') {
+      sawLogArg = true;
+      const next = args[i + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('missing value for --log-dir');
+      }
+      logDir = next;
+      i++;
+    }
+  }
+
+  if (!sawLogArg) {
+    Deno.env.delete('HUBPROXY_LOG_DIR');
+    return;
+  }
+
+  const normalized = logDir?.trim() || 'logs';
+  Deno.env.set('HUBPROXY_LOG_DIR', normalized);
+}
+
 export function loadConfig(): ProxyConfig {
   const responsesBaseUrl = Deno.env.get('RESPONSES_BASE_URL');
   const chatBaseUrl = Deno.env.get('CHAT_BASE_URL');

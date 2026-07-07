@@ -93,40 +93,126 @@ async function main() {
     },
   };
 
-  // ---- 3. 取管理员密码 ----
+// ---- 3. 取管理员密码 ----
+  // 密码解析优先级:
+  //   1. ADMIN_PASS 环境变量(明文)
+  //   2. <SUB2API_DIR>/.env 的 ADMIN_PASSWORD=/ADMIN_PASS= 行
+  //   3. sub2api 容器首次启动日志里的一次性密码 (Generated admin password (one-time): ...).
+  // 若以上都拿不到、或拿到的密码登录 401, 且环境变量 ADMIN_RESET_PASS=<新明文> 已设置,
+  // 则通过 docker exec <pg-container> psql 用 pgcrypto 的 crypt(pw, gen_salt('bf',10))
+  // 直接 UPDATE users.password_hash 重置 (Go 的 bcrypt 校验 pgcrypto 生成的 $2a$10$ 哈希),
+  // 并把新密码同步写回 <SUB2API_DIR>/.env 的 ADMIN_PASSWORD= 行, 再重试登录.
+  // 这样可以一行命令同时完成「改 admin 密码 + 导入」, 不必再单独跑改密流程.
+
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@sub2api.local';
-  let adminPass = process.env.ADMIN_PASS || '';
-  if (!adminPass) {
-    const envFile = path.join(sub2apiDir, '.env');
+  const envFile = path.join(sub2apiDir, '.env');
+
+  function readEnvAdminPass() {
     if (fs.existsSync(envFile)) {
       const txt = fs.readFileSync(envFile, 'utf8');
-      const m = txt.match(/^ADMIN_PASSWORD=(.*)$/m);
-      if (m) adminPass = m[1];
+      const m = txt.match(/^ADMIN_PASSWORD=(.*)$/m) || txt.match(/^ADMIN_PASS=(.*)$/m);
+      if (m) return m[1];
     }
+    return '';
   }
-  if (!adminPass) {
-    // 回退: 从容器日志取一次性生成密码
+  function readContainerLogPass() {
     try {
-      const logs = execFileSync('docker', ['logs', 'sub2api'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-      const m = logs.match(/Generated admin password \(one-time\): ([a-f0-9]+)/);
-      if (m) adminPass = m[1];
-    } catch {}
+      const logs = execFileSync('docker', ['logs', 'sub2api'], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const m = logs.match(/Generated admin password \(one-time\): (\S+)/);
+      return m ? m[1] : '';
+    } catch { return ''; }
   }
-  if (!adminPass) {
-    console.error('[ERR] 取不到管理员密码; 设 ADMIN_PASS 环境变量'); process.exit(3);
+  function ensurePgcrypto(pgContainer, pgUser, pgDb) {
+    // 幂等: 不存在才创建. 失败也不抛, 后续 crypt 调用会给出更具体的错误.
+    try {
+      execFileSync('docker', ['exec', pgContainer, 'psql', '-U', pgUser, '-d', pgDb,
+        '-c', 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'], { stdio: ['ignore', 'ignore', 'inherit'] });
+      return true;
+    } catch (e) { return false; }
+  }
+  function readPgCredsFromEnv() {
+    if (!fs.existsSync(envFile)) return null;
+    const txt = fs.readFileSync(envFile, 'utf8');
+    const pick = (k) => { const m = txt.match(new RegExp('^' + k + '=(.*)$', 'm')); return m ? m[1].trim() : ''; };
+    return {
+      user: pick('POSTGRES_USER') || 'postgres',
+      db: pick('POSTGRES_DB') || 'sub2api',
+    };
+  }
+  function resetAdminPassViaPg(newPass) {
+    const pgContainer = process.env.PG_CONTAINER || 'sub2api-postgres';
+    const creds = readPgCredsFromEnv() || { user: 'postgres', db: 'sub2api' };
+    // 1) 确保 pgcrypto 扩展可用 (失败仍继续, crypt 调用本身会报错)
+    ensurePgcrypto(pgContainer, creds.user, creds.db);
+    // 2) 用 crypt(newPass, gen_salt('bf', 10)) 生成 bcrypt $2a$10$ 哈希并写库.
+    //    newPass 里可能含单引号 / 反斜杠等, 用 psql 的 dollar-quoted 字符串避免转义.
+    const sql =
+      "UPDATE users SET password_hash = crypt($pass$" + newPass + "$pass$, gen_salt('bf', 10)), " +
+      "updated_at = now() WHERE email = $email$" + adminEmail + "$email$ RETURNING id;";
+    let out;
+    try {
+      out = execFileSync('docker', ['exec', '-i', pgContainer, 'psql', '-U', creds.user, '-d', creds.db, '-c', sql],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      console.error('[ERR] 重置密码失败(无法访问 PG 容器):', e.message); return false;
+    }
+    if (!/UPDATE\s+1/.test(out) && !/\b1\b/.test(out)) {
+      console.error('[ERR] 重置密码失败(PG 返回未命中):', out.trim()); return false;
+    }
+    // 3) 同步写回 .env 的 ADMIN_PASSWORD= 行 (没有则追加), 方便下次免重置直接登录.
+    try {
+      if (fs.existsSync(envFile)) {
+        const orig = fs.readFileSync(envFile, 'utf8');
+        if (/^ADMIN_PASSWORD=.*$/m.test(orig)) {
+          fs.writeFileSync(envFile, orig.replace(/^ADMIN_PASSWORD=.*$/m, 'ADMIN_PASSWORD=' + newPass));
+        } else if (/^ADMIN_PASS=.*$/m.test(orig)) {
+          fs.writeFileSync(envFile, orig.replace(/^ADMIN_PASS=.*$/m, 'ADMIN_PASS=' + newPass));
+        } else {
+          fs.writeFileSync(envFile, orig.replace(/\s*$/, '') + '\nADMIN_PASSWORD=' + newPass + '\n');
+        }
+      }
+    } catch (e) {
+      console.warn('[WARN] 修改 .env 失败(密码已写库, 不影响本次导入):', e.message);
+    }
+    return true;
   }
 
-  // ---- 4. 登录 ----
-  const loginRes = await fetch(`${api}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  let adminPass = process.env.ADMIN_PASS || readEnvAdminPass() || readContainerLogPass();
+
+  // ---- 4. 登录 (含一次自动改密重试) ----
+  let loginRes = await fetch(`${api}/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: adminEmail, password: adminPass }),
   }).then((r) => r.json()).catch((e) => { console.error('[ERR] 登录请求失败', e); process.exit(4); });
-  const jwt = loginRes && loginRes.data && loginRes.data.access_token;
+
+  let jwt = loginRes && loginRes.data && loginRes.data.access_token;
   if (!jwt) {
-    console.error('[ERR] 登录 sub2api 失败:', JSON.stringify(loginRes)); process.exit(4);
+    const resetPass = process.env.ADMIN_RESET_PASS || '';
+    if (resetPass) {
+      console.log('[INFO] 当前 admin 密码登录失败, ADMIN_RESET_PASS 已设置 -> 直接重置 PG 中 admin 密码并重试...');
+      if (resetAdminPassViaPg(resetPass)) {
+        adminPass = resetPass;
+        loginRes = await fetch(`${api}/auth/login`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: adminEmail, password: adminPass }),
+        }).then((r) => r.json()).catch((e) => { console.error('[ERR] 登录请求失败(重试)', e); process.exit(4); });
+        jwt = loginRes && loginRes.data && loginRes.data.access_token;
+      }
+    }
+  }
+  if (!jwt) {
+    if (!adminPass) {
+      console.error('[ERR] 取不到管理员密码; 设 ADMIN_PASS=<明文> 或 ADMIN_RESET_PASS=<新明文> 环境变量');
+    } else {
+      console.error('[ERR] 登录 sub2api 失败:', JSON.stringify(loginRes),
+        '\n       若忘记密码, 用: ADMIN_RESET_PASS=<新明文> bun ... <tokens目录> [组ID]');
+    }
+    process.exit(4);
   }
   console.log('[OK] 已登录 sub2api (admin)');
+
 
   const authH = { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' };
 
