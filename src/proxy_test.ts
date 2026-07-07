@@ -5,6 +5,7 @@ import {
   normalizeResponsesEvent,
   proxyOpenAI,
   robustDenormalizeServerName,
+  setMcpToolDiscoveryForTests,
 } from './proxy.ts';
 import type { ProxyConfig } from './types.ts';
 
@@ -31,6 +32,8 @@ const config: ProxyConfig = {
   glmKeyFetchRetryDelayMs: 30000,
   dataDir: '/tmp',
 };
+
+setMcpToolDiscoveryForTests(async () => []);
 
 function parseSseEvents(text: string): Array<{ event: string; data: Record<string, unknown> }> {
   return text.trim().split(/\n\n+/).flatMap((block) => {
@@ -1233,9 +1236,8 @@ Deno.test('proxyOpenAI fills missing function output names from prior calls', as
     assertEquals(body.messages?.[0]?.role, 'assistant');
     assertEquals(body.messages?.[0]?.tool_calls?.[0]?.id, 'call-1');
     assertEquals(body.messages?.[1]?.role, 'tool');
-    assertEquals(body.tools?.length, 1);
-    assertEquals(body.tools?.[0]?.type, 'function');
-    assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
+    const toolNames = body.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(toolNames.includes('exec_command'), true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1594,10 +1596,9 @@ Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () =
         { type?: string; function?: { name?: string; description?: string; parameters?: unknown } }
       >;
     };
-    assertEquals(body.tools?.length, 1);
-    assertEquals(body.tools?.[0]?.type, 'function');
-    assertEquals(body.tools?.[0]?.function?.name, 'exec_command');
-    assertEquals(body.tools?.[0]?.function?.description, 'Run a shell command');
+    const execTool = body.tools?.find((tool) => tool.function?.name === 'exec_command');
+    assertEquals(execTool?.type, 'function');
+    assertEquals(execTool?.function?.description, 'Run a shell command');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1666,6 +1667,353 @@ Deno.test('proxyOpenAI drops non-function tools for chat upstreams', async () =>
   }
 });
 
+Deno.test('proxyOpenAI injects discovered MCP namespace tools into responses chat fallback', async () => {
+  setMcpToolDiscoveryForTests(async () => [{
+    type: 'namespace',
+    name: 'mcp__code_index__',
+    tools: [{
+      type: 'function',
+      name: 'describe_index',
+      description: 'Describe the generated code index',
+      parameters: { type: 'object', properties: {} },
+    }],
+  }]);
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: 'call_mcp',
+              type: 'function',
+              function: { name: 'mcp__code_index__describe_index', arguments: '{}' },
+            }],
+          },
+        }],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const chatBody = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string; description?: string } }>;
+    };
+    const chatToolNames = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(chatToolNames.includes('collaboration__spawn_agent'), true);
+    assertEquals(chatToolNames.includes('mcp__code_index__describe_index'), true);
+    const mcpTool = chatBody.tools?.find((tool) =>
+      tool.function?.name === 'mcp__code_index__describe_index'
+    );
+    assertEquals(mcpTool?.function?.description, 'Describe the generated code index');
+
+    const responseBody = JSON.parse(await resp.text()) as {
+      output?: Array<{ name?: string; namespace?: string }>;
+    };
+    assertEquals(responseBody.output?.[0]?.namespace, 'mcp__code_index__');
+    assertEquals(responseBody.output?.[0]?.name, 'describe_index');
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('proxyOpenAI injects collaboration namespace tools into responses chat fallback', async () => {
+  setMcpToolDiscoveryForTests(async () => []);
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const names = body.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(names.includes('collaboration__spawn_agent'), true);
+    assertEquals(names.includes('collaboration__send_message'), true);
+    assertEquals(names.includes('collaboration__followup_task'), true);
+    assertEquals(names.includes('collaboration__wait_agent'), true);
+    assertEquals(names.includes('collaboration__interrupt_agent'), true);
+    assertEquals(names.includes('collaboration__list_agents'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('proxyOpenAI merges existing collaboration namespace tools without duplication', async () => {
+  setMcpToolDiscoveryForTests(async () => []);
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          tools: [{
+            type: 'namespace',
+            name: 'collaboration',
+            tools: [{
+              type: 'function',
+              name: 'spawn_agent',
+              description: 'Client spawn description',
+              parameters: { type: 'object', properties: {} },
+            }],
+          }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string; description?: string } }>;
+    };
+    const names = body.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(names.filter((name) => name === 'collaboration__spawn_agent').length, 1);
+    assertEquals(names.includes('collaboration__wait_agent'), true);
+    const spawnTool = body.tools?.find((tool) =>
+      tool.function?.name === 'collaboration__spawn_agent'
+    );
+    assertEquals(spawnTool?.function?.description, 'Client spawn description');
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('proxyOpenAI restores auto-injected collaboration namespace tool calls from chat fallback', async () => {
+  setMcpToolDiscoveryForTests(async () => []);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_spawn","type":"function","function":{"name":"collaboration__spawn_agent","arguments":"{\\"task_name\\":\\"worker\\",\\"message\\":\\"inspect\\"}"},"index":0}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const toolEvent = events.find((event) => event.event === 'response.output_item.done');
+    const item = toolEvent?.data.item as Record<string, unknown> | undefined;
+    assertEquals(item?.type, 'function_call');
+    assertEquals(item?.namespace, 'collaboration');
+    assertEquals(item?.name, 'spawn_agent');
+    assertEquals(item?.call_id, 'call_spawn');
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('proxyOpenAI flattens multi-agent namespace tools for chat fallback', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          tools: [
+            {
+              type: 'namespace',
+              name: 'multi_agent_v1',
+              tools: [
+                {
+                  type: 'function',
+                  name: 'spawn_agent',
+                  description: 'Spawn an agent',
+                  parameters: { type: 'object', properties: {} },
+                },
+                {
+                  type: 'function',
+                  name: 'wait_agent',
+                  parameters: { type: 'object', properties: {} },
+                },
+              ],
+            },
+            { type: 'function', name: 'exec_command', parameters: {} },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string; description?: string } }>;
+    };
+    const toolNames = body.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(toolNames.includes('multi_agent_v1__spawn_agent'), true);
+    assertEquals(toolNames.includes('multi_agent_v1__wait_agent'), true);
+    assertEquals(toolNames.includes('exec_command'), true);
+    assertEquals(toolNames.includes('collaboration__spawn_agent'), true);
+    const spawnTool = body.tools?.find((tool) =>
+      tool.function?.name === 'multi_agent_v1__spawn_agent'
+    );
+    assertEquals(spawnTool?.function?.description, 'Spawn an agent');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI restores multi-agent namespace tool calls from chat fallback', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_spawn","type":"function","function":{"name":"multi_agent_v1__spawn_agent","arguments":"{\\"task_name\\":\\"worker\\",\\"prompt\\":\\"inspect\\"}"},"index":0}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: true,
+          tools: [
+            {
+              type: 'namespace',
+              name: 'multi_agent_v1',
+              tools: [{ type: 'function', name: 'spawn_agent', parameters: {} }],
+            },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const toolEvent = events.find((event) => event.event === 'response.output_item.done');
+    const item = toolEvent?.data.item as Record<string, unknown> | undefined;
+    assertEquals(item?.type, 'function_call');
+    assertEquals(item?.namespace, 'multi_agent_v1');
+    assertEquals(item?.name, 'spawn_agent');
+    assertEquals(item?.call_id, 'call_spawn');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI keeps plan and goal tools available in chat fallback', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;
@@ -1703,11 +2051,11 @@ Deno.test('proxyOpenAI keeps plan and goal tools available in chat fallback', as
     const body = JSON.parse(seen.body ?? '{}') as {
       tools?: Array<{ function?: { name?: string } }>;
     };
-    assertEquals(body.tools?.map((tool) => tool.function?.name), [
-      'exec_command',
-      'update_plan',
-      'get_goal',
-    ]);
+    const toolNames = body.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(toolNames.includes('exec_command'), true);
+    assertEquals(toolNames.includes('update_plan'), true);
+    assertEquals(toolNames.includes('get_goal'), true);
+    assertEquals(toolNames.includes('collaboration__spawn_agent'), true);
   } finally {
     globalThis.fetch = originalFetch;
   }

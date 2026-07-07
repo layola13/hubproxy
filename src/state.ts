@@ -13,6 +13,10 @@ type MemoryState = {
     string,
     { command: string[]; cwd: string; status: 'running' | 'exited'; stdout: string; stderr: string }
   >;
+  agentStatuses: Map<
+    string,
+    { status: 'running' | 'completed' | 'errored' | 'shutdown'; message: string | null }
+  >;
   notifications: ServerNotification[];
 };
 
@@ -22,12 +26,18 @@ type FileUpdateChange = {
   diff: string;
 };
 
+export type MultiAgentToolResult = {
+  contentItems: Array<{ type: 'text'; text: string }>;
+  success: boolean;
+};
+
 const now = () => Math.floor(Date.now() / 1000);
 
 const newThread = (id: string, cwd: string, modelProvider: string, model: string): Thread => ({
   id,
   sessionId: id,
   forkedFromId: null,
+  parentThreadId: null,
   preview: '',
   ephemeral: true,
   modelProvider,
@@ -46,6 +56,106 @@ const newThread = (id: string, cwd: string, modelProvider: string, model: string
   name: null,
   turns: [],
 });
+
+function threadSpawnSource(input: {
+  parentThreadId: string;
+  depth?: number;
+  agentPath?: string | null;
+  agentNickname?: string | null;
+  agentRole?: string | null;
+  lastTaskMessage?: string | null;
+}): Thread['source'] {
+  return {
+    subAgent: {
+      thread_spawn: {
+        parent_thread_id: input.parentThreadId,
+        depth: input.depth ?? 1,
+        agent_path: input.agentPath ?? null,
+        agent_nickname: input.agentNickname ?? null,
+        agent_role: input.agentRole ?? null,
+        last_task_message: input.lastTaskMessage ?? null,
+      },
+    },
+  };
+}
+
+function threadSpawnPayload(thread: Thread): Record<string, unknown> | null {
+  const source = thread.source;
+  if (typeof source !== 'object' || source === null || !('subAgent' in source)) return null;
+  const subAgent = (source as { subAgent?: unknown }).subAgent;
+  if (typeof subAgent !== 'object' || subAgent === null) return null;
+  const payload = (subAgent as { thread_spawn?: unknown; threadSpawn?: unknown }).thread_spawn ??
+    (subAgent as { threadSpawn?: unknown }).threadSpawn;
+  return typeof payload === 'object' && payload !== null
+    ? payload as Record<string, unknown>
+    : null;
+}
+
+function threadSpawnParentThreadId(thread: Thread): string | null {
+  if (thread.parentThreadId) return thread.parentThreadId;
+  const payload = threadSpawnPayload(thread);
+  const parentThreadId = payload?.parent_thread_id ?? payload?.parentThreadId;
+  return typeof parentThreadId === 'string' ? parentThreadId : null;
+}
+
+function threadSpawnAgentPath(thread: Thread): string | null {
+  const payload = threadSpawnPayload(thread);
+  const agentPath = payload?.agent_path ?? payload?.agentPath;
+  return typeof agentPath === 'string' ? agentPath : null;
+}
+
+function threadLastTaskMessage(thread: Thread): string | null {
+  const payload = threadSpawnPayload(thread);
+  const message = payload?.last_task_message ?? payload?.lastTaskMessage;
+  return typeof message === 'string' ? message : null;
+}
+
+function normalizeAgentPath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return '/agent';
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+function safeTaskName(value: string): string {
+  const cleaned = value.trim().replace(/[^A-Za-z0-9_/-]+/g, '_').replace(/_+/g, '_');
+  return normalizeAgentPath(cleaned || `agent_${crypto.randomUUID().slice(0, 8)}`);
+}
+
+function childAgentPath(parent: Thread, taskName: string): string {
+  const cleaned = taskName.trim().replace(/[^A-Za-z0-9_/-]+/g, '_').replace(/_+/g, '_') ||
+    `agent_${crypto.randomUUID().slice(0, 8)}`;
+  if (cleaned.startsWith('/')) return normalizeAgentPath(cleaned);
+  const parentPath = threadSpawnAgentPath(parent);
+  if (!parentPath) return normalizeAgentPath(cleaned);
+  return `${parentPath.replace(/\/+$/, '')}/${cleaned.replace(/^\/+/, '')}`;
+}
+
+function isMultiAgentNamespace(namespace: string | null | undefined): boolean {
+  return !namespace || namespace === 'multi_agent_v1' || namespace === 'multi_agent_v2' ||
+    namespace === 'collaboration';
+}
+
+function isMultiAgentV1Namespace(namespace: string | null | undefined): boolean {
+  return namespace === 'multi_agent_v1';
+}
+
+function stringifyToolOutput(value: unknown): MultiAgentToolResult {
+  return {
+    contentItems: [{ type: 'text', text: JSON.stringify(value) }],
+    success: true,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function textArg(args: Record<string, unknown>, key: string): string | null {
+  const value = args[key];
+  return typeof value === 'string' ? value : null;
+}
 
 const cloneThread = (thread: Thread, turns: ThreadTurn[] = []): Thread => ({
   ...thread,
@@ -90,6 +200,7 @@ export class HubState {
     subscribedThreadIds: new Set(),
     fsWatches: new Map(),
     processes: new Map(),
+    agentStatuses: new Map(),
     notifications: [],
   };
 
@@ -280,6 +391,21 @@ export class HubState {
     });
   }
 
+  private appendSyntheticTurn(threadId: string, items: unknown[]): string | null {
+    const thread = this.state.threads.get(threadId);
+    if (!thread) return null;
+    const turns = this.state.turns.get(threadId) ?? [];
+    const turn = newTurn(items);
+    turns.push(turn);
+    this.state.turns.set(threadId, turns);
+    thread.turns = turns;
+    thread.updatedAt = now();
+    for (const item of items) {
+      this.emitCompletedItem(threadId, turn.id, item);
+    }
+    return turn.id;
+  }
+
   emitFileChangePatchUpdated(
     threadId: string,
     turnId: string,
@@ -304,6 +430,9 @@ export class HubState {
     modelProvider?: string;
     model: string;
     ephemeral?: boolean;
+    source?: Thread['source'];
+    agentNickname?: string | null;
+    agentRole?: string | null;
   }): Thread {
     const id = input.threadId ?? crypto.randomUUID();
     const thread = newThread(
@@ -313,6 +442,9 @@ export class HubState {
       input.model,
     );
     thread.ephemeral = input.ephemeral ?? true;
+    if (input.source !== undefined) thread.source = input.source;
+    if (input.agentNickname !== undefined) thread.agentNickname = input.agentNickname;
+    if (input.agentRole !== undefined) thread.agentRole = input.agentRole;
     thread.updatedAt = now();
     this.state.threads.set(id, thread);
     this.state.loadedThreadIds.add(id);
@@ -340,10 +472,40 @@ export class HubState {
     return null;
   }
 
-  listThreads(): Thread[] {
+  listThreads(filters: { sourceKinds?: string[]; parentThreadId?: string | null } = {}): Thread[] {
     return [...this.state.threads.values()]
+      .filter((thread) => this.matchesSourceKinds(thread, filters.sourceKinds))
+      .filter((thread) => this.matchesParentThreadId(thread, filters.parentThreadId))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((thread) => publicThread(thread));
+  }
+
+  private matchesSourceKinds(thread: Thread, sourceKinds?: string[]): boolean {
+    if (!sourceKinds?.length) return true;
+    const source = thread.source;
+    const isSubagent = typeof source === 'object' && source !== null && 'subAgent' in source;
+    const subAgent = isSubagent ? (source as { subAgent?: unknown }).subAgent : null;
+    const isThreadSpawn = threadSpawnPayload(thread) !== null;
+    return sourceKinds.some((kind) => {
+      if (kind === 'subAgent') return isSubagent;
+      if (kind === 'subAgentThreadSpawn') return isThreadSpawn;
+      if (kind === 'subAgentReview') return subAgent === 'review';
+      if (kind === 'subAgentCompact') return subAgent === 'compact';
+      if (kind === 'subAgentOther') {
+        return !!subAgent && typeof subAgent === 'object' && 'other' in subAgent;
+      }
+      if (kind === 'unknown') return thread.source === 'unknown';
+      if (kind === 'appServer') return thread.source === 'appServer';
+      if (kind === 'cli') return thread.source === 'cli';
+      if (kind === 'vscode') return thread.source === 'vscode';
+      if (kind === 'exec') return thread.source === 'exec';
+      return false;
+    });
+  }
+
+  private matchesParentThreadId(thread: Thread, parentThreadId?: string | null): boolean {
+    if (!parentThreadId) return true;
+    return threadSpawnParentThreadId(thread) === parentThreadId;
   }
 
   getThread(threadId: string): Thread | null {
@@ -470,28 +632,7 @@ export class HubState {
   }
 
   injectItems(threadId: string, items: unknown[]): boolean {
-    const thread = this.state.threads.get(threadId);
-    if (!thread) return false;
-    const turns = this.state.turns.get(threadId) ?? [];
-    const turn = newTurn(items);
-    turns.push(turn);
-    this.state.turns.set(threadId, turns);
-    thread.turns = turns;
-    thread.updatedAt = now();
-    this.pushNotification({
-      method: 'item/started',
-      params: { threadId, turnId: turn.id, startedAtMs: Date.now(), item: items[0] ?? null },
-    });
-    this.emitItemNotifications(threadId, turn.id, items[0]);
-    this.pushNotification({
-      method: 'rawResponseItem/completed',
-      params: { threadId, turnId: turn.id, item: items[0] ?? null },
-    });
-    this.pushNotification({
-      method: 'item/completed',
-      params: { threadId, turnId: turn.id, completedAtMs: Date.now(), item: items[0] ?? null },
-    });
-    return true;
+    return this.appendSyntheticTurn(threadId, items) !== null;
   }
 
   startTurn(
@@ -844,6 +985,7 @@ export class HubState {
     this.state.subscribedThreadIds.clear();
     this.state.fsWatches.clear();
     this.state.processes.clear();
+    this.state.agentStatuses.clear();
     return true;
   }
 
@@ -853,6 +995,11 @@ export class HubState {
     modelProvider?: string;
     cwd?: string;
     ephemeral?: boolean;
+    subAgent?: boolean;
+    agentPath?: string | null;
+    agentNickname?: string | null;
+    agentRole?: string | null;
+    lastTaskMessage?: string | null;
   }): Thread | null {
     const source = this.state.threads.get(input.threadId);
     if (!source) return null;
@@ -865,6 +1012,24 @@ export class HubState {
     );
     forked.ephemeral = input.ephemeral ?? source.ephemeral;
     forked.updatedAt = now();
+    forked.forkedFromId = source.id;
+    forked.sessionId = source.sessionId;
+    forked.preview = source.preview;
+    forked.source = source.source;
+    forked.threadSource = source.threadSource;
+    forked.agentNickname = input.agentNickname ?? source.agentNickname;
+    forked.agentRole = input.agentRole ?? source.agentRole;
+    forked.gitInfo = source.gitInfo;
+    if (input.subAgent) {
+      forked.parentThreadId = source.id;
+      forked.source = threadSpawnSource({
+        parentThreadId: source.id,
+        agentPath: input.agentPath ?? `/${forkedId}`,
+        agentNickname: forked.agentNickname,
+        agentRole: forked.agentRole,
+        lastTaskMessage: input.lastTaskMessage ?? null,
+      });
+    }
     this.state.threads.set(forkedId, forked);
     this.state.loadedThreadIds.add(forkedId);
     this.state.turns.set(forkedId, []);
@@ -874,15 +1039,301 @@ export class HubState {
       method: 'thread/status/changed',
       params: { threadId: forked.id, status: forked.status },
     });
-    forked.forkedFromId = source.id;
-    forked.preview = source.preview;
-    forked.source = source.source;
-    forked.threadSource = source.threadSource;
-    forked.agentNickname = source.agentNickname;
-    forked.agentRole = source.agentRole;
-    forked.gitInfo = source.gitInfo;
+    if (input.subAgent) {
+      const agentPath = threadSpawnAgentPath(forked) ?? input.agentPath ?? `/${forkedId}`;
+      this.appendSyntheticTurn(source.id, [
+        {
+          type: 'collabAgentToolCall',
+          id: crypto.randomUUID(),
+          tool: 'spawnAgent',
+          status: 'completed',
+          senderThreadId: source.id,
+          receiverThreadIds: [forked.id],
+          prompt: null,
+          model: forked.model,
+          reasoningEffort: null,
+          agentsStates: {
+            [forked.id]: { status: 'running', message: null },
+          },
+        },
+        {
+          type: 'subAgentActivity',
+          id: crypto.randomUUID(),
+          kind: 'started',
+          agentThreadId: forked.id,
+          agentPath,
+        },
+      ]);
+    }
     forked.turns = [...this.getTurns(source.id)];
     return publicThread(forked, this.getTurns(forked.id), true);
+  }
+
+  private resolveAgent(parentThreadId: string, target: string): Thread | null {
+    const parent = this.state.threads.get(parentThreadId);
+    if (!parent) return null;
+    const rootThreadId = this.rootThreadId(parentThreadId);
+    const normalized = this.resolveAgentPath(parentThreadId, target);
+    const rawNormalized = normalizeAgentPath(target);
+    const trimmedTarget = target.trim();
+    const directChildPath = !trimmedTarget.startsWith('/')
+      ? normalizeAgentPath(trimmedTarget)
+      : null;
+    return [...this.state.threads.values()].find((thread) => {
+      if (this.rootThreadId(thread.id) !== rootThreadId) return false;
+      if (thread.id === target) return true;
+      const agentPath = threadSpawnAgentPath(thread);
+      if (!agentPath) return false;
+      if (agentPath === normalized) return true;
+      if (trimmedTarget.startsWith('/') && agentPath === rawNormalized) return true;
+      if (threadSpawnParentThreadId(thread) !== parentThreadId) return false;
+      return agentPath === target || agentPath === directChildPath;
+    }) ?? null;
+  }
+
+  private rootThreadId(threadId: string): string {
+    let currentId = threadId;
+    const seen = new Set<string>();
+    while (!seen.has(currentId)) {
+      seen.add(currentId);
+      const thread = this.state.threads.get(currentId);
+      const parentId = thread ? threadSpawnParentThreadId(thread) : null;
+      if (!parentId || !this.state.threads.has(parentId)) return currentId;
+      currentId = parentId;
+    }
+    return currentId;
+  }
+
+  private resolveAgentPath(parentThreadId: string, target: string): string {
+    const parent = this.state.threads.get(parentThreadId);
+    const parentPath = parent ? threadSpawnAgentPath(parent) : null;
+    const trimmed = target.trim();
+    if (!parentPath || trimmed.startsWith('/')) return normalizeAgentPath(trimmed);
+    return `${parentPath.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
+  }
+
+  private listChildAgents(parentThreadId: string, pathPrefix?: string | null): Thread[] {
+    const rootThreadId = this.rootThreadId(parentThreadId);
+    const prefix = pathPrefix ? this.resolveAgentPath(parentThreadId, pathPrefix) : null;
+    return [...this.state.threads.values()]
+      .filter((thread) => threadSpawnParentThreadId(thread) !== null)
+      .filter((thread) => this.rootThreadId(thread.id) === rootThreadId)
+      .filter((thread) => {
+        if (!prefix) return true;
+        const agentPath = threadSpawnAgentPath(thread) ?? `/${thread.id}`;
+        return agentPath === prefix || agentPath.startsWith(`${prefix}/`);
+      })
+      .sort((left, right) => left.createdAt - right.createdAt);
+  }
+
+  callMultiAgentTool(input: {
+    threadId: string;
+    callId?: string | null;
+    namespace?: string | null;
+    tool: string;
+    arguments: unknown;
+  }): MultiAgentToolResult | null {
+    if (!isMultiAgentNamespace(input.namespace)) return null;
+    const parent = this.state.threads.get(input.threadId);
+    if (!parent) return stringifyToolOutput({ error: 'thread not found' });
+    const args = asRecord(input.arguments);
+    const tool = input.tool;
+
+    if (tool === 'spawn_agent') {
+      const taskName = textArg(args, 'task_name') ?? textArg(args, 'agent_id') ??
+        textArg(args, 'name') ?? `agent_${crypto.randomUUID().slice(0, 8)}`;
+      const message = textArg(args, 'message') ?? textArg(args, 'prompt') ?? '';
+      if (!message.trim()) return stringifyToolOutput({ error: 'message is required' });
+      const agentPath = childAgentPath(parent, taskName);
+      const thread = this.forkThread({
+        threadId: input.threadId,
+        model: textArg(args, 'model') ?? parent.model,
+        subAgent: true,
+        agentPath,
+        agentNickname: textArg(args, 'agent_nickname') ?? textArg(args, 'nickname'),
+        agentRole: textArg(args, 'agent_type') ?? textArg(args, 'agentRole'),
+        lastTaskMessage: message,
+      });
+      if (!thread) return stringifyToolOutput({ error: 'thread not found' });
+      this.state.agentStatuses.set(thread.id, { status: 'running', message: null });
+      this.appendSyntheticTurn(thread.id, [{
+        type: 'message',
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: [{ type: 'input_text', text: message }],
+      }]);
+      return stringifyToolOutput(
+        isMultiAgentV1Namespace(input.namespace)
+          ? { agent_id: thread.id, nickname: thread.agentNickname }
+          : { task_name: agentPath, nickname: thread.agentNickname },
+      );
+    }
+
+    if (tool === 'list_agents') {
+      const agents = this.listChildAgents(input.threadId, textArg(args, 'path_prefix')).map(
+        (thread) => {
+          const status = this.state.agentStatuses.get(thread.id);
+          return {
+            agent_name: threadSpawnAgentPath(thread) ?? thread.id,
+            agent_status: status?.status === 'completed'
+              ? { completed: status.message }
+              : status?.status === 'errored'
+              ? { errored: status.message ?? 'agent failed' }
+              : status?.status === 'running'
+              ? 'running'
+              : status?.status === 'shutdown'
+              ? 'shutdown'
+              : thread.status.type === 'active'
+              ? 'running'
+              : thread.status.type,
+            last_task_message: threadLastTaskMessage(thread),
+          };
+        },
+      );
+      return stringifyToolOutput({ agents });
+    }
+
+    if (tool === 'send_message' || tool === 'followup_task' || tool === 'send_input') {
+      const target = textArg(args, 'target') ?? textArg(args, 'agent_id') ?? '';
+      const message = textArg(args, 'message') ?? textArg(args, 'prompt') ?? '';
+      const thread = this.resolveAgent(input.threadId, target);
+      if (!thread) return stringifyToolOutput({ error: 'agent not found' });
+      if (!message.trim()) return stringifyToolOutput({ error: 'message is required' });
+      this.appendSyntheticTurn(thread.id, [{
+        type: 'message',
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: [{ type: 'input_text', text: message }],
+      }]);
+      this.appendSyntheticTurn(input.threadId, [{
+        type: 'subAgentActivity',
+        id: crypto.randomUUID(),
+        kind: 'interacted',
+        agentThreadId: thread.id,
+        agentPath: threadSpawnAgentPath(thread) ?? `/${thread.id}`,
+      }]);
+      return stringifyToolOutput({ submission_id: crypto.randomUUID() });
+    }
+
+    if (tool === 'wait_agent') {
+      const ready = this.listChildAgents(input.threadId).find((thread) => {
+        const status = this.state.agentStatuses.get(thread.id)?.status;
+        return status === 'completed' || status === 'errored';
+      });
+      if (!ready) {
+        return stringifyToolOutput(
+          isMultiAgentV1Namespace(input.namespace)
+            ? { status: {}, timed_out: true }
+            : { message: 'Wait timed out.', timed_out: true },
+        );
+      }
+      const agentPath = threadSpawnAgentPath(ready) ?? `/${ready.id}`;
+      const status = this.state.agentStatuses.get(ready.id);
+      if (isMultiAgentV1Namespace(input.namespace)) {
+        return stringifyToolOutput({
+          status: {
+            [ready.id]: status?.status === 'errored'
+              ? { errored: status.message ?? 'agent failed' }
+              : { completed: status?.message ?? null },
+          },
+          timed_out: false,
+        });
+      }
+      return stringifyToolOutput({
+        message: status?.status === 'errored'
+          ? `Agent ${agentPath} errored.`
+          : `Agent ${agentPath} completed.`,
+        timed_out: false,
+      });
+    }
+
+    if (tool === 'resume_agent') {
+      const target = textArg(args, 'id') ?? textArg(args, 'target') ?? textArg(args, 'agent_id') ??
+        '';
+      const thread = this.resolveAgent(input.threadId, target);
+      if (!thread) return stringifyToolOutput({ status: 'not_found' });
+      const currentStatus = this.state.agentStatuses.get(thread.id)?.status;
+      const status = currentStatus === 'completed'
+        ? { completed: this.state.agentStatuses.get(thread.id)?.message ?? null }
+        : currentStatus === 'errored'
+        ? { errored: this.state.agentStatuses.get(thread.id)?.message ?? 'agent failed' }
+        : currentStatus === 'shutdown'
+        ? 'shutdown'
+        : thread.status.type === 'active'
+        ? 'running'
+        : 'running';
+      this.state.agentStatuses.set(thread.id, { status: 'running', message: null });
+      thread.status = { type: 'idle' };
+      return stringifyToolOutput({ status });
+    }
+
+    if (tool === 'interrupt_agent') {
+      const target = textArg(args, 'target') ?? textArg(args, 'agent_id') ?? '';
+      const thread = this.resolveAgent(input.threadId, target);
+      if (!thread) return stringifyToolOutput({ previous_status: 'not_found' });
+      const agentStatus = this.state.agentStatuses.get(thread.id)?.status;
+      const previousStatus = agentStatus === 'running'
+        ? 'running'
+        : thread.status.type === 'active'
+        ? 'running'
+        : thread.status.type;
+      this.state.agentStatuses.set(thread.id, { status: 'completed', message: null });
+      thread.status = { type: 'idle' };
+      this.appendSyntheticTurn(input.threadId, [{
+        type: 'subAgentActivity',
+        id: crypto.randomUUID(),
+        kind: 'interrupted',
+        agentThreadId: thread.id,
+        agentPath: threadSpawnAgentPath(thread) ?? `/${thread.id}`,
+      }]);
+      return stringifyToolOutput({ previous_status: previousStatus });
+    }
+
+    if (tool === 'close_agent') {
+      const target = textArg(args, 'target') ?? textArg(args, 'id') ?? textArg(args, 'agent_id') ??
+        '';
+      const thread = this.resolveAgent(input.threadId, target);
+      if (!thread) return stringifyToolOutput({ previous_status: 'not_found' });
+      const agentStatus = this.state.agentStatuses.get(thread.id);
+      const previousStatus = agentStatus?.status === 'completed'
+        ? { completed: agentStatus.message }
+        : agentStatus?.status === 'errored'
+        ? { errored: agentStatus.message ?? 'agent failed' }
+        : agentStatus?.status === 'shutdown'
+        ? 'shutdown'
+        : thread.status.type === 'active' || agentStatus?.status === 'running'
+        ? 'running'
+        : thread.status.type;
+      this.state.agentStatuses.set(thread.id, { status: 'shutdown', message: null });
+      thread.status = { type: 'idle' };
+      this.appendSyntheticTurn(input.threadId, [{
+        type: 'subAgentActivity',
+        id: crypto.randomUUID(),
+        kind: 'closed',
+        agentThreadId: thread.id,
+        agentPath: threadSpawnAgentPath(thread) ?? `/${thread.id}`,
+      }]);
+      return stringifyToolOutput({ previous_status: previousStatus });
+    }
+
+    return null;
+  }
+
+  completeAgent(threadId: string, message: string | null): void {
+    const thread = this.state.threads.get(threadId);
+    if (!thread) return;
+    this.state.agentStatuses.set(threadId, { status: 'completed', message });
+    this.appendSyntheticTurn(threadId, [{
+      type: 'message',
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: [{ type: 'output_text', text: message ?? '' }],
+    }]);
+  }
+
+  errorAgent(threadId: string, message: string): void {
+    if (!this.state.threads.has(threadId)) return;
+    this.state.agentStatuses.set(threadId, { status: 'errored', message });
   }
 
   emitWarning(message: string, threadId?: string): void {

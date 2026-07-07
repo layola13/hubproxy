@@ -1,5 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
 import { handleHttpWithState } from './handlers.ts';
+import { setMcpToolDiscoveryForTests } from './proxy.ts';
 import { HubState } from './state.ts';
 import type { ProxyConfig } from './types.ts';
 
@@ -26,6 +27,8 @@ const config: ProxyConfig = {
   glmKeyFetchRetryDelayMs: 30000,
   dataDir: '/tmp',
 };
+
+setMcpToolDiscoveryForTests(async () => []);
 
 Deno.test('handleHttpWithState serves models and rpc thread methods', async () => {
   const state = new HubState();
@@ -200,25 +203,15 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
       delta: 'plan delta',
     },
   });
-  await handleHttpWithState(
-    new Request('http://localhost/rpc', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 103,
-        method: 'mcpServer/tool/call',
-        params: {
-          threadId: 'thr_events',
-          turnId: 'turn-events',
-          itemId: 'mcp-tool-1',
-          message: 'tool call',
-        },
-      }),
-    }),
-    config,
-    state,
-  );
+  state.pushNotification({
+    method: 'item/mcpToolCall/progress',
+    params: {
+      threadId: 'thr_events',
+      turnId: 'turn-events',
+      itemId: 'mcp-tool-1',
+      message: 'tool call',
+    },
+  });
   await handleHttpWithState(
     new Request('http://localhost/rpc', {
       method: 'POST',
@@ -462,6 +455,160 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   );
   const forkJson = await fork.json() as { result: { thread: { forkedFromId: string | null } } };
   assertEquals(forkJson.result.thread.forkedFromId, 'thr_test');
+
+  state.drainNotifications();
+  const subagentFork = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 91,
+        method: 'thread/fork',
+        params: {
+          threadId: 'thr_test',
+          subAgent: true,
+          agentPath: '/worker',
+          agentNickname: 'Worker',
+          agentRole: 'worker',
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const subagentForkJson = await subagentFork.json() as {
+    result: {
+      thread: {
+        id: string;
+        agentNickname: string | null;
+        agentRole: string | null;
+        parentThreadId: string | null;
+        source: {
+          subAgent?: {
+            thread_spawn?: { parent_thread_id?: string; agent_path?: string | null };
+          };
+        };
+      };
+    };
+  };
+  assertEquals(subagentForkJson.result.thread.agentNickname, 'Worker');
+  assertEquals(subagentForkJson.result.thread.agentRole, 'worker');
+  assertEquals(subagentForkJson.result.thread.parentThreadId, 'thr_test');
+  assertEquals(
+    subagentForkJson.result.thread.source.subAgent?.thread_spawn?.parent_thread_id,
+    'thr_test',
+  );
+  assertEquals(subagentForkJson.result.thread.source.subAgent?.thread_spawn?.agent_path, '/worker');
+
+  const subagentNotifications = state.drainNotifications();
+  assertEquals(
+    subagentNotifications.some((entry) =>
+      entry.method === 'item/completed' &&
+      (entry.params as { item?: { type?: string; tool?: string; receiverThreadIds?: string[] } })
+          .item?.type === 'collabAgentToolCall' &&
+      (entry.params as { item?: { tool?: string } }).item?.tool === 'spawnAgent' &&
+      (entry.params as { item?: { receiverThreadIds?: string[] } }).item?.receiverThreadIds
+        ?.includes(subagentForkJson.result.thread.id)
+    ),
+    true,
+  );
+  assertEquals(
+    subagentNotifications.some((entry) =>
+      entry.method === 'item/completed' &&
+      (entry.params as { item?: { type?: string; kind?: string; agentThreadId?: string } }).item
+          ?.type === 'subAgentActivity' &&
+      (entry.params as { item?: { kind?: string } }).item?.kind === 'started' &&
+      (entry.params as { item?: { agentThreadId?: string } }).item?.agentThreadId ===
+        subagentForkJson.result.thread.id
+    ),
+    true,
+  );
+
+  const parentTurnsAfterSubagentFork = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 910,
+        method: 'thread/turns/list',
+        params: { threadId: 'thr_test' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const parentTurnsAfterSubagentForkJson = await parentTurnsAfterSubagentFork.json() as {
+    result: { data: Array<{ id: string; items: Array<{ type?: string }> }> };
+  };
+  const subagentSyntheticTurn = parentTurnsAfterSubagentForkJson.result.data.find((turn) =>
+    turn.items.some((item) => item.type === 'collabAgentToolCall') &&
+    turn.items.some((item) => item.type === 'subAgentActivity')
+  );
+  assert(subagentSyntheticTurn);
+
+  const parentSubagentItems = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 911,
+        method: 'thread/turns/items/list',
+        params: { threadId: 'thr_test', turnId: subagentSyntheticTurn.id },
+      }),
+    }),
+    config,
+    state,
+  );
+  const parentSubagentItemsJson = await parentSubagentItems.json() as {
+    result: { data: Array<{ type?: string }> };
+  };
+  assertEquals(parentSubagentItemsJson.result.data.map((item) => item.type), [
+    'collabAgentToolCall',
+    'subAgentActivity',
+  ]);
+
+  const subagentList = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 92,
+        method: 'thread/list',
+        params: { sourceKinds: ['subAgentThreadSpawn'] },
+      }),
+    }),
+    config,
+    state,
+  );
+  const subagentListJson = await subagentList.json() as { result: { data: Array<{ id: string }> } };
+  assertEquals(subagentListJson.result.data.map((thread) => thread.id), [
+    subagentForkJson.result.thread.id,
+  ]);
+
+  const subagentParentList = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 93,
+        method: 'thread/list',
+        params: { parentThreadId: 'thr_test' },
+      }),
+    }),
+    config,
+    state,
+  );
+  const subagentParentListJson = await subagentParentList.json() as {
+    result: { data: Array<{ id: string }> };
+  };
+  assertEquals(subagentParentListJson.result.data.map((thread) => thread.id), [
+    subagentForkJson.result.thread.id,
+  ]);
 
   const goal = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -978,10 +1125,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const mcpResourceReadJson = await mcpResourceRead.json() as {
-    result: { contents: Array<{ uri: string; mimeType: string; text: string }> };
+    error: { code: number; message: string };
   };
-  assertEquals(Array.isArray(mcpResourceReadJson.result.contents), true);
-  assertEquals(mcpResourceReadJson.result.contents[0].uri, 'file:///tmp/demo');
+  assertEquals(mcpResourceRead.status, 500);
+  assertEquals(mcpResourceReadJson.error.code, -32000);
+  assertEquals(mcpResourceReadJson.error.message.includes('MCP server not found'), true);
 
   const collabList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -1109,21 +1257,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   const mcpToolCallJson = await mcpToolCall.json() as {
-    result: {
-      content: Array<{ type: string; text?: string }>;
-      structuredContent: { ok: boolean; tool: string; server: string };
-      isError: boolean;
-      meta: { threadId: string; turnId: string | null; itemId: string };
-    };
+    error: { code: number; message: string };
   };
-  assertEquals(Array.isArray(mcpToolCallJson.result.content), true);
-  assertEquals(mcpToolCallJson.result.content[0].type, 'text');
-  assertEquals(mcpToolCallJson.result.structuredContent.ok, true);
-  assertEquals(mcpToolCallJson.result.structuredContent.tool, 'demo');
-  assertEquals(mcpToolCallJson.result.structuredContent.server, 'local');
-  assertEquals(mcpToolCallJson.result.isError, false);
-  assertEquals(mcpToolCallJson.result.meta.threadId, 'thr_test');
-  assertEquals(mcpToolCallJson.result.meta.turnId, null);
+  assertEquals(mcpToolCall.status, 500);
+  assertEquals(mcpToolCallJson.error.code, -32000);
+  assertEquals(mcpToolCallJson.error.message.includes('MCP server not found'), true);
   state.drainNotifications();
 
   const requestUserInput = await handleHttpWithState(
@@ -2272,6 +2410,634 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     state,
   );
   assertEquals(unwatch.status, 200);
+});
+
+Deno.test('handleHttpWithState executes direct multi-agent tool calls', async () => {
+  const state = new HubState();
+
+  await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'thread/start',
+        params: { threadId: 'thr_agents', model: 'gpt-4.1' },
+      }),
+    }),
+    config,
+    state,
+  );
+
+  const spawn = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_spawn',
+          namespace: null,
+          tool: 'spawn_agent',
+          arguments: { task_name: 'worker', message: 'inspect the repo' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const spawnJson = await spawn.json() as {
+    result: { success: boolean; contentItems: Array<{ type: string; text: string }> };
+  };
+  assertEquals(spawnJson.result.success, true);
+  assertEquals(JSON.parse(spawnJson.result.contentItems[0].text), {
+    task_name: '/worker',
+    nickname: null,
+  });
+
+  const subagents = state.listThreads({ parentThreadId: 'thr_agents' });
+  assertEquals(subagents.length, 1);
+  assertEquals(subagents[0].parentThreadId, 'thr_agents');
+
+  const namespacedSpawn = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 21,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_spawn_v1',
+          namespace: 'multi_agent_v1',
+          tool: 'spawn_agent',
+          arguments: { task_name: 'reviewer', message: 'review only' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const namespacedSpawnJson = await namespacedSpawn.json() as {
+    result: { contentItems: Array<{ text: string }> };
+  };
+  const namespacedSpawnOutput = JSON.parse(namespacedSpawnJson.result.contentItems[0].text);
+  assertEquals(typeof namespacedSpawnOutput.agent_id, 'string');
+  assertEquals(namespacedSpawnOutput.nickname, null);
+
+  const list = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_list',
+          namespace: null,
+          tool: 'list_agents',
+          arguments: {},
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const listJson = await list.json() as {
+    result: { contentItems: Array<{ text: string }> };
+  };
+  assertEquals(JSON.parse(listJson.result.contentItems[0].text), {
+    agents: [
+      {
+        agent_name: '/worker',
+        agent_status: 'running',
+        last_task_message: 'inspect the repo',
+      },
+      {
+        agent_name: '/reviewer',
+        agent_status: 'running',
+        last_task_message: 'review only',
+      },
+    ],
+  });
+
+  const v1Wait = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 31,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_wait_v1_initial',
+          namespace: 'multi_agent_v1',
+          tool: 'wait_agent',
+          arguments: { timeout_ms: 1 },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const v1WaitJson = await v1Wait.json() as { result: { contentItems: Array<{ text: string }> } };
+  assertEquals(JSON.parse(v1WaitJson.result.contentItems[0].text), {
+    status: {},
+    timed_out: true,
+  });
+
+  state.completeAgent(namespacedSpawnOutput.agent_id, 'review complete');
+  const v1WaitCompleted = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 32,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_wait_v1_completed',
+          namespace: 'multi_agent_v1',
+          tool: 'wait_agent',
+          arguments: { timeout_ms: 1 },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const v1WaitCompletedJson = await v1WaitCompleted.json() as {
+    result: { contentItems: Array<{ text: string }> };
+  };
+  assertEquals(JSON.parse(v1WaitCompletedJson.result.contentItems[0].text), {
+    status: { [namespacedSpawnOutput.agent_id]: { completed: 'review complete' } },
+    timed_out: false,
+  });
+
+  const close = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 33,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_close_v1',
+          namespace: 'multi_agent_v1',
+          tool: 'close_agent',
+          arguments: { target: namespacedSpawnOutput.agent_id },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const closeJson = await close.json() as { result: { contentItems: Array<{ text: string }> } };
+  assertEquals(JSON.parse(closeJson.result.contentItems[0].text), {
+    previous_status: { completed: 'review complete' },
+  });
+
+  const resume = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 34,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_resume_v1',
+          namespace: 'multi_agent_v1',
+          tool: 'resume_agent',
+          arguments: { id: namespacedSpawnOutput.agent_id },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const resumeJson = await resume.json() as { result: { contentItems: Array<{ text: string }> } };
+  assertEquals(JSON.parse(resumeJson.result.contentItems[0].text), { status: 'shutdown' });
+
+  const nestedSpawn = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 35,
+        method: 'item/tool/call',
+        params: {
+          threadId: subagents[0].id,
+          turnId: 'turn_nested_agents',
+          callId: 'call_spawn_nested',
+          namespace: 'collaboration',
+          tool: 'spawn_agent',
+          arguments: { task_name: 'helper', message: 'help worker' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const nestedSpawnJson = await nestedSpawn.json() as {
+    result: { contentItems: Array<{ text: string }> };
+  };
+  assertEquals(JSON.parse(nestedSpawnJson.result.contentItems[0].text), {
+    task_name: '/worker/helper',
+    nickname: null,
+  });
+
+  const rootTreeList = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 36,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_list_root_tree',
+          namespace: 'collaboration',
+          tool: 'list_agents',
+          arguments: {},
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const rootTreeListJson = await rootTreeList.json() as {
+    result: { contentItems: Array<{ text: string }> };
+  };
+  const rootTreeAgents = JSON.parse(rootTreeListJson.result.contentItems[0].text).agents as Array<{
+    agent_name: string;
+  }>;
+  assertEquals(rootTreeAgents.map((agent) => agent.agent_name), [
+    '/worker',
+    '/reviewer',
+    '/worker/helper',
+  ]);
+
+  const nestedSend = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 37,
+        method: 'item/tool/call',
+        params: {
+          threadId: subagents[0].id,
+          turnId: 'turn_nested_agents',
+          callId: 'call_send_nested',
+          namespace: 'collaboration',
+          tool: 'send_message',
+          arguments: { target: 'helper', message: 'relative hello' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const nestedSendJson = await nestedSend.json() as {
+    result: { contentItems: Array<{ text: string }> };
+  };
+  assertEquals(
+    typeof JSON.parse(nestedSendJson.result.contentItems[0].text).submission_id,
+    'string',
+  );
+
+  const send = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_send',
+          namespace: null,
+          tool: 'send_message',
+          arguments: { target: '/worker', message: 'continue' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const sendJson = await send.json() as { result: { contentItems: Array<{ text: string }> } };
+  assertEquals(typeof JSON.parse(sendJson.result.contentItems[0].text).submission_id, 'string');
+  assertEquals(
+    state.getTurns(subagents[0].id).some((turn) => JSON.stringify(turn.items).includes('continue')),
+    true,
+  );
+
+  const wait = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_wait',
+          namespace: null,
+          tool: 'wait_agent',
+          arguments: { timeout_ms: 1 },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const waitJson = await wait.json() as { result: { contentItems: Array<{ text: string }> } };
+  assertEquals(JSON.parse(waitJson.result.contentItems[0].text), {
+    message: 'Wait timed out.',
+    timed_out: true,
+  });
+
+  const interrupt = await handleHttpWithState(
+    new Request('http://localhost/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'item/tool/call',
+        params: {
+          threadId: 'thr_agents',
+          turnId: 'turn_agents',
+          callId: 'call_interrupt',
+          namespace: null,
+          tool: 'interrupt_agent',
+          arguments: { target: '/worker' },
+        },
+      }),
+    }),
+    config,
+    state,
+  );
+  const interruptJson = await interrupt.json() as {
+    result: { contentItems: Array<{ text: string }> };
+  };
+  assertEquals(JSON.parse(interruptJson.result.contentItems[0].text), {
+    previous_status: 'running',
+  });
+});
+
+Deno.test('handleHttpWithState runs spawned agents against upstream in background', async () => {
+  const state = new HubState();
+  const server = Deno.serve(
+    { hostname: '127.0.0.1', port: 0, onListen: () => {} },
+    () =>
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: 'child result' } }] }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  );
+  const addr = server.addr as Deno.NetAddr;
+  const upstreamConfig: ProxyConfig = {
+    ...config,
+    chatBaseUrl: `http://${addr.hostname}:${addr.port}/v1`,
+    responsesBaseUrl: null,
+    defaultApiKey: 'test-key',
+    forceChatCompletions: true,
+  };
+
+  try {
+    await handleHttpWithState(
+      new Request('http://localhost/rpc', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'thread/start',
+          params: { threadId: 'thr_background_agent', model: 'gpt-4.1' },
+        }),
+      }),
+      upstreamConfig,
+      state,
+    );
+
+    await handleHttpWithState(
+      new Request('http://localhost/rpc', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'item/tool/call',
+          params: {
+            threadId: 'thr_background_agent',
+            turnId: 'turn_background_agent',
+            callId: 'call_spawn_background',
+            namespace: null,
+            tool: 'spawn_agent',
+            arguments: { task_name: 'worker', message: 'do work' },
+          },
+        }),
+      }),
+      upstreamConfig,
+      state,
+    );
+
+    let waitOutput: { message: string; timed_out: boolean } | null = null;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const wait = await handleHttpWithState(
+        new Request('http://localhost/rpc', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 3 + attempt,
+            method: 'item/tool/call',
+            params: {
+              threadId: 'thr_background_agent',
+              turnId: 'turn_background_agent',
+              callId: 'call_wait_background',
+              namespace: null,
+              tool: 'wait_agent',
+              arguments: { timeout_ms: 1 },
+            },
+          }),
+        }),
+        upstreamConfig,
+        state,
+      );
+      const waitJson = await wait.json() as { result: { contentItems: Array<{ text: string }> } };
+      const parsedWaitOutput = JSON.parse(waitJson.result.contentItems[0].text) as {
+        message: string;
+        timed_out: boolean;
+      };
+      waitOutput = parsedWaitOutput;
+      if (!parsedWaitOutput.timed_out) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    assertEquals(waitOutput, { message: 'Agent /worker completed.', timed_out: false });
+    const child = state.listThreads({ parentThreadId: 'thr_background_agent' })[0];
+    const childTurns = state.getTurns(child.id);
+    assertEquals(
+      childTurns.some((turn) => JSON.stringify(turn.items).includes('child result')),
+      true,
+    );
+  } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test('handleHttpWithState runs nested spawned agents against upstream in background', async () => {
+  const state = new HubState();
+  const server = Deno.serve(
+    { hostname: '127.0.0.1', port: 0, onListen: () => {} },
+    () =>
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: 'nested child result' } }] }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  );
+  const addr = server.addr as Deno.NetAddr;
+  const upstreamConfig: ProxyConfig = {
+    ...config,
+    chatBaseUrl: `http://${addr.hostname}:${addr.port}/v1`,
+    responsesBaseUrl: null,
+    defaultApiKey: 'test-key',
+    forceChatCompletions: true,
+  };
+
+  try {
+    await handleHttpWithState(
+      new Request('http://localhost/rpc', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'thread/start',
+          params: { threadId: 'thr_nested_background_agent', model: 'gpt-4.1' },
+        }),
+      }),
+      upstreamConfig,
+      state,
+    );
+
+    await handleHttpWithState(
+      new Request('http://localhost/rpc', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'item/tool/call',
+          params: {
+            threadId: 'thr_nested_background_agent',
+            turnId: 'turn_nested_background_agent',
+            callId: 'call_spawn_worker_no_background',
+            namespace: 'collaboration',
+            tool: 'spawn_agent',
+            arguments: { task_name: 'worker', message: 'hold context' },
+          },
+        }),
+      }),
+      { ...upstreamConfig, defaultApiKey: '', apiKeys: [] },
+      state,
+    );
+
+    const worker = state.listThreads({ parentThreadId: 'thr_nested_background_agent' })[0];
+    await handleHttpWithState(
+      new Request('http://localhost/rpc', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'item/tool/call',
+          params: {
+            threadId: worker.id,
+            turnId: 'turn_worker_nested_background_agent',
+            callId: 'call_spawn_helper_background',
+            namespace: 'collaboration',
+            tool: 'spawn_agent',
+            arguments: { task_name: 'helper', message: 'do nested work' },
+          },
+        }),
+      }),
+      upstreamConfig,
+      state,
+    );
+
+    let waitOutput: { message: string; timed_out: boolean } | null = null;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const wait = await handleHttpWithState(
+        new Request('http://localhost/rpc', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 4 + attempt,
+            method: 'item/tool/call',
+            params: {
+              threadId: worker.id,
+              turnId: 'turn_worker_nested_background_agent',
+              callId: 'call_wait_helper_background',
+              namespace: 'collaboration',
+              tool: 'wait_agent',
+              arguments: { timeout_ms: 1 },
+            },
+          }),
+        }),
+        upstreamConfig,
+        state,
+      );
+      const waitJson = await wait.json() as { result: { contentItems: Array<{ text: string }> } };
+      const parsedWaitOutput = JSON.parse(waitJson.result.contentItems[0].text) as {
+        message: string;
+        timed_out: boolean;
+      };
+      waitOutput = parsedWaitOutput;
+      if (!parsedWaitOutput.timed_out) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    assertEquals(waitOutput, { message: 'Agent /worker/helper completed.', timed_out: false });
+    const helper = state.listThreads({ parentThreadId: worker.id })[0];
+    const helperTurns = state.getTurns(helper.id);
+    assertEquals(
+      helperTurns.some((turn) => JSON.stringify(turn.items).includes('nested child result')),
+      true,
+    );
+  } finally {
+    await server.shutdown();
+  }
 });
 
 Deno.test('handleHttpWithState resolves turn context from thread and turn ids', async () => {

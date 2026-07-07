@@ -7,6 +7,7 @@ import type {
   ResponsesToolKind,
   ResponsesToolOutputKind,
 } from './types.ts';
+import { listMcpServerStatus } from './mcp.ts';
 
 export type ProxyTurnContext = {
   collaborationModeKind?: string | null;
@@ -17,6 +18,138 @@ type ContextWindowState = {
   maxTokens: number;
   thresholdPercent: number;
   thresholdTokens: number;
+};
+
+type McpToolDiscovery = () => Promise<unknown[]>;
+
+const COLLABORATION_NAMESPACE_TOOL: Record<string, unknown> = {
+  type: 'namespace',
+  name: 'collaboration',
+  description: 'Tools for spawning and coordinating sub-agents in the current thread tree.',
+  tools: [
+    {
+      type: 'function',
+      name: 'spawn_agent',
+      description: 'Spawns an agent to work on the specified task.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          task_name: {
+            type: 'string',
+            description:
+              'Task name for the new agent. Use lowercase letters, digits, and underscores.',
+          },
+          message: {
+            type: 'string',
+            description: 'Initial task message for the new agent.',
+          },
+          agent_type: {
+            type: 'string',
+            description: 'Optional agent type or role for the new agent.',
+          },
+          model: {
+            type: 'string',
+            description: 'Optional model override for the agent.',
+          },
+        },
+        required: ['task_name', 'message'],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
+      name: 'send_message',
+      description: 'Send a message to an existing agent. The message will be delivered promptly.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Relative or canonical task name to message.',
+          },
+          message: {
+            type: 'string',
+            description: 'Message text to queue on the target agent.',
+          },
+        },
+        required: ['target', 'message'],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
+      name: 'followup_task',
+      description: 'Send a follow-up task to an existing agent.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Agent id or canonical task name to send a follow-up task to.',
+          },
+          message: {
+            type: 'string',
+            description: 'Follow-up task text for the target agent.',
+          },
+        },
+        required: ['target', 'message'],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
+      name: 'wait_agent',
+      description: 'Wait for a mailbox update from any live agent.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          timeout_ms: {
+            type: 'number',
+            description: 'Maximum time to wait in milliseconds.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
+      name: 'interrupt_agent',
+      description: 'Interrupt an agent current turn, if any, and return its previous status.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Agent id or canonical task name to interrupt.',
+          },
+        },
+        required: ['target'],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
+      name: 'list_agents',
+      description: 'List live agents in the current root thread tree.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          path_prefix: {
+            type: 'string',
+            description:
+              'Task-path prefix filter without a trailing slash. Omit to list all live agents.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  ],
 };
 
 const forwardHeaders = (headers: Headers, apiKey: string, localAuthToken: string | null) => {
@@ -604,8 +737,187 @@ const SERVER_NAME_MAP: Record<string, string> = {
   'code-index': 'mcp__code_index__',
 };
 
+let mcpToolDiscoveryOverride: McpToolDiscovery | null = null;
+let mcpNamespaceToolsCache: Promise<unknown[]> | null = null;
+
+export function setMcpToolDiscoveryForTests(discovery: McpToolDiscovery | null): void {
+  mcpToolDiscoveryOverride = discovery;
+  mcpNamespaceToolsCache = null;
+}
+
+function sanitizeResponsesApiToolName(name: string): string {
+  const sanitized = name.trim().replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return sanitized.slice(0, 64);
+}
+
+function mcpNamespaceNameForServer(serverName: string): string {
+  const mapped = SERVER_NAME_MAP[serverName];
+  if (mapped) return mapped;
+  const normalized = sanitizeResponsesApiToolName(serverName.toLowerCase().replace(/-/g, '_'));
+  return normalized ? `mcp__${normalized}__` : '';
+}
+
+function normalizeMcpToolForResponses(
+  tool: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const rawName = typeof tool.name === 'string' ? tool.name : '';
+  const name = sanitizeResponsesApiToolName(rawName.replace(/-/g, '_'));
+  if (!name) return null;
+  const out: Record<string, unknown> = { type: 'function', name };
+  const description = typeof tool.description === 'string'
+    ? tool.description
+    : typeof tool.title === 'string'
+    ? tool.title
+    : undefined;
+  if (description) out.description = description;
+  const inputSchema = tool.inputSchema ?? tool.input_schema;
+  if (inputSchema && typeof inputSchema === 'object') out.parameters = inputSchema;
+  return out;
+}
+
+function mcpNamespaceToolsFromStatuses(statuses: unknown[]): unknown[] {
+  const namespaces: Record<string, Record<string, unknown>> = {};
+  for (const status of statuses) {
+    if (!status || typeof status !== 'object') continue;
+    const record = status as Record<string, unknown>;
+    const serverName = typeof record.name === 'string' ? record.name : '';
+    const namespaceName = mcpNamespaceNameForServer(serverName);
+    if (!namespaceName) continue;
+    const toolsRecord = record.tools && typeof record.tools === 'object'
+      ? record.tools as Record<string, unknown>
+      : {};
+    const tools = Object.values(toolsRecord).flatMap((tool) => {
+      if (!tool || typeof tool !== 'object') return [];
+      const normalized = normalizeMcpToolForResponses(tool as Record<string, unknown>);
+      return normalized ? [normalized] : [];
+    });
+    if (tools.length === 0) continue;
+    const existing = namespaces[namespaceName];
+    if (existing) {
+      const existingTools = Array.isArray(existing.tools) ? existing.tools : [];
+      existing.tools = mergeToolsByName(existingTools, tools, false);
+      continue;
+    }
+    namespaces[namespaceName] = {
+      type: 'namespace',
+      name: namespaceName,
+      description: `Tools from MCP server ${serverName}.`,
+      tools,
+    };
+  }
+  return Object.values(namespaces);
+}
+
+function toolIdentity(tool: unknown): string {
+  if (!tool || typeof tool !== 'object') return '';
+  const record = tool as Record<string, unknown>;
+  if (record.type === 'namespace' && typeof record.name === 'string') {
+    return `namespace:${record.name}`;
+  }
+  const fn = record.function && typeof record.function === 'object'
+    ? record.function as Record<string, unknown>
+    : null;
+  const name = typeof fn?.name === 'string'
+    ? fn.name
+    : typeof record.name === 'string'
+    ? record.name
+    : '';
+  return name ? `function:${name}` : '';
+}
+
+function mergeNamespaceTools(
+  existing: Record<string, unknown>,
+  added: Record<string, unknown>,
+  replaceExisting: boolean,
+): Record<string, unknown> {
+  const existingTools = Array.isArray(existing.tools) ? existing.tools : [];
+  const addedTools = Array.isArray(added.tools) ? added.tools : [];
+  const mergedTools = mergeToolsByName(existingTools, addedTools, replaceExisting);
+  return replaceExisting
+    ? { ...existing, ...added, tools: mergedTools }
+    : { ...added, ...existing, tools: mergedTools };
+}
+
+function mergeToolsByName(
+  existing: unknown[],
+  added: unknown[],
+  replaceExisting: boolean,
+): unknown[] {
+  const out = [...existing];
+  const indexes = new Map<string, number>();
+  out.forEach((tool, index) => {
+    const identity = toolIdentity(tool);
+    if (identity) indexes.set(identity, index);
+  });
+  for (const tool of added) {
+    const identity = toolIdentity(tool);
+    if (!identity) continue;
+    const index = indexes.get(identity);
+    if (index === undefined) {
+      indexes.set(identity, out.length);
+      out.push(tool);
+    } else if (replaceExisting) {
+      const existingTool = out[index];
+      out[index] =
+        identity.startsWith('namespace:') && existingTool && typeof existingTool === 'object' &&
+          tool && typeof tool === 'object'
+          ? mergeNamespaceTools(
+            existingTool as Record<string, unknown>,
+            tool as Record<string, unknown>,
+            true,
+          )
+          : tool;
+    } else if (
+      identity.startsWith('namespace:') && out[index] && typeof out[index] === 'object' &&
+      tool && typeof tool === 'object'
+    ) {
+      out[index] = mergeNamespaceTools(
+        out[index] as Record<string, unknown>,
+        tool as Record<string, unknown>,
+        false,
+      );
+    }
+  }
+  return out;
+}
+
+function appendCollaborationNamespaceToolsForResponses(parsed: Record<string, unknown>): void {
+  if (getEnvOrNull('HUBPROXY_COLLABORATION_AUTO_TOOLS') === '0') return;
+  const existing = Array.isArray(parsed.tools) ? parsed.tools : [];
+  parsed.tools = mergeToolsByName(existing, [COLLABORATION_NAMESPACE_TOOL], false);
+}
+
+async function discoverMcpNamespaceTools(): Promise<unknown[]> {
+  if (mcpToolDiscoveryOverride) return await mcpToolDiscoveryOverride();
+  if (!mcpNamespaceToolsCache) {
+    mcpNamespaceToolsCache = listMcpServerStatus({ detail: 'toolsAndAuthOnly' })
+      .then((result) => mcpNamespaceToolsFromStatuses(result.data))
+      .catch((error) => {
+        writeUpstreamLog({
+          path: 'internal/mcp-tools-discovery-failed',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+      });
+  }
+  return await mcpNamespaceToolsCache;
+}
+
+async function appendMcpNamespaceToolsForResponses(
+  parsed: Record<string, unknown>,
+  config: ProxyConfig,
+): Promise<void> {
+  if (config.responsesBaseUrl === null) return;
+  if (getEnvOrNull('HUBPROXY_MCP_AUTO_TOOLS') === '0') return;
+  const mcpTools = await discoverMcpNamespaceTools();
+  if (mcpTools.length === 0) return;
+  const existing = Array.isArray(parsed.tools) ? parsed.tools : [];
+  parsed.tools = mergeToolsByName(existing, mcpTools, false);
+}
+
 function robustNormalizeServerName(name: string, namespaces?: Set<string>): string {
   if (SERVER_NAME_MAP[name]) return SERVER_NAME_MAP[name];
+  if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*$/.test(name)) return name;
   if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*__$/.test(name)) return name;
   const doubleWrapped = name.match(/^mcp__mcp_([a-z0-9]+(?:_[a-z0-9]+)*)___$/);
   if (doubleWrapped) return `mcp__${doubleWrapped[1]}__`;
@@ -622,7 +934,29 @@ export function robustDenormalizeServerName(name: string): string {
   if (match) {
     return match[1].replace(/_/g, '-');
   }
+  const prefixed = normalized.match(/^mcp__(.+)$/);
+  if (prefixed) return prefixed[1].replace(/_/g, '-');
   return name;
+}
+
+function flattenNamespacedToolName(namespaceName: string, toolName: string): string {
+  if (!namespaceName) return toolName;
+  if (toolName.startsWith(namespaceName)) return toolName;
+  return namespaceName.endsWith('__')
+    ? `${namespaceName}${toolName}`
+    : `${namespaceName}__${toolName}`;
+}
+
+function splitFlattenedNamespacedToolName(
+  name: string,
+  namespaceName: string,
+): string | null {
+  if (!name || !namespaceName) return null;
+  for (const separator of ['.', '__', '_', '']) {
+    const prefix = `${namespaceName}${separator}`;
+    if (name.startsWith(prefix) && name.length > prefix.length) return name.slice(prefix.length);
+  }
+  return null;
 }
 
 export function normalizeResponsesEvent(
@@ -668,11 +1002,8 @@ export function normalizeResponsesEvent(
     // function_call { namespace: "mcp__code_index__", name: "search" }).
     if (kind === 'function_call' && namespaces) {
       for (const ns of namespaces) {
-        if (name.startsWith(ns) && name.length > ns.length) {
-          let toolName = name.slice(ns.length);
-          if (toolName.startsWith('.')) {
-            toolName = toolName.slice(1);
-          }
+        const toolName = splitFlattenedNamespacedToolName(name, ns);
+        if (toolName) {
           const rewrittenItem: Record<string, unknown> = {
             ...item,
             type: kind,
@@ -1072,7 +1403,11 @@ function unconvertibleResponsesRequestResponse(): Response {
   );
 }
 
-function maybeRewriteRequestBody(path: string, body: string | undefined): string | undefined {
+async function maybeRewriteRequestBody(
+  path: string,
+  body: string | undefined,
+  config: ProxyConfig,
+): Promise<string | undefined> {
   if (!body) return body;
   if (!path.includes('/chat/completions') && !path.includes('/responses')) return body;
   try {
@@ -1097,7 +1432,10 @@ function maybeRewriteRequestBody(path: string, body: string | undefined): string
     if (Array.isArray(parsed.input)) {
       parsed.input = normalizeResponseInputItems(parsed.input);
     }
-    if (Array.isArray(parsed.tools)) {
+    if (isResponses) {
+      appendCollaborationNamespaceToolsForResponses(parsed);
+      await appendMcpNamespaceToolsForResponses(parsed, config);
+    } else if (Array.isArray(parsed.tools)) {
       const normalizedTools = normalizeChatToolsValue(parsed.tools, !isResponses);
       if (normalizedTools.length > 0) {
         parsed.tools = normalizedTools;
@@ -1529,9 +1867,7 @@ function normalizeChatToolsValue(tools: unknown, wrap = true): unknown[] {
         const rt = t as Record<string, any>;
         const target = wrap ? rt.function : rt;
         if (target && typeof target.name === 'string' && namespaceName) {
-          if (!target.name.startsWith(namespaceName)) {
-            target.name = `${namespaceName}${target.name}`;
-          }
+          target.name = flattenNamespacedToolName(namespaceName, target.name);
         }
         return rt;
       });
@@ -2696,7 +3032,7 @@ export function normalizeChatToolCall(
   if (namespaces) {
     for (const ns of namespaces) {
       if (name.startsWith(ns + '.')) {
-        name = ns + name.slice(ns.length + 1);
+        name = flattenNamespacedToolName(ns, name.slice(ns.length + 1));
         call = { ...call, name };
         break;
       }
@@ -2761,7 +3097,7 @@ export function normalizeChatToolCall(
 
   if (namespaces) {
     for (const ns of namespaces) {
-      if (call.name.startsWith(ns) && call.name.length > ns.length) {
+      if (splitFlattenedNamespacedToolName(call.name, ns)) {
         return call;
       }
     }
@@ -3293,8 +3629,9 @@ async function forwardWithFallback(
         stage: 'upstream_chat_fallback_stream_raw',
       });
     }
-    const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
-    const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
+    const normalizedToolBody = responsesRequestBody ?? rawBody;
+    const namespaces = extractNamespacesFromBody(normalizedToolBody);
+    const allowedTools = extractAllowedChatToolNames(normalizedToolBody);
     return responsesFallbackResponseFromChat(
       text,
       fallback.stream,
@@ -3357,8 +3694,9 @@ async function forwardWithFallback(
         stage: 'upstream_responses_stream_raw',
       });
     }
-    const namespaces = extractNamespacesFromBody(rawBody ?? responsesRequestBody);
-    const allowedTools = extractAllowedChatToolNames(rawBody ?? responsesRequestBody);
+    const normalizedToolBody = responsesRequestBody ?? rawBody;
+    const namespaces = extractNamespacesFromBody(normalizedToolBody);
+    const allowedTools = extractAllowedChatToolNames(normalizedToolBody);
     if (contentType.includes('text/event-stream')) {
       return new Response(
         normalizeResponsesSseBody(
@@ -3475,7 +3813,7 @@ export async function proxyOpenAI(
   ) {
     return emptyJsonBodyResponse();
   }
-  let body = maybeRewriteRequestBody(path, rawBody);
+  let body = await maybeRewriteRequestBody(path, rawBody, config);
   const compactState = requestNeedsContextCompaction(path, body, config);
   if (compactState.shouldCompact) {
     const compactBody = buildContextCompactionRequestBody(

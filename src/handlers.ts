@@ -2,6 +2,7 @@ import { mockResponsesOpenAI, proxyOpenAI, readJson } from './proxy.ts';
 import type { ProxyTurnContext } from './proxy.ts';
 import { HubState } from './state.ts';
 import { isRpcRequest, rpcError, rpcResult } from './jsonrpc.ts';
+import { callMcpTool, listMcpServerStatus, readMcpResource } from './mcp.ts';
 import type { ProxyConfig, ProxyResult, ResponsesScenario } from './types.ts';
 
 export function toJson(value: unknown): unknown {
@@ -307,6 +308,104 @@ function writeAuthFailureLog(req: Request, config: ProxyConfig): void {
   });
 }
 
+function objectParam(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function textParam(value: Record<string, unknown>, key: string): string | null {
+  const raw = value[key];
+  return typeof raw === 'string' ? raw : null;
+}
+
+function extractAssistantText(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+  if (typeof record.output_text === 'string') return record.output_text;
+  const choices = Array.isArray(record.choices) ? record.choices : [];
+  const first = choices[0];
+  if (first && typeof first === 'object') {
+    const message = (first as Record<string, unknown>).message;
+    if (message && typeof message === 'object') {
+      const content = (message as Record<string, unknown>).content;
+      if (typeof content === 'string') return content;
+    }
+  }
+  return '';
+}
+
+function spawnedAgentPath(thread: { source: unknown }): string | null {
+  const source = thread.source;
+  if (!source || typeof source !== 'object' || !('subAgent' in source)) return null;
+  const subAgent = (source as { subAgent?: unknown }).subAgent;
+  if (!subAgent || typeof subAgent !== 'object') return null;
+  const spawn = (subAgent as { thread_spawn?: unknown }).thread_spawn;
+  if (!spawn || typeof spawn !== 'object') return null;
+  const agentPath = (spawn as { agent_path?: unknown }).agent_path;
+  return typeof agentPath === 'string' ? agentPath : null;
+}
+
+function maybeStartBackgroundAgent(input: {
+  state: HubState;
+  config: ProxyConfig;
+  parentThreadId: string;
+  childThreadId?: string | null;
+  tool: string;
+  arguments: unknown;
+}): void {
+  if (input.tool !== 'spawn_agent') return;
+  if (!input.config.defaultApiKey && !input.config.apiKeys.length) return;
+  const args = objectParam(input.arguments);
+  const message = textParam(args, 'message') ?? textParam(args, 'prompt') ?? '';
+  if (!message.trim()) return;
+  const taskName = textParam(args, 'task_name') ?? textParam(args, 'agent_id') ??
+    textParam(args, 'name') ?? '';
+  if (!taskName.trim()) return;
+  const expectedPath = taskName.trim().startsWith('/') ? taskName.trim() : `/${taskName.trim()}`;
+  const child = input.childThreadId
+    ? input.state.getThread(input.childThreadId)
+    : input.state.listThreads({ parentThreadId: input.parentThreadId }).find((thread) =>
+      spawnedAgentPath(thread) === expectedPath
+    );
+  if (!child) return;
+
+  void (async () => {
+    try {
+      const response = await proxyOpenAI(
+        '/v1/chat/completions',
+        new Request('http://localhost/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: child.model || input.config.defaultModel,
+            messages: [{ role: 'user', content: message }],
+            stream: false,
+          }),
+        }),
+        input.config,
+      );
+      const text = await response.text();
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+      if (!response.ok) {
+        input.state.errorAgent(
+          child.id,
+          text.slice(0, 500) || `upstream status ${response.status}`,
+        );
+        return;
+      }
+      input.state.completeAgent(child.id, extractAssistantText(parsed) || text.slice(0, 4000));
+    } catch (error) {
+      input.state.errorAgent(child.id, error instanceof Error ? error.message : String(error));
+    }
+  })();
+}
+
 export async function handleRpc(
   req: Request,
   state: HubState,
@@ -381,7 +480,18 @@ export async function handleRpc(
       return jsonResponse(
         rpcResult(
           body.id,
-          toJson({ data: state.listThreads(), nextCursor: null, backwardsCursor: null }),
+          toJson({
+            data: state.listThreads({
+              sourceKinds: Array.isArray(params.sourceKinds)
+                ? params.sourceKinds.filter((kind): kind is string => typeof kind === 'string')
+                : undefined,
+              parentThreadId: typeof params.parentThreadId === 'string'
+                ? params.parentThreadId
+                : null,
+            }),
+            nextCursor: null,
+            backwardsCursor: null,
+          }),
         ),
       );
     case 'thread/loaded/list':
@@ -399,6 +509,15 @@ export async function handleRpc(
         modelProvider: typeof params.modelProvider === 'string' ? params.modelProvider : undefined,
         model: typeof params.model === 'string' ? params.model : config.defaultModel,
         ephemeral: params.ephemeral !== false,
+        subAgent: params.subAgent === true || params.sourceKind === 'subAgentThreadSpawn' ||
+          params.source === 'subAgentThreadSpawn',
+        agentPath: typeof params.agentPath === 'string' ? params.agentPath : null,
+        agentNickname: typeof params.agentNickname === 'string' ? params.agentNickname : null,
+        agentRole: typeof params.agentRole === 'string'
+          ? params.agentRole
+          : typeof params.agentType === 'string'
+          ? params.agentType
+          : null,
       });
       return thread
         ? jsonResponse(rpcResult(
@@ -1036,6 +1155,35 @@ export async function handleRpc(
         }),
       ));
     case 'item/tool/call':
+      {
+        const parentThreadId = String(params.threadId ?? '');
+        const tool = String(params.tool ?? '');
+        const childIdsBefore = tool === 'spawn_agent'
+          ? new Set(state.listThreads({ parentThreadId }).map((thread) => thread.id))
+          : null;
+        const multiAgentResult = state.callMultiAgentTool({
+          threadId: parentThreadId,
+          callId: typeof params.callId === 'string' ? params.callId : null,
+          namespace: typeof params.namespace === 'string' ? params.namespace : null,
+          tool,
+          arguments: params.arguments,
+        });
+        if (multiAgentResult) {
+          const childThreadId = childIdsBefore
+            ? state.listThreads({ parentThreadId }).find((thread) => !childIdsBefore.has(thread.id))
+              ?.id
+            : null;
+          maybeStartBackgroundAgent({
+            state,
+            config,
+            parentThreadId,
+            childThreadId,
+            tool,
+            arguments: params.arguments,
+          });
+          return jsonResponse(rpcResult(body.id, toJson(multiAgentResult)));
+        }
+      }
       return jsonResponse(rpcResult(
         body.id,
         toJson({
@@ -1139,67 +1287,58 @@ export async function handleRpc(
           reloaded: true,
         }),
       ));
-    case 'mcpServerStatus/list':
-      return jsonResponse(rpcResult(
-        body.id,
-        toJson({
-          data: [
-            {
-              name: String(params.name ?? 'local'),
-              tools: {},
-              resources: [],
-              resourceTemplates: [],
-              authStatus: 'unsupported',
-            },
-          ],
-          nextCursor: null,
-        }),
-      ));
-    case 'mcpServer/resource/read':
-      return jsonResponse(rpcResult(
-        body.id,
-        toJson({
-          contents: [
-            {
-              uri: typeof params.uri === 'string' ? params.uri : '',
-              mimeType: 'text/plain',
-              text: '',
-            },
-          ],
-        }),
-      ));
-    case 'mcpServer/tool/call':
-      state.pushNotification({
-        method: 'item/mcpToolCall/progress',
-        params: {
-          threadId: String(params.threadId ?? ''),
-          turnId: String(params.turnId ?? ''),
-          itemId: String(params.itemId ?? crypto.randomUUID()),
-          message: String(params.message ?? 'called'),
-        },
-      });
-      return jsonResponse(rpcResult(
-        body.id,
-        toJson({
-          content: [
-            {
-              type: 'text',
-              text: String(params.message ?? 'called'),
-            },
-          ],
-          structuredContent: {
-            ok: true,
-            tool: String(params.tool ?? ''),
-            server: String(params.server ?? 'local'),
+    case 'mcpServerStatus/list': {
+      try {
+        const limit = typeof params.limit === 'number' ? params.limit : null;
+        const result = await listMcpServerStatus({
+          cursor: typeof params.cursor === 'string' ? params.cursor : null,
+          limit,
+          detail: typeof params.detail === 'string' ? params.detail : null,
+        });
+        return jsonResponse(rpcResult(body.id, toJson(result)));
+      } catch (error) {
+        return jsonResponse(rpcError(body.id, -32000, String(error)), 500);
+      }
+    }
+    case 'mcpServer/resource/read': {
+      const server = typeof params.server === 'string' ? params.server : '';
+      const uri = typeof params.uri === 'string' ? params.uri : '';
+      if (!server || !uri) {
+        return jsonResponse(rpcError(body.id, -32602, 'invalid params'), 400);
+      }
+      try {
+        return jsonResponse(rpcResult(body.id, toJson(await readMcpResource(server, uri))));
+      } catch (error) {
+        return jsonResponse(rpcError(body.id, -32000, String(error)), 500);
+      }
+    }
+    case 'mcpServer/tool/call': {
+      const threadId = typeof params.threadId === 'string' ? params.threadId : '';
+      const server = typeof params.server === 'string'
+        ? params.server
+        : typeof params.serverName === 'string'
+        ? params.serverName
+        : '';
+      const tool = typeof params.tool === 'string' ? params.tool : '';
+      if (!threadId || !server || !tool) {
+        return jsonResponse(rpcError(body.id, -32602, 'invalid params'), 400);
+      }
+      try {
+        const result = await callMcpTool(server, tool, params.arguments, params._meta, threadId);
+        state.pushNotification({
+          method: 'item/mcpToolCall/progress',
+          params: {
+            threadId,
+            turnId: String(params.turnId ?? ''),
+            itemId: String(params.itemId ?? crypto.randomUUID()),
+            message: String(params.message ?? 'called'),
           },
-          isError: false,
-          meta: {
-            threadId: String(params.threadId ?? ''),
-            turnId: typeof params.turnId === 'string' ? String(params.turnId) : null,
-            itemId: String(params.itemId ?? ''),
-          },
-        }),
-      ));
+        });
+        return jsonResponse(rpcResult(body.id, toJson(result)));
+      } catch (error) {
+        return jsonResponse(rpcError(body.id, -32000, String(error)), 500);
+      }
+    }
     case 'windowsSandbox/setupStart':
       state.emitWindowsSandboxSetupCompleted(
         String(params.mode ?? 'unelevated') as 'elevated' | 'unelevated',

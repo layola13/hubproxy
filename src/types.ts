@@ -63,6 +63,7 @@ export type Thread = {
   id: string;
   sessionId: string;
   forkedFromId: string | null;
+  parentThreadId: string | null;
   preview: string;
   ephemeral: boolean;
   modelProvider: string;
