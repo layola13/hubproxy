@@ -1287,21 +1287,167 @@ async function compactAndRetryOnOverflow(
   );
   if (!compactResponse.ok) return upstream;
   const summaryText = extractCompactionSummaryText(await compactResponse.text());
-  if (!summaryText) return upstream;
+  if (!summaryText) {
+    return await retryTrimmedOnOverflow(path, req, config, body, baseHeaders, rawBody, turnContext, upstream, state);
+  }
   // Replace the oversized conversation with [summary + latest user turn] so the retried
   // request actually shrinks; appending a summary on top of the original oversized body
   // would just hit the context limit a second time.
   const retriedBody = compressRequestsBodyForRetry(body, summaryText);
-  if (!retriedBody || retriedBody === body) return upstream;
+  if (retriedBody && retriedBody !== body) {
+    const retried = await forwardWithFallback(
+      path,
+      req,
+      config,
+      retriedBody,
+      baseHeaders,
+      rawBody,
+      turnContext,
+    );
+    if (retried.ok) return retried;
+    if (!isContextLengthOverflowResponse(retried, await clonedText(retried))) return retried;
+  }
+  // Summary-based compression still overflowed (or produced no shrinkable body):
+  // fall back to keeping the first 3 and last 3 turns when nvidiaCompat is enabled.
+  return await retryTrimmedOnOverflow(path, req, config, body, baseHeaders, rawBody, turnContext, upstream, state);
+}
+
+async function clonedText(response: Response): Promise<string> {
+  try {
+    return await response.clone().text();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Split a responses input[] (or chat messages[]) into conversational turns. A new turn
+ * starts at every user-authored message (role === 'user'). Non-message items (reasoning,
+ * function_call, *_call_output) stay attached to the turn they belong to. Returns an array
+ * of turn groups, each an array of original items.
+ */
+function splitConversationTurns(items: unknown[]): unknown[][] {
+  const turns: unknown[][] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    const record = raw as Record<string, unknown>;
+    const rawRole = typeof record.role === 'string' ? record.role : '';
+    const type = typeof record.type === 'string' ? record.type : '';
+    // A new turn starts at every user-authored message. For responses-style input the
+    // items are typed (`record.type === 'message'`), while chat-style messages only carry
+    // a `role`. Treat both as turn boundaries when role === 'user'.
+    const isUserMessage = (type === 'message' || type === '') && rawRole === 'user';
+    if (isUserMessage || turns.length === 0) {
+      turns.push([]);
+    }
+    turns[turns.length - 1].push(raw);
+  }
+  return turns.filter((group) => group.length > 0);
+}
+
+function newTurnBoundaryNotice(): string {
+  return '[hubproxy] Middle turns of the prior conversation were dropped to fit the upstream context window; ' +
+    'the retained first and last turns above and below are authoritative. Continue from the latest user turn.';
+}
+
+/**
+ * Safety-net fallback for when summary-based compaction still trips the upstream context
+ * overflow. Only invoked when HUBPROXY_NVIDIA_COMPAT is enabled and the trimmed body still
+ * fits (by chars/4 estimate) under the configured context window. Keeps the first 3 and
+ * last 3 conversational turns, inserting a small notice between them, then retries once.
+ * Returns the original `upstream` response unchanged when the trim is not applicable.
+ */
+async function retryTrimmedOnOverflow(
+  path: string,
+  req: Request,
+  config: ProxyConfig,
+  body: string | undefined,
+  baseHeaders: Headers,
+  rawBody: string | undefined,
+  turnContext: ProxyTurnContext | undefined,
+  upstream: Response,
+  state: ContextWindowState,
+): Promise<Response> {
+  if (!config.nvidiaCompat || !state.enabled) return upstream;
+  if (!path.includes('/responses') && !path.includes('/chat/completions')) return upstream;
+  const trimmed = trimBodyToWindowEdges(body);
+  if (!trimmed || trimmed === body) return upstream;
+  // Guard: only retry when the trimmed body still fits under the configured window.
+  const estimated = estimateRequestInputTokens(trimmed);
+  if (estimated > state.maxTokens) return upstream;
+  writeUpstreamLog({
+    path: 'internal/context-overflow-edge-trim-retry',
+    requestPath: path,
+    maxTokens: state.maxTokens,
+    estimatedInputTokens: estimated,
+    upstreamStatus: upstream.status,
+    upstreamBody: await clonedText(upstream),
+  });
   return await forwardWithFallback(
     path,
     req,
     config,
-    retriedBody,
+    trimmed,
     baseHeaders,
     rawBody,
     turnContext,
   );
+}
+
+/**
+ * Builds a trimmed request body that keeps the first 3 and last 3 conversational turns of
+ * the original conversation, dropping the middle turns and inserting a small notice item to
+ * preserve continuity. Works for responses-style (input[]) and chat-style (messages[]) bodies.
+ * Returns null when the body cannot be reshaped, is not actually larger than the kept turns
+ * (i.e. trimming would not shrink it), or has fewer than 7 turns.
+ */
+function trimBodyToWindowEdges(
+  requestBody: string | undefined,
+  keepFirst = 3,
+  keepLast = 3,
+): string | null {
+  if (!requestBody) return null;
+  const parsed = parseJsonBody(requestBody);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const record = parsed as Record<string, unknown>;
+
+  const chatMessages = Array.isArray(record.messages) ? record.messages : null;
+  if (chatMessages) {
+    const turns = splitConversationTurns(chatMessages as unknown[]);
+    if (turns.length <= keepFirst + keepLast) return null;
+    const kept = [...turns.slice(0, keepFirst), ...turns.slice(turns.length - keepLast)];
+    const middleNotice = { role: 'system', content: newTurnBoundaryNotice() };
+    const reconstructed: unknown[] = [];
+    for (let i = 0; i < kept.length; i++) {
+      if (i === keepFirst) reconstructed.push(middleNotice);
+      for (const item of kept[i]) reconstructed.push(item);
+    }
+    record.messages = reconstructed;
+    if (JSON.stringify(record).length >= requestBody.length) return null;
+    return JSON.stringify(parsed);
+  }
+
+  const responsesInput = Array.isArray(record.input) ? record.input : null;
+  if (responsesInput) {
+    const turns = splitConversationTurns(responsesInput as unknown[]);
+    if (turns.length <= keepFirst + keepLast) return null;
+    const kept = [...turns.slice(0, keepFirst), ...turns.slice(turns.length - keepLast)];
+    const middleNotice = {
+      type: 'message',
+      role: 'developer',
+      content: [{ type: 'input_text', text: newTurnBoundaryNotice() }],
+    };
+    const reconstructed: unknown[] = [];
+    for (let i = 0; i < kept.length; i++) {
+      if (i === keepFirst) reconstructed.push(middleNotice);
+      for (const item of kept[i]) reconstructed.push(item);
+    }
+    record.input = reconstructed;
+    if (JSON.stringify(record).length >= requestBody.length) return null;
+    return JSON.stringify(parsed);
+  }
+
+  return null;
 }
 
 async function shouldRetryUpstreamResponse(response: Response): Promise<boolean> {
@@ -3163,6 +3309,8 @@ function collectResponsesEventsFromChatChunkText(
 ): {
   events: ResponsesEvent[];
   usage: Record<string, unknown> | null;
+  complete: boolean;
+  trailingDataBytes: number;
 } {
   const events: ResponsesEvent[] = [];
   const responseId = `resp_${crypto.randomUUID().replace(/-/g, '')}`;
@@ -3176,12 +3324,21 @@ function collectResponsesEventsFromChatChunkText(
   const toolCalls = new Map<string, ChatToolCallChunk & { itemId: string }>();
   let usage: Record<string, unknown> | null = null;
   let sawStopWithoutToolCall = false;
+  let sawTerminalFrame = false;
   events.push({ type: 'response.created', response: { id: responseId } });
   let dataBuffer = '';
+  // Legacy fallback parser: this function receives a fully buffered upstream
+  // Chat Completions SSE body. It is intentionally not used as proof that a
+  // stream completed; only explicit [DONE] or terminal finish_reason can do
+  // that. Without this guard, a truncated upstream body would be rebuilt as a
+  // successful Responses stream and make clients stop too early.
   for (const line of chatText.split(/\r?\n/)) {
     if (line.startsWith('data:')) {
       const data = sseFieldValue(line, 5);
-      if (data === '[DONE]') continue;
+      if (data === '[DONE]') {
+        sawTerminalFrame = true;
+        continue;
+      }
       dataBuffer += data;
       continue;
     }
@@ -3250,6 +3407,7 @@ function collectResponsesEventsFromChatChunkText(
       sawStopWithoutToolCall = toolCalls.size === 0;
     }
     if (finishReason === 'tool_calls' || finishReason === 'stop') {
+      sawTerminalFrame = true;
       const sortedCalls = Array.from(toolCalls.values()).sort((a, b) => a.index - b.index);
       for (const call of sortedCalls) {
         const normalizedCall = normalizeChatToolCall(
@@ -3329,15 +3487,26 @@ function collectResponsesEventsFromChatChunkText(
       },
     }, namespaces));
   }
-  events.push({
-    type: 'response.done',
-    response: { id: responseId, usage: normalizeChatUsage(usage), status: 'completed' },
-  });
-  events.push({
-    type: 'response.completed',
-    response: { id: responseId, usage: normalizeChatUsage(usage), status: 'completed' },
-  });
-  return { events, usage };
+  if (sawTerminalFrame) {
+    events.push({
+      type: 'response.done',
+      response: { id: responseId, usage: normalizeChatUsage(usage), status: 'completed' },
+    });
+    events.push({
+      type: 'response.completed',
+      response: { id: responseId, usage: normalizeChatUsage(usage), status: 'completed' },
+    });
+  } else {
+    writeStreamLog({
+      path: 'internal/chat-fallback-truncated-stream',
+      complete: false,
+      bodyBytes: new TextEncoder().encode(chatText).length,
+      trailingDataBytes: new TextEncoder().encode(dataBuffer).length,
+      hasDone: chatText.includes('data: [DONE]'),
+      endsWithBlankLine: /\r?\n\r?\n$/.test(chatText),
+    });
+  }
+  return { events, usage, complete: sawTerminalFrame, trailingDataBytes: dataBuffer.length };
 }
 
 function normalizeChatUsage(usage: Record<string, unknown> | null): Record<string, unknown> {
@@ -3385,15 +3554,25 @@ function responsesFallbackResponseFromChat(
   collaborationModeKind?: string | null,
 ): Response {
   if (stream) {
-    const { events } = collectResponsesEventsFromChatChunkText(
+    const { events, complete, trailingDataBytes } = collectResponsesEventsFromChatChunkText(
       chatResponseBody,
       namespaces,
       planModeLike,
       allowedTools,
       collaborationModeKind,
     );
+    if (!complete) {
+      events.push({
+        type: 'error',
+        error: {
+          message: 'Upstream chat fallback stream ended before a terminal SSE frame.',
+          type: 'upstream_stream_incomplete',
+          trailingDataBytes,
+        },
+      });
+    }
     return new Response(buildMockSseBody(events), {
-      status: 200,
+      status: complete ? 200 : 502,
       headers: { 'content-type': 'text/event-stream; charset=utf-8' },
     });
   }
@@ -3632,9 +3811,10 @@ async function forwardWithFallback(
     const normalizedToolBody = responsesRequestBody ?? rawBody;
     const namespaces = extractNamespacesFromBody(normalizedToolBody);
     const allowedTools = extractAllowedChatToolNames(normalizedToolBody);
+    const isChatSse = (chatResponse.headers.get('content-type') ?? '').includes('text/event-stream');
     return responsesFallbackResponseFromChat(
       text,
-      fallback.stream,
+      fallback.stream && isChatSse,
       namespaces,
       fallback.planModeLike,
       allowedTools,

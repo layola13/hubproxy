@@ -2294,3 +2294,17 @@
   正常返回 `Hey! How can I help you today?`。注意：`restart_sa.sh` 本身会前台 `exec ./hubproxy`，
   在 Codex 短命令里普通 `nohup ./restart_sa.sh &` 仍可能随工具进程组结束被清理；长期运行时应以
   独立 session 启动该脚本，而不是绕过脚本直接启动 `./hubproxy`。
+
+## 已确认的上下文压缩保险（Deno 版本）
+
+- `compactAndRetryOnOverflow` 原本只做“summary + 最后一轮用户消息”压缩重试；当上游仍返回
+  maximum-context-length 400、或 `compressRequestsBodyForRetry` 无法再缩小时，会直接把 400
+  透传给客户端，远程超额提示仍会偶发。
+- 新增保险：当 `HUBPROXY_NVIDIA_COMPAT=true` 且 `HUBPROXY_CONTEXT_WINDOW_TOKENS` 配置了上限时，
+  如果 summary 压缩重试后仍 overflow，会调用 `retryTrimmedOnOverflow`：把对话按“每条 role=user
+  消息”切分成 turn 组，保留前 3 轮 + 最后 3 轮，中间插入一条 `developer`/`system` notice
+  `[hubproxy] Middle turns ...`，并用 `chars/4` 估算确认修剪后的体仍小于配置上下文上限后才重试。
+- `splitConversationTurns` 同时识别 responses 样式（`type:'message'`）与 chat 样式（只有 `role`）
+  两种消息体；`trimBodyToWindowEdges` 对 `messages[]` 与 `input[]` 都生效；轮次 ≤ 6 或修剪后体没有
+  变小时返回 null，不触发无谓重试。
+- 该保险仅在 `nvidiaCompat` 开启、且估算后仍小于窗口时生效；关闭或窗口未配时行为完全不变。

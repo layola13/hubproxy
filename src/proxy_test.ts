@@ -799,6 +799,71 @@ Deno.test('proxyOpenAI logs raw fallback chat and final client responses separat
   }
 });
 
+Deno.test('proxyOpenAI rejects truncated chat fallback SSE streams', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"half"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":null}]}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'goal' },
+    );
+
+    assertEquals(resp.status, 502);
+    const body = await resp.text();
+    assert(body.includes('upstream_stream_incomplete'));
+    assert(!body.includes('response.completed'));
+    const logEntries = Array.from(Deno.readDirSync(logDir))
+      .filter((entry) => entry.isFile)
+      .map((entry) =>
+        JSON.parse(Deno.readTextFileSync(`${logDir}/${entry.name}`)) as Record<string, unknown>
+      )
+      .filter((entry) => entry.path === '/v1/responses' || entry.path === 'internal/chat-fallback-truncated-stream');
+    const truncated = logEntries.find((entry) => entry.path === 'internal/chat-fallback-truncated-stream');
+    assert(truncated);
+  } finally {
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true }).catch(() => {});
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI logs raw native responses SSE streams', async () => {
   const originalFetch = globalThis.fetch;
   const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
@@ -2552,6 +2617,97 @@ Deno.test('proxyOpenAI compacts overflow 400 on direct chat/completions path too
     globalThis.fetch = originalFetch;
   }
 });
+Deno.test('proxyOpenAI keeps first 3 and last 3 turns when nvidiaCompat summary retry still overflows', async () => {
+  const seen: Array<{ url: string; body?: string; status?: number }> = [];
+  const originalFetch = globalThis.fetch;
+  const overflowMsg = JSON.stringify({
+    error: {
+      message:
+        "This model's maximum context length is 202752 tokens. However, your messages resulted in 203808 tokens. Please reduce the length of the messages.",
+      type: 'BadRequest',
+      code: '400',
+    },
+  });
+  let mainCallCount = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    seen.push({ url, body });
+
+    if (body?.includes('Produce a compact continuation summary')) {
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'summary: condensed prior goals' } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
+    mainCallCount += 1;
+    // First (original) and second (summary-compressed) main calls both overflow.
+    if (mainCallCount <= 2) {
+      return new Response(overflowMsg, {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    // The third (edge-trim) main call succeeds.
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const longHistory: Array<{ role: string; content: string }> = [];
+    for (let i = 0; i < 60; i++) {
+      longHistory.push({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(400) });
+    }
+    longHistory.push({ role: 'user', content: 'final question about the task' });
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'z-ai/glm-5.2',
+          stream: false,
+          messages: longHistory,
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        forceChatCompletions: true,
+        nvidiaCompat: true,
+        customContextWindowTokens: 200000,
+        contextCompactThresholdPercent: 1,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const chatCalls = seen.filter((e) => e.url === 'http://127.0.0.1:8789/v1/chat/completions');
+    const handshake = chatCalls.filter((e) =>
+      (e.body ?? '').includes('Produce a compact continuation summary')
+    );
+    assertEquals(handshake.length, 1);
+    const mainCalls = chatCalls.filter((e) =>
+      !(e.body ?? '').includes('Produce a compact continuation summary')
+    );
+    assertEquals(mainCalls.length, 3);
+    const edgeTrimmed = JSON.parse(mainCalls[2].body ?? '{}') as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const last = edgeTrimmed.messages[edgeTrimmed.messages.length - 1];
+    assertEquals(last.role, 'user');
+    assertEquals(last.content, 'final question about the task');
+    const serialized = JSON.stringify(edgeTrimmed);
+    assertEquals(serialized.includes('Middle turns of the prior conversation'), true);
+    assert(mainCalls[2].body !== mainCalls[0].body);
+    assert(edgeTrimmed.messages.length < longHistory.length);
+    assert(edgeTrimmed.messages.length > 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI force-routes Gemini tool history to chat fallback best effort', async () => {
   const seen: { url?: string; body?: string } = {};
   const originalFetch = globalThis.fetch;
