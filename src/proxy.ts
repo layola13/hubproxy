@@ -3458,6 +3458,10 @@ function collectResponsesEventsFromChatChunkText(
   finalizeReasoningStreamItem(events, reasoningState, namespaces);
   if (messageState.started) {
     events.push({
+      type: 'response.output_text.done',
+      text: messageState.text,
+    });
+    events.push({
       type: 'response.output_item.done',
       item: {
         id: assistantItemId,

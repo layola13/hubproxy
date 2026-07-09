@@ -52,7 +52,9 @@ const state = new HubState();
 
 initProxyRuntime(config);
 
-Deno.serve(
+const server = Deno.serve(
   { hostname: config.host, port: config.port },
   (req) => handleHttpWithState(req, config, state),
 );
+
+await server.finished;

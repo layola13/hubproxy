@@ -3186,6 +3186,53 @@ Deno.test('proxyOpenAI normalizes chat fallback tool calls for Codex exec', asyn
   }
 });
 
+Deno.test('proxyOpenAI emits output_text done for chat fallback streams', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"我还加了"},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"完整收尾事件"},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'grok-4.3-console',
+          stream: true,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    const text = await resp.text();
+    const events = parseSseEvents(text);
+    const done = events.find((event) => event.event === 'response.output_text.done');
+    assertEquals(resp.status, 200);
+    assertEquals(done?.data.text, '我还加了完整收尾事件');
+    assertEquals(text.includes('event: response.completed'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI preserves plan and goal tool calls in chat fallback', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
