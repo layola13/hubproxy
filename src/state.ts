@@ -267,7 +267,7 @@ export class HubState {
         ? String((part as { text: string }).text)
         : '';
       if (!text) continue;
-      if (partType === 'output_text' || partType === 'text') {
+      if (partType === 'output_text' || partType === 'input_text' || partType === 'text') {
         this.pushNotification({
           method: 'item/agentMessage/delta',
           params: { threadId, turnId, itemId, delta: text },
@@ -1309,7 +1309,7 @@ export class HubState {
       this.appendSyntheticTurn(input.threadId, [{
         type: 'subAgentActivity',
         id: crypto.randomUUID(),
-        kind: 'closed',
+        kind: 'interrupted',
         agentThreadId: thread.id,
         agentPath: threadSpawnAgentPath(thread) ?? `/${thread.id}`,
       }]);

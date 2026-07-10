@@ -160,6 +160,19 @@ function modeFromInstructionTexts(instructionTexts: string[]): string | null {
   return latestMode;
 }
 
+function normalizeMultiAgentMode(value: unknown): unknown {
+  if (value === 'proactive' || value === 'explicitRequestOnly') return value;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record.custom === 'string') return { custom: record.custom };
+  }
+  return 'explicitRequestOnly';
+}
+
+function multiAgentModeParam(params: Record<string, unknown>): unknown {
+  return normalizeMultiAgentMode(params.multiAgentMode ?? params.multi_agent_mode);
+}
+
 function inferCollaborationModeKindFromBody(body: string | undefined): string | null {
   if (!body) return null;
   try {
@@ -447,6 +460,7 @@ export async function handleRpc(
             approvalsReviewer: params.approvalsReviewer ?? 'user',
             sandbox: params.sandbox ?? 'danger-full-access',
             reasoningEffort: null,
+            multiAgentMode: multiAgentModeParam(params),
             activePermissionProfile: null,
             thread,
           }),
@@ -470,6 +484,7 @@ export async function handleRpc(
             approvalsReviewer: params.approvalsReviewer ?? 'user',
             sandbox: params.sandbox ?? 'danger-full-access',
             reasoningEffort: null,
+            multiAgentMode: multiAgentModeParam(params),
             activePermissionProfile: null,
             thread,
           }),
@@ -532,6 +547,7 @@ export async function handleRpc(
             approvalsReviewer: params.approvalsReviewer ?? 'user',
             sandbox: params.sandbox ?? 'danger-full-access',
             reasoningEffort: null,
+            multiAgentMode: multiAgentModeParam(params),
             activePermissionProfile: null,
             thread,
           }),

@@ -101,6 +101,32 @@ const COLLABORATION_NAMESPACE_TOOL: Record<string, unknown> = {
     },
     {
       type: 'function',
+      name: 'send_input',
+      description:
+        'Send a message to an existing agent. Use interrupt=true to redirect work immediately.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Agent id or canonical task name to message.',
+          },
+          message: {
+            type: 'string',
+            description: 'Plain-text message to send to the agent.',
+          },
+          interrupt: {
+            type: 'boolean',
+            description: 'Whether to interrupt the current agent task.',
+          },
+        },
+        required: ['target'],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
       name: 'wait_agent',
       description: 'Wait for a mailbox update from any live agent.',
       strict: false,
@@ -110,6 +136,48 @@ const COLLABORATION_NAMESPACE_TOOL: Record<string, unknown> = {
           timeout_ms: {
             type: 'number',
             description: 'Maximum time to wait in milliseconds.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
+      name: 'resume_agent',
+      description:
+        'Resume a previously closed agent by id so it can receive messages and wait calls.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            description: 'Agent id to resume.',
+          },
+          target: {
+            type: 'string',
+            description: 'Agent id or canonical task name to resume.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      type: 'function',
+      name: 'close_agent',
+      description:
+        'Close an agent and any open descendants when they are no longer needed, returning its previous status.',
+      strict: false,
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Agent id or canonical task name to close.',
+          },
+          id: {
+            type: 'string',
+            description: 'Agent id to close.',
           },
         },
         additionalProperties: false,
@@ -150,6 +218,48 @@ const COLLABORATION_NAMESPACE_TOOL: Record<string, unknown> = {
       },
     },
   ],
+};
+
+function selectCollaborationTools(names: string[]): unknown[] {
+  const tools = Array.isArray(COLLABORATION_NAMESPACE_TOOL.tools)
+    ? COLLABORATION_NAMESPACE_TOOL.tools
+    : [];
+  return names
+    .map((name) =>
+      tools.find((tool) =>
+        tool && typeof tool === 'object' &&
+        (tool as Record<string, unknown>).name === name
+      )
+    )
+    .filter((tool): tool is Record<string, unknown> => Boolean(tool))
+    .map((tool) => ({ ...tool }));
+}
+
+const MULTI_AGENT_V1_NAMESPACE_TOOL: Record<string, unknown> = {
+  ...COLLABORATION_NAMESPACE_TOOL,
+  name: 'multi_agent_v1',
+  description: 'Legacy Codex multi-agent tools for coordinating sub-agents.',
+  tools: selectCollaborationTools([
+    'spawn_agent',
+    'send_input',
+    'wait_agent',
+    'resume_agent',
+    'close_agent',
+  ]),
+};
+
+const MULTI_AGENT_V2_NAMESPACE_TOOL: Record<string, unknown> = {
+  ...COLLABORATION_NAMESPACE_TOOL,
+  name: 'multi_agent_v2',
+  description: 'Codex multi-agent v2 tools for spawning and coordinating sub-agents.',
+  tools: selectCollaborationTools([
+    'spawn_agent',
+    'send_message',
+    'followup_task',
+    'wait_agent',
+    'interrupt_agent',
+    'list_agents',
+  ]),
 };
 
 const forwardHeaders = (headers: Headers, apiKey: string, localAuthToken: string | null) => {
@@ -729,14 +839,6 @@ function responseDoneEventForInputItem(item: ResponsesInputItem): ResponsesEvent
   };
 }
 
-const SERVER_NAME_MAP: Record<string, string> = {
-  'Code Index': 'mcp__code_index__',
-  'Mimir': 'mcp__mimir__',
-  'mimir': 'mcp__mimir__',
-  'code_index': 'mcp__code_index__',
-  'code-index': 'mcp__code_index__',
-};
-
 let mcpToolDiscoveryOverride: McpToolDiscovery | null = null;
 let mcpNamespaceToolsCache: Promise<unknown[]> | null = null;
 
@@ -750,11 +852,31 @@ function sanitizeResponsesApiToolName(name: string): string {
   return sanitized.slice(0, 64);
 }
 
+function canonicalMcpNamespaceName(name: string): string {
+  const trimmed = name.trim();
+  if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*__$/.test(trimmed)) return trimmed.slice(0, -2);
+  return trimmed;
+}
+
+function legacyMcpNamespaceName(name: string): string {
+  const canonical = canonicalMcpNamespaceName(name);
+  return canonical.startsWith('mcp__') && !canonical.endsWith('__') ? `${canonical}__` : canonical;
+}
+
+function namespaceNameVariants(namespaceName: string): string[] {
+  const canonical = canonicalMcpNamespaceName(namespaceName);
+  const legacy = legacyMcpNamespaceName(namespaceName);
+  const variants = [legacy, canonical, namespaceName];
+  return Array.from(new Set(variants.filter(Boolean)));
+}
+
+function namespaceSetHas(namespaces: Set<string>, namespaceName: string): boolean {
+  return namespaceNameVariants(namespaceName).some((variant) => namespaces.has(variant));
+}
+
 function mcpNamespaceNameForServer(serverName: string): string {
-  const mapped = SERVER_NAME_MAP[serverName];
-  if (mapped) return mapped;
   const normalized = sanitizeResponsesApiToolName(serverName.toLowerCase().replace(/-/g, '_'));
-  return normalized ? `mcp__${normalized}__` : '';
+  return normalized ? `mcp__${normalized}` : '';
 }
 
 function normalizeMcpToolForResponses(
@@ -812,7 +934,7 @@ function toolIdentity(tool: unknown): string {
   if (!tool || typeof tool !== 'object') return '';
   const record = tool as Record<string, unknown>;
   if (record.type === 'namespace' && typeof record.name === 'string') {
-    return `namespace:${record.name}`;
+    return `namespace:${canonicalMcpNamespaceName(record.name)}`;
   }
   const fn = record.function && typeof record.function === 'object'
     ? record.function as Record<string, unknown>
@@ -884,7 +1006,11 @@ function mergeToolsByName(
 function appendCollaborationNamespaceToolsForResponses(parsed: Record<string, unknown>): void {
   if (getEnvOrNull('HUBPROXY_COLLABORATION_AUTO_TOOLS') === '0') return;
   const existing = Array.isArray(parsed.tools) ? parsed.tools : [];
-  parsed.tools = mergeToolsByName(existing, [COLLABORATION_NAMESPACE_TOOL], false);
+  parsed.tools = mergeToolsByName(
+    existing,
+    [COLLABORATION_NAMESPACE_TOOL, MULTI_AGENT_V1_NAMESPACE_TOOL, MULTI_AGENT_V2_NAMESPACE_TOOL],
+    false,
+  );
 }
 
 async function discoverMcpNamespaceTools(): Promise<unknown[]> {
@@ -916,20 +1042,18 @@ async function appendMcpNamespaceToolsForResponses(
 }
 
 function robustNormalizeServerName(name: string, namespaces?: Set<string>): string {
-  if (SERVER_NAME_MAP[name]) return SERVER_NAME_MAP[name];
-  if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*$/.test(name)) return name;
-  if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*__$/.test(name)) return name;
+  if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*$/.test(name)) return canonicalMcpNamespaceName(name);
+  if (/^mcp__[a-z0-9]+(?:_[a-z0-9]+)*__$/.test(name)) return canonicalMcpNamespaceName(name);
   const doubleWrapped = name.match(/^mcp__mcp_([a-z0-9]+(?:_[a-z0-9]+)*)___$/);
-  if (doubleWrapped) return `mcp__${doubleWrapped[1]}__`;
-  const normalized = `mcp__${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}__`;
-  if (namespaces?.has(normalized)) return normalized;
+  if (doubleWrapped) return `mcp__${doubleWrapped[1]}`;
+  const serverName = sanitizeResponsesApiToolName(name.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+  const normalized = serverName ? `mcp__${serverName}` : name;
+  if (namespaces && namespaceSetHas(namespaces, normalized)) return normalized;
   return normalized;
 }
 
 export function robustDenormalizeServerName(name: string): string {
   const normalized = robustNormalizeServerName(name);
-  if (normalized === 'mcp__code_index__') return 'code-index';
-  if (normalized === 'mcp__mimir__') return 'mimir';
   const match = normalized.match(/^mcp__(.*)__$/);
   if (match) {
     return match[1].replace(/_/g, '-');
@@ -940,11 +1064,11 @@ export function robustDenormalizeServerName(name: string): string {
 }
 
 function flattenNamespacedToolName(namespaceName: string, toolName: string): string {
-  if (!namespaceName) return toolName;
-  if (toolName.startsWith(namespaceName)) return toolName;
-  return namespaceName.endsWith('__')
-    ? `${namespaceName}${toolName}`
-    : `${namespaceName}__${toolName}`;
+  const namespace = canonicalMcpNamespaceName(namespaceName);
+  if (!namespace) return toolName;
+  const existing = splitFlattenedNamespacedToolName(toolName, namespace);
+  if (existing) return `${namespace}__${existing}`;
+  return `${namespace}__${toolName}`;
 }
 
 function splitFlattenedNamespacedToolName(
@@ -952,9 +1076,11 @@ function splitFlattenedNamespacedToolName(
   namespaceName: string,
 ): string | null {
   if (!name || !namespaceName) return null;
-  for (const separator of ['.', '__', '_', '']) {
-    const prefix = `${namespaceName}${separator}`;
-    if (name.startsWith(prefix) && name.length > prefix.length) return name.slice(prefix.length);
+  for (const namespace of namespaceNameVariants(namespaceName)) {
+    for (const separator of ['.', '__', '_', '']) {
+      const prefix = `${namespace}${separator}`;
+      if (name.startsWith(prefix) && name.length > prefix.length) return name.slice(prefix.length);
+    }
   }
   return null;
 }
@@ -1002,13 +1128,14 @@ export function normalizeResponsesEvent(
     // function_call { namespace: "mcp__code_index__", name: "search" }).
     if (kind === 'function_call' && namespaces) {
       for (const ns of namespaces) {
-        const toolName = splitFlattenedNamespacedToolName(name, ns);
+        const namespace = canonicalMcpNamespaceName(ns);
+        const toolName = splitFlattenedNamespacedToolName(name, namespace);
         if (toolName) {
           const rewrittenItem: Record<string, unknown> = {
             ...item,
             type: kind,
             name: toolName,
-            namespace: ns,
+            namespace,
             output_kind: outputKindForToolKind(kind),
           };
           return { ...event, item: rewrittenItem };
@@ -1036,7 +1163,7 @@ function extractNamespacesFromBody(body: string | undefined): Set<string> {
     if (Array.isArray(parsed.tools)) {
       for (const tool of parsed.tools) {
         if (tool.type === 'namespace' && typeof tool.name === 'string') {
-          namespaces.add(tool.name);
+          namespaces.add(canonicalMcpNamespaceName(tool.name));
         }
       }
     }
@@ -1896,14 +2023,13 @@ function repairCollapsedNamespacedToolName(
 ): string {
   if (!name || !namespaces || namespaces.size === 0) return name;
   for (const ns of namespaces) {
-    if (!name.startsWith(ns)) continue;
-    return name;
+    if (namespaceNameVariants(ns).some((variant) => name.startsWith(variant))) return name;
   }
   for (const ns of namespaces) {
-    if (!ns.startsWith('mcp__') || !ns.endsWith('__')) continue;
-    const stem = ns.slice(0, -2);
+    const stem = canonicalMcpNamespaceName(ns);
+    if (!stem.startsWith('mcp__')) continue;
     if (!name.startsWith(stem) || name.length <= stem.length) continue;
-    return `${ns}${name.slice(stem.length)}`;
+    return flattenNamespacedToolName(stem, name.slice(stem.length));
   }
   return name;
 }
@@ -1927,7 +2053,26 @@ function normalizeFunctionCallArguments(
   }
 }
 
-function normalizeResponseInputItems(input: unknown): unknown[] {
+type ResponseInputNormalizeOptions = {
+  flattenNamespacesForChat?: boolean;
+};
+
+function normalizedResponseToolName(
+  record: Record<string, unknown>,
+  options: ResponseInputNormalizeOptions,
+): string {
+  const name = sanitizeToolName(record.name);
+  const namespace = typeof record.namespace === 'string' ? record.namespace : '';
+  if (options.flattenNamespacesForChat && namespace && name) {
+    return flattenNamespacedToolName(namespace, name);
+  }
+  return name;
+}
+
+function normalizeResponseInputItems(
+  input: unknown,
+  options: ResponseInputNormalizeOptions = {},
+): unknown[] {
   if (!Array.isArray(input)) return [];
   const callNames = new Map<string, string>();
   for (const item of input) {
@@ -1937,7 +2082,7 @@ function normalizeResponseInputItems(input: unknown): unknown[] {
     if (isToolCallType(type)) {
       const callId = typeof record.call_id === 'string' ? record.call_id : '';
       const itemId = typeof record.id === 'string' ? record.id : '';
-      let name = sanitizeToolName(record.name);
+      let name = normalizedResponseToolName(record, options);
       if (type === 'mcp_tool_call' && typeof record.server === 'string' && record.server) {
         if (!name.startsWith(record.server)) {
           name = `${record.server}${name}`;
@@ -1964,25 +2109,47 @@ function normalizeResponseInputItems(input: unknown): unknown[] {
       continue;
     }
 
-    let outRecord: Record<string, unknown> = record;
+    let outRecord: Record<string, unknown> = typeof record.namespace === 'string'
+      ? { ...record, namespace: canonicalMcpNamespaceName(record.namespace) }
+      : record;
 
-    if (type === 'mcp_tool_call' && typeof record.server === 'string' && record.server) {
-      let name = sanitizeToolName(record.name);
-      if (!name.startsWith(record.server)) {
-        name = `${record.server}${name}`;
-      }
-      outRecord = { ...record, type: 'function_call', name };
+    if (options.flattenNamespacesForChat && type === 'custom_tool_call') {
+      const name = normalizedResponseToolName(outRecord, options);
+      outRecord = {
+        ...outRecord,
+        type: 'function_call',
+        name,
+        arguments: typeof outRecord.arguments === 'string'
+          ? outRecord.arguments
+          : typeof outRecord.input === 'string'
+          ? JSON.stringify({ input: outRecord.input })
+          : '{}',
+      };
     }
 
-    if (type === 'function_call' && typeof record.arguments === 'string') {
+    if (type === 'mcp_tool_call' && typeof outRecord.server === 'string' && outRecord.server) {
+      let name = normalizedResponseToolName(outRecord, options);
+      if (!name.startsWith(outRecord.server)) {
+        name = `${outRecord.server}${name}`;
+      }
+      outRecord = { ...outRecord, type: 'function_call', name };
+    } else if (options.flattenNamespacesForChat && type === 'function_call') {
+      const name = normalizedResponseToolName(outRecord, options);
+      if (name && name !== outRecord.name) outRecord = { ...outRecord, name };
+    }
+
+    if (
+      (type === 'function_call' || outRecord.type === 'function_call') &&
+      typeof outRecord.arguments === 'string'
+    ) {
       try {
-        const args = JSON.parse(record.arguments);
+        const args = JSON.parse(outRecord.arguments);
         if (typeof args.server === 'string') {
           const original = args.server;
           const normalized = robustNormalizeServerName(original);
           if (normalized !== original) {
             args.server = normalized;
-            record.arguments = JSON.stringify(args);
+            outRecord = { ...outRecord, arguments: JSON.stringify(args) };
           }
         }
       } catch {
@@ -2156,6 +2323,9 @@ function mapContentPartForChat(part: Record<string, unknown>): Record<string, un
       image_url: { url: typeof part.image_url === 'string' ? part.image_url : '' },
     };
   }
+  if (partType === 'encrypted_content') {
+    return { type: 'text', text: '[encrypted content omitted]' };
+  }
   return part;
 }
 
@@ -2209,10 +2379,60 @@ function pushSystemMessage(
   if (content) messages.unshift({ role: 'system', content });
 }
 
+function structuredContentItemText(part: unknown): string {
+  if (!part || typeof part !== 'object') return '';
+  const record = part as Record<string, unknown>;
+  const type = typeof record.type === 'string' ? record.type : '';
+  if (
+    type === 'input_text' || type === 'output_text' || type === 'text' ||
+    type === 'reasoning_text'
+  ) {
+    return typeof record.text === 'string' ? record.text : '';
+  }
+  if (type === 'input_image' || type === 'image_url') {
+    if (typeof record.image_url === 'string') return record.image_url;
+    if (record.image_url && typeof record.image_url === 'object') {
+      const url = (record.image_url as Record<string, unknown>).url;
+      return typeof url === 'string' ? url : '';
+    }
+  }
+  if (type === 'encrypted_content') return '';
+  return '';
+}
+
+function structuredContentText(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  return value.map(structuredContentItemText).filter(Boolean).join('\n');
+}
+
+function mcpContentText(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.content)) {
+    const text = record.content.map((part) => {
+      if (!part || typeof part !== 'object') return '';
+      const partRecord = part as Record<string, unknown>;
+      if (typeof partRecord.text === 'string') return partRecord.text;
+      if (typeof partRecord.data === 'string') return partRecord.data;
+      return structuredContentItemText(part);
+    }).filter(Boolean).join('\n');
+    if (text) return text;
+  }
+  if (record.structuredContent !== undefined) return JSON.stringify(record.structuredContent);
+  if (record.structured_content !== undefined) return JSON.stringify(record.structured_content);
+  return '';
+}
+
 function toolOutputText(record: Record<string, unknown>): string {
   if (typeof record.output === 'string') return record.output;
+  const structured = structuredContentText(record.output);
+  if (structured) return structured;
+  const mcpText = mcpContentText(record.output);
+  if (mcpText) return mcpText;
   if (record.output !== undefined) return JSON.stringify(record.output);
   if (typeof record.content === 'string') return record.content;
+  const contentText = structuredContentText(record.content);
+  if (contentText) return contentText;
   return '';
 }
 
@@ -2225,7 +2445,9 @@ function extractChatFallbackFromResponsesBody(
   if (!body) return null;
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
-    const input = Array.isArray(parsed.input) ? normalizeResponseInputItems(parsed.input) : [];
+    const input = Array.isArray(parsed.input)
+      ? normalizeResponseInputItems(parsed.input, { flattenNamespacesForChat: true })
+      : [];
     const model = typeof parsed.model === 'string' ? parsed.model : '';
     if (!allowUnsafeGeminiToolHistory && isUnsafeGeminiChatFallback(model, input)) return null;
     const namespaces = extractNamespacesFromBody(body);
@@ -2295,7 +2517,7 @@ function extractChatFallbackFromResponsesBody(
         }
         continue;
       }
-      if (type === 'message' || type === 'assistant_message') {
+      if (type === 'message' || type === 'assistant_message' || type === 'agent_message') {
         const rawRole = typeof record.role === 'string'
           ? record.role
           : (type === 'message' ? 'user' : 'assistant');
@@ -3259,16 +3481,17 @@ export function normalizeChatToolCall(
     const prefix = parts[0];
     const rest = parts.slice(1).join('.');
     const normalizedPrefix = robustNormalizeServerName(prefix);
-    if (namespaces && namespaces.has(normalizedPrefix)) {
-      name = normalizedPrefix + rest;
+    if (namespaces && namespaceSetHas(namespaces, normalizedPrefix)) {
+      name = flattenNamespacedToolName(normalizedPrefix, rest);
       call = { ...call, name };
     }
   }
 
   if (namespaces) {
     for (const ns of namespaces) {
-      if (name.startsWith(ns + '.')) {
-        name = flattenNamespacedToolName(ns, name.slice(ns.length + 1));
+      const namespace = namespaceNameVariants(ns).find((variant) => name.startsWith(`${variant}.`));
+      if (namespace) {
+        name = flattenNamespacedToolName(ns, name.slice(namespace.length + 1));
         call = { ...call, name };
         break;
       }

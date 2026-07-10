@@ -1430,6 +1430,85 @@ Deno.test('proxyOpenAI preserves tool names in chat fallback tool messages', asy
   }
 });
 
+Deno.test('proxyOpenAI maps latest Codex namespaced calls and structured outputs in chat fallback', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          tools: [{
+            type: 'namespace',
+            name: 'mcp__code_index__',
+            tools: [{ type: 'function', name: 'describe_index', parameters: {} }],
+          }],
+          input: [
+            {
+              type: 'agent_message',
+              author: 'worker',
+              recipient: 'root',
+              content: [{ type: 'input_text', text: 'agent context' }],
+            },
+            {
+              type: 'function_call',
+              namespace: 'mcp__code_index__',
+              call_id: 'call-idx',
+              name: 'describe_index',
+              arguments: '{}',
+            },
+            {
+              type: 'function_call_output',
+              call_id: 'call-idx',
+              output: [
+                { type: 'input_text', text: 'index summary' },
+                { type: 'input_image', image_url: 'file:///tmp/diagram.png' },
+                { type: 'encrypted_content', encrypted_content: 'secret' },
+              ],
+            },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{
+        role?: string;
+        content?: string | null;
+        tool_calls?: Array<{ function?: { name?: string } }>;
+        tool_call_id?: string;
+      }>;
+    };
+    assertEquals(body.messages?.[0]?.role, 'assistant');
+    assertEquals(body.messages?.[0]?.content, 'agent context');
+    assertEquals(
+      body.messages?.[1]?.tool_calls?.[0]?.function?.name,
+      'mcp__code_index__describe_index',
+    );
+    assertEquals(body.messages?.[2]?.role, 'tool');
+    assertEquals(body.messages?.[2]?.tool_call_id, 'call-idx');
+    assertEquals(body.messages?.[2]?.content, 'index summary\nfile:///tmp/diagram.png');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI merges assistant text into tool-call message before tool outputs', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;
@@ -1623,9 +1702,9 @@ Deno.test('proxyOpenAI preserves already-normalized MCP server names', async () 
     const firstArgs = JSON.parse(body.input?.[0]?.arguments ?? '{}') as { server?: string };
     const secondArgs = JSON.parse(body.input?.[1]?.arguments ?? '{}') as { server?: string };
     const thirdArgs = JSON.parse(body.input?.[2]?.arguments ?? '{}') as { server?: string };
-    assertEquals(firstArgs.server, 'mcp__code_index__');
-    assertEquals(secondArgs.server, 'mcp__code_index__');
-    assertEquals(thirdArgs.server, 'mcp__code_index__');
+    assertEquals(firstArgs.server, 'mcp__code_index');
+    assertEquals(secondArgs.server, 'mcp__code_index');
+    assertEquals(thirdArgs.server, 'mcp__code_index');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1683,7 +1762,7 @@ Deno.test('proxyOpenAI de-normalizes server names and normalizes dot-notation to
     assertEquals(args.server, 'code-index');
 
     // 2. Verify that the namespaced dot notation is correctly un-flattened
-    assertEquals(mcpItem.namespace, 'mcp__code_index__');
+    assertEquals(mcpItem.namespace, 'mcp__code_index');
     assertEquals(mcpItem.name, 'read_mcp_resource');
   } finally {
     globalThis.fetch = originalFetch;
@@ -1870,7 +1949,7 @@ Deno.test('proxyOpenAI injects discovered MCP namespace tools into responses cha
     const responseBody = JSON.parse(await resp.text()) as {
       output?: Array<{ name?: string; namespace?: string }>;
     };
-    assertEquals(responseBody.output?.[0]?.namespace, 'mcp__code_index__');
+    assertEquals(responseBody.output?.[0]?.namespace, 'mcp__code_index');
     assertEquals(responseBody.output?.[0]?.name, 'describe_index');
   } finally {
     globalThis.fetch = originalFetch;
@@ -1919,6 +1998,20 @@ Deno.test('proxyOpenAI injects collaboration namespace tools into responses chat
     assertEquals(names.includes('collaboration__wait_agent'), true);
     assertEquals(names.includes('collaboration__interrupt_agent'), true);
     assertEquals(names.includes('collaboration__list_agents'), true);
+    assertEquals(names.includes('multi_agent_v1__spawn_agent'), true);
+    assertEquals(names.includes('multi_agent_v1__send_input'), true);
+    assertEquals(names.includes('multi_agent_v1__wait_agent'), true);
+    assertEquals(names.includes('multi_agent_v1__resume_agent'), true);
+    assertEquals(names.includes('multi_agent_v1__close_agent'), true);
+    assertEquals(names.includes('multi_agent_v2__spawn_agent'), true);
+    assertEquals(names.includes('multi_agent_v2__send_message'), true);
+    assertEquals(names.includes('multi_agent_v2__followup_task'), true);
+    assertEquals(names.includes('multi_agent_v2__wait_agent'), true);
+    assertEquals(names.includes('multi_agent_v2__interrupt_agent'), true);
+    assertEquals(names.includes('multi_agent_v2__list_agents'), true);
+    assertEquals(names.includes('multi_agent_v2__resume_agent'), false);
+    assertEquals(names.includes('multi_agent_v2__close_agent'), false);
+    assertEquals(names.includes('multi_agent_v1__send_message'), false);
   } finally {
     globalThis.fetch = originalFetch;
     setMcpToolDiscoveryForTests(async () => []);
@@ -3842,7 +3935,7 @@ Deno.test('proxyOpenAI preserves namespaced chat fallback tool calls', async () 
     );
     const text = await resp.text();
     assertEquals(text.includes('"type":"function_call"'), true);
-    assertEquals(text.includes('"namespace":"mcp__code_index__"'), true);
+    assertEquals(text.includes('"namespace":"mcp__code_index"'), true);
     assertEquals(text.includes('"name":"describe_index"'), true);
     assertEquals(text.includes('"name":"mcp__code_index__describe_index"'), false);
   } finally {
@@ -3906,7 +3999,7 @@ Deno.test('proxyOpenAI repairs collapsed namespaced tool calls from NVIDIA strea
 
     const events = parseSseEvents(await resp.text());
     const toolEvent = events.find((event) => event.event === 'response.output_item.done');
-    assertEquals((toolEvent?.data.item as { namespace?: string }).namespace, 'mcp__code_index__');
+    assertEquals((toolEvent?.data.item as { namespace?: string }).namespace, 'mcp__code_index');
     assertEquals((toolEvent?.data.item as { name?: string }).name, 'search');
   } finally {
     globalThis.fetch = originalFetch;
@@ -4726,6 +4819,13 @@ Deno.test('proxyOpenAI preserves responses-only fields for real responses upstre
               role: 'user',
               content: [{ type: 'input_text', text: 'hello' }],
             },
+            {
+              type: 'function_call',
+              namespace: 'mcp__code_index__',
+              call_id: 'call-idx',
+              name: 'describe_index',
+              arguments: '{}',
+            },
           ],
         }),
       }),
@@ -4740,7 +4840,7 @@ Deno.test('proxyOpenAI preserves responses-only fields for real responses upstre
       prompt_cache_key?: unknown;
       include?: unknown;
       reasoning?: unknown;
-      input?: Array<{ type?: string; role?: string }>;
+      input?: Array<{ type?: string; role?: string; namespace?: string; name?: string }>;
     };
     assertEquals(body.store, false);
     assertEquals(body.prompt_cache_key, 'abc');
@@ -4748,6 +4848,9 @@ Deno.test('proxyOpenAI preserves responses-only fields for real responses upstre
     assertEquals((body.reasoning as { effort?: string } | undefined)?.effort, 'medium');
     assertEquals(body.input?.[0]?.type, 'message');
     assertEquals(body.input?.[0]?.role, 'user');
+    assertEquals(body.input?.[1]?.type, 'function_call');
+    assertEquals(body.input?.[1]?.namespace, 'mcp__code_index');
+    assertEquals(body.input?.[1]?.name, 'describe_index');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -4880,7 +4983,7 @@ Deno.test('normalizeResponsesEvent un-flattens namespaced tools and denormalizes
   assertEquals(res1.type, 'response.output_item.added');
   assertEquals((res1.item as Record<string, unknown>).type, 'function_call');
   assertEquals((res1.item as Record<string, unknown>).name, 'search');
-  assertEquals((res1.item as Record<string, unknown>).namespace, 'mcp__code_index__');
+  assertEquals((res1.item as Record<string, unknown>).namespace, 'mcp__code_index');
   assertEquals((res1.item as Record<string, unknown>).output_kind, 'function_call_output');
 
   // Case 2: dot-notation in namespaced tools
@@ -4895,7 +4998,7 @@ Deno.test('normalizeResponsesEvent un-flattens namespaced tools and denormalizes
 
   const res2 = normalizeResponsesEvent(event2, namespaces);
   assertEquals((res2.item as Record<string, unknown>).name, 'search');
-  assertEquals((res2.item as Record<string, unknown>).namespace, 'mcp__code_index__');
+  assertEquals((res2.item as Record<string, unknown>).namespace, 'mcp__code_index');
 
   // Case 3: server name restoration in arguments (denormalization to hyphenated client registered server name)
   const event3 = {
@@ -4911,7 +5014,7 @@ Deno.test('normalizeResponsesEvent un-flattens namespaced tools and denormalizes
   const args3 = JSON.parse((res3.item as Record<string, unknown>).arguments as string);
   assertEquals(args3.server, 'code-index');
   assertEquals((res3.item as Record<string, unknown>).name, 'read_mcp_resource');
-  assertEquals((res3.item as Record<string, unknown>).namespace, 'mcp__code_index__');
+  assertEquals((res3.item as Record<string, unknown>).namespace, 'mcp__code_index');
 
   // Case 4: other server name restoration in arguments (e.g. from code_index to code-index)
   const event4 = {

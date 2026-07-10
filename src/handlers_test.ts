@@ -324,7 +324,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
         jsonrpc: '2.0',
         id: 1,
         method: 'thread/start',
-        params: { threadId: 'thr_test' },
+        params: { threadId: 'thr_test', multiAgentMode: 'proactive' },
       }),
     }),
     config,
@@ -334,6 +334,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   const startJson = await start.json() as {
     id: number;
     result: {
+      multiAgentMode: unknown;
       thread: {
         id: string;
         turns: unknown[];
@@ -348,6 +349,7 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
   assertEquals(startJson.result.thread.name, null);
   assertEquals(startJson.result.thread.model, 'gpt-4.1');
   assertEquals(startJson.result.thread.modelProvider, 'openai');
+  assertEquals(startJson.result.multiAgentMode, 'proactive');
 
   const loadedList = await handleHttpWithState(
     new Request('http://localhost/rpc', {
@@ -453,8 +455,11 @@ Deno.test('handleHttpWithState serves models and rpc thread methods', async () =
     config,
     state,
   );
-  const forkJson = await fork.json() as { result: { thread: { forkedFromId: string | null } } };
+  const forkJson = await fork.json() as {
+    result: { multiAgentMode: unknown; thread: { forkedFromId: string | null } };
+  };
   assertEquals(forkJson.result.thread.forkedFromId, 'thr_test');
+  assertEquals(forkJson.result.multiAgentMode, 'explicitRequestOnly');
 
   state.drainNotifications();
   const subagentFork = await handleHttpWithState(

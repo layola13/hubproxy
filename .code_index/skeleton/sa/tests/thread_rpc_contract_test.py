@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+# import ../src/hub_modules.sa
+
+# @origin sa/tests/thread_rpc_contract_test.sa:148
+def assert_contract(ok: u8, code: i32) -> Any:
+    ...
+
+# @origin sa/tests/thread_rpc_contract_test.sa:161
+def assert_buffer_contains(buf: ptr, len: u64, needle: ptr, needle_len: u64, code: i32) -> Any:
+    sa_bytes_find(...)
+    assert_contract(...)
+    rpc_extract_u64_after(...)
+    state_init(...)
+    state_thread_create_with_key(...)
+    state_turn_create(...)
+    state_turn_rollback(...)
+    state_turn_find(...)
+    state_thread_list_active(...)
+    state_thread_archive(...)
+    state_thread_unarchive(...)
+    state_notify_cursor(...)
+    notify_thread_started_with_values(...)
+    state_notify_read(...)
+    notify_thread_status_idle(...)
+    notify_thread_name_updated(...)
+    notify_thread_id_only(...)
+    notify_thread_id_string(...)
+    assert_buffer_contains(...)
+    state_thread_set_model_provider(...)
+    state_thread_set_ephemeral(...)
+    state_turn_set_mode_text(...)
+    state_turn_set_items(...)
+    state_thread_find(...)
+    json_writer_write_thread_envelope_prefix(...)
+    json_writer_write_thread_object_field(...)
+    json_writer_finish_view(...)
+    json_writer_dispose_finished(...)
+    rpc_resolve_thread_id(...)
+    rpc_extract_param_array_json(...)
+    sa_bytes_eq(...)
+    json_buffer_dispose(...)
+    notify_injected_items_from_dom(...)
+    json_writer_field_thread_id_string(...)
+    sa_json_writer_field_i64(...)
+    state_thread_set_git_info(...)
+    state_thread_copy_git_info(...)
+    state_thread_set_preview(...)
+    state_thread_set_name(...)
+    json_writer_write_thread_object(...)
+    state_goal_set(...)
+    state_process_put(...)
+    state_watch_put(...)
+    state_reset_runtime(...)
+    state_goal_get(...)
+    state_process_delete(...)
+    return state_watch_delete(...)

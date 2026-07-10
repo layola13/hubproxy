@@ -44,6 +44,13 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   ]);
   state.injectItems('thr_1', [
     {
+      type: 'agent_message',
+      id: 'msg-2',
+      content: [{ type: 'input_text', text: 'agent input text' }],
+    },
+  ]);
+  state.injectItems('thr_1', [
+    {
       type: 'plan',
       id: 'plan-1',
       text: 'plan delta',
@@ -125,9 +132,10 @@ Deno.test('HubState start/resume/goal lifecycle', () => {
   assertEquals((reasoningPart.params as Record<string, unknown>).summaryIndex, 0);
   assert(reasoningText);
   assertEquals((reasoningText.params as Record<string, unknown>).contentIndex, 0);
-  const agentDelta = notifications.find((entry) => entry.method === 'item/agentMessage/delta');
-  assert(agentDelta);
-  assertEquals((agentDelta.params as Record<string, unknown>).delta, 'assistant text');
+  const agentDeltas = notifications.filter((entry) => entry.method === 'item/agentMessage/delta');
+  assert(agentDeltas.length >= 2);
+  assertEquals((agentDeltas[0].params as Record<string, unknown>).delta, 'assistant text');
+  assertEquals((agentDeltas[1].params as Record<string, unknown>).delta, 'agent input text');
   const planDelta = notifications.find((entry) => entry.method === 'item/plan/delta');
   assert(planDelta);
   assertEquals((planDelta.params as Record<string, unknown>).delta, 'plan delta');
