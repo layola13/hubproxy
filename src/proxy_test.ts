@@ -853,8 +853,12 @@ Deno.test('proxyOpenAI rejects truncated chat fallback SSE streams', async () =>
       .map((entry) =>
         JSON.parse(Deno.readTextFileSync(`${logDir}/${entry.name}`)) as Record<string, unknown>
       )
-      .filter((entry) => entry.path === '/v1/responses' || entry.path === 'internal/chat-fallback-truncated-stream');
-    const truncated = logEntries.find((entry) => entry.path === 'internal/chat-fallback-truncated-stream');
+      .filter((entry) =>
+        entry.path === '/v1/responses' || entry.path === 'internal/chat-fallback-truncated-stream'
+      );
+    const truncated = logEntries.find((entry) =>
+      entry.path === 'internal/chat-fallback-truncated-stream'
+    );
     assert(truncated);
   } finally {
     if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
@@ -931,6 +935,70 @@ Deno.test('proxyOpenAI logs raw native responses SSE streams', async () => {
     assert(finalClientStream);
     assertEquals(typeof finalClientStream?.body, 'string');
     assert((finalClientStream?.body as string).includes('event: response.output_text.delta'));
+    assert((finalClientStream?.body as string).includes('event: response.output_text.done'));
+  } finally {
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true }).catch(() => {});
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI rejects truncated native responses SSE streams', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(
+      [
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":"partial"}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          stream: true,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'hello' }],
+            },
+          ],
+        }),
+      }),
+      config,
+      { collaborationModeKind: 'goal' },
+    );
+
+    assertEquals(resp.status, 502);
+    const body = await resp.text();
+    assert(body.includes('upstream_stream_incomplete'));
+    assert(!body.includes('event: response.completed'));
+
+    const logEntries = Array.from(Deno.readDirSync(logDir))
+      .filter((entry) => entry.isFile)
+      .map((entry) =>
+        JSON.parse(Deno.readTextFileSync(`${logDir}/${entry.name}`)) as Record<string, unknown>
+      )
+      .filter((entry) =>
+        entry.path === '/v1/responses' || entry.path === 'internal/responses-truncated-stream'
+      );
+    assert(logEntries.find((entry) => entry.path === 'internal/responses-truncated-stream'));
   } finally {
     if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
     else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
@@ -1075,12 +1143,14 @@ Deno.test('proxyOpenAI preserves logged native responses SSE tail content', asyn
     const item = done?.data.item as {
       content?: Array<{ text?: string }>;
     } | undefined;
+    const outputTextDone = events.find((event) => event.event === 'response.output_text.done');
 
     const expectedTailText =
       '不会有 `stream-*`\n\n如果你要，我下一步可以直接帮你打一条 `/v1/responses` 的流式请求，确认 `stream-*` 也会落出来。';
 
     assertEquals(deltas, tailDeltas);
     assertEquals(deltas.join(''), expectedTailText);
+    assertEquals(outputTextDone?.data.text, expectedTailText);
     assertEquals(item?.content?.[0]?.text, expectedTailText);
     assert(upstreamDoneText.includes(expectedTailText));
   } finally {

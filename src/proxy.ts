@@ -1288,7 +1288,17 @@ async function compactAndRetryOnOverflow(
   if (!compactResponse.ok) return upstream;
   const summaryText = extractCompactionSummaryText(await compactResponse.text());
   if (!summaryText) {
-    return await retryTrimmedOnOverflow(path, req, config, body, baseHeaders, rawBody, turnContext, upstream, state);
+    return await retryTrimmedOnOverflow(
+      path,
+      req,
+      config,
+      body,
+      baseHeaders,
+      rawBody,
+      turnContext,
+      upstream,
+      state,
+    );
   }
   // Replace the oversized conversation with [summary + latest user turn] so the retried
   // request actually shrinks; appending a summary on top of the original oversized body
@@ -1309,7 +1319,17 @@ async function compactAndRetryOnOverflow(
   }
   // Summary-based compression still overflowed (or produced no shrinkable body):
   // fall back to keeping the first 3 and last 3 turns when nvidiaCompat is enabled.
-  return await retryTrimmedOnOverflow(path, req, config, body, baseHeaders, rawBody, turnContext, upstream, state);
+  return await retryTrimmedOnOverflow(
+    path,
+    req,
+    config,
+    body,
+    baseHeaders,
+    rawBody,
+    turnContext,
+    upstream,
+    state,
+  );
 }
 
 async function clonedText(response: Response): Promise<string> {
@@ -2435,6 +2455,14 @@ function parseSseBlock(block: string): { event: string; data: string } | null {
   return { event, data: dataParts.join('\n') };
 }
 
+function isTerminalResponsesSseEvent(type: string): boolean {
+  return type === 'response.completed' ||
+    type === 'response.done' ||
+    type === 'response.incomplete' ||
+    type === 'response.failed' ||
+    type === 'error';
+}
+
 function rewriteResponseMessageItem(
   item: Record<string, unknown>,
   visibleText: string,
@@ -2566,7 +2594,7 @@ function normalizeResponsesSseBody(
   planModeLike = false,
   allowedTools?: Set<string>,
   collaborationModeKind?: string | null,
-): string {
+): { body: string; complete: boolean; trailingDataBytes: number } {
   const thoughtSplitter = createThoughtStreamSplitter();
   const state = {
     messageText: '',
@@ -2574,20 +2602,43 @@ function normalizeResponsesSseBody(
     generatedReasoning: createReasoningStreamState(),
     messageStarted: false,
     sawTextDelta: false,
+    sawOutputTextDone: false,
     responseId: `resp_${crypto.randomUUID().replace(/-/g, '')}`,
     assistantItemId: `msg_${crypto.randomUUID().replace(/-/g, '')}`,
   };
   const events: ResponsesEvent[] = [];
   const completionEvents: ResponsesEvent[] = [];
   const toolCalls = new Map<string, ChatToolCallChunk & { itemId: string }>();
+  let sawTerminalFrame = false;
+  let sawSuccessfulTerminalFrame = false;
+  let trailingDataBytes = 0;
 
   const processPayload = (payload: Record<string, any>, eventType: string) => {
+    if (isTerminalResponsesSseEvent(eventType)) {
+      sawTerminalFrame = true;
+      if (eventType === 'response.completed' || eventType === 'response.done') {
+        sawSuccessfulTerminalFrame = true;
+      }
+    }
     if (
       eventType === 'response.completed' ||
       eventType === 'response.done' ||
-      eventType === 'response.incomplete'
+      eventType === 'response.incomplete' ||
+      eventType === 'response.failed'
     ) {
       completionEvents.push({
+        type: eventType,
+        ...payload,
+      });
+      return;
+    }
+
+    if (eventType === 'response.output_text.done') {
+      state.sawOutputTextDone = true;
+      if (typeof payload.text === 'string') {
+        state.messageText = payload.text;
+      }
+      events.push({
         type: eventType,
         ...payload,
       });
@@ -2650,6 +2701,13 @@ function normalizeResponsesSseBody(
           pushReasoningDoneItem(events, itemReasoningText, namespaces);
         }
         state.nativeReasoningText = '';
+        if (state.sawTextDelta && !state.sawOutputTextDone) {
+          state.sawOutputTextDone = true;
+          events.push({
+            type: 'response.output_text.done',
+            text: state.messageText,
+          });
+        }
         events.push(normalizeResponsesEvent({
           type: 'response.output_item.done',
           item: rewritten,
@@ -2728,6 +2786,8 @@ function normalizeResponsesSseBody(
       ? choice.finish_reason
       : '';
     if (finishReason === 'tool_calls' || finishReason === 'stop') {
+      sawTerminalFrame = true;
+      sawSuccessfulTerminalFrame = true;
       const sortedCalls = Array.from(toolCalls.values()).sort((a, b) => a.index - b.index);
       for (const call of sortedCalls) {
         const normalizedCall = normalizeChatToolCall(
@@ -2763,7 +2823,13 @@ function normalizeResponsesSseBody(
     if (line.startsWith('event:')) {
       currentEvent = sseFieldValue(line, 6);
     } else if (line.startsWith('data:')) {
-      currentData += sseFieldValue(line, 5);
+      const data = sseFieldValue(line, 5);
+      if (data === '[DONE]') {
+        sawTerminalFrame = true;
+        sawSuccessfulTerminalFrame = true;
+      } else {
+        currentData += data;
+      }
     } else if (line.trim() === '' || line === 'data: [DONE]') {
       if (currentData) {
         const payload = parseJsonBody(currentData);
@@ -2788,6 +2854,8 @@ function normalizeResponsesSseBody(
       } else if (payload.choices) {
         handleOpenAiPayload(payload);
       }
+    } else {
+      trailingDataBytes = new TextEncoder().encode(currentData).length;
     }
   }
 
@@ -2851,18 +2919,40 @@ function normalizeResponsesSseBody(
     }, namespaces));
   }
 
-  if (!events.some((e) => e.type === 'response.done')) {
+  if (sawSuccessfulTerminalFrame && state.sawTextDelta && !state.sawOutputTextDone) {
+    state.sawOutputTextDone = true;
+    events.push({
+      type: 'response.output_text.done',
+      text: state.messageText,
+    });
+  }
+
+  if (sawSuccessfulTerminalFrame && !events.some((e) => e.type === 'response.done')) {
     events.push({ type: 'response.done', response: { id: state.responseId, status: 'completed' } });
   }
   events.push(...completionEvents);
-  if (!events.some((e) => e.type === 'response.completed')) {
+  if (sawSuccessfulTerminalFrame && !events.some((e) => e.type === 'response.completed')) {
     events.push({
       type: 'response.completed',
       response: { id: state.responseId, status: 'completed' },
     });
   }
 
-  return buildMockSseBody(events, namespaces);
+  if (!sawTerminalFrame) {
+    writeStreamLog({
+      path: 'internal/responses-truncated-stream',
+      complete: false,
+      bodyBytes: new TextEncoder().encode(body).length,
+      trailingDataBytes,
+      endsWithBlankLine: /\r?\n\r?\n$/.test(body),
+    });
+  }
+
+  return {
+    body: buildMockSseBody(events, namespaces),
+    complete: sawTerminalFrame,
+    trailingDataBytes,
+  };
 }
 
 function extractThoughtSegments(text: string): {
@@ -3815,7 +3905,9 @@ async function forwardWithFallback(
     const normalizedToolBody = responsesRequestBody ?? rawBody;
     const namespaces = extractNamespacesFromBody(normalizedToolBody);
     const allowedTools = extractAllowedChatToolNames(normalizedToolBody);
-    const isChatSse = (chatResponse.headers.get('content-type') ?? '').includes('text/event-stream');
+    const isChatSse = (chatResponse.headers.get('content-type') ?? '').includes(
+      'text/event-stream',
+    );
     return responsesFallbackResponseFromChat(
       text,
       fallback.stream && isChatSse,
@@ -3882,19 +3974,45 @@ async function forwardWithFallback(
     const namespaces = extractNamespacesFromBody(normalizedToolBody);
     const allowedTools = extractAllowedChatToolNames(normalizedToolBody);
     if (contentType.includes('text/event-stream')) {
-      return new Response(
-        normalizeResponsesSseBody(
-          text,
-          namespaces,
-          planModeLike,
-          allowedTools,
-          turnContext?.collaborationModeKind,
-        ),
-        {
-          status: responsesResponse.status,
-          headers: rewrittenBodyHeaders(responsesResponse.headers),
-        },
+      const normalized = normalizeResponsesSseBody(
+        text,
+        namespaces,
+        planModeLike,
+        allowedTools,
+        turnContext?.collaborationModeKind,
       );
+      if (!normalized.complete) {
+        const events: ResponsesEvent[] = [];
+        if (normalized.body) {
+          events.push(
+            ...normalized.body.trim().split(/\n\n+/).flatMap((block) => {
+              const parsed = parseSseBlock(block);
+              if (!parsed) return [];
+              try {
+                return [JSON.parse(parsed.data) as ResponsesEvent];
+              } catch {
+                return [];
+              }
+            }),
+          );
+        }
+        events.push({
+          type: 'error',
+          error: {
+            message: 'Upstream responses stream ended before a terminal SSE frame.',
+            type: 'upstream_stream_incomplete',
+            trailingDataBytes: normalized.trailingDataBytes,
+          },
+        });
+        return new Response(buildMockSseBody(events, namespaces), {
+          status: 502,
+          headers: rewrittenBodyHeaders(responsesResponse.headers),
+        });
+      }
+      return new Response(normalized.body, {
+        status: responsesResponse.status,
+        headers: rewrittenBodyHeaders(responsesResponse.headers),
+      });
     }
     const parsed = parseJsonBody(text);
     if (!parsed) {
