@@ -1769,6 +1769,126 @@ Deno.test('proxyOpenAI de-normalizes server names and normalizes dot-notation to
   }
 });
 
+Deno.test('proxyOpenAI falls back from strict responses tools errors with additional_tools', async () => {
+  const seen: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    seen.push({ url, body: typeof init?.body === 'string' ? init.body : undefined });
+    if (url.includes('/responses')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'bad response status code 400',
+            type: 'invalid_request_error',
+            param: 'tools',
+            code: null,
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          stream: false,
+          input: [
+            {
+              type: 'additional_tools',
+              role: 'developer',
+              tools: [{
+                type: 'namespace',
+                name: 'mcp__example',
+                tools: [{ type: 'function', name: 'lookup', parameters: {} }],
+              }],
+            },
+            { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    assertEquals(resp.status, 200);
+    assertEquals(seen.length, 2);
+    assertEquals(seen[0].url.includes('/responses'), true);
+    assertEquals(seen[1].url.includes('/chat/completions'), true);
+    const chatBody = JSON.parse(seen[1].body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const toolNames = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(toolNames.includes('mcp__example__lookup'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI falls back from invalid codex responses compatibility errors', async () => {
+  const seen: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    seen.push({ url, body: typeof init?.body === 'string' ? init.body : undefined });
+    if (url.includes('/responses')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'invalid codex request (request id: test)',
+            type: 'new_api_error',
+            param: '',
+            code: 'invalid_responses_request',
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          stream: false,
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    assertEquals(resp.status, 200);
+    assertEquals(seen.length, 2);
+    assertEquals(seen[0].url.includes('/responses'), true);
+    assertEquals(seen[1].url.includes('/chat/completions'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;

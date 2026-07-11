@@ -1159,12 +1159,12 @@ function extractNamespacesFromBody(body: string | undefined): Set<string> {
   const namespaces = new Set<string>();
   if (!body) return namespaces;
   try {
-    const parsed = JSON.parse(body);
-    if (Array.isArray(parsed.tools)) {
-      for (const tool of parsed.tools) {
-        if (tool.type === 'namespace' && typeof tool.name === 'string') {
-          namespaces.add(canonicalMcpNamespaceName(tool.name));
-        }
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    for (const tool of collectResponsesToolSpecs(parsed)) {
+      if (!tool || typeof tool !== 'object') continue;
+      const record = tool as Record<string, unknown>;
+      if (record.type === 'namespace' && typeof record.name === 'string') {
+        namespaces.add(canonicalMcpNamespaceName(record.name));
       }
     }
     if (namespaces.size > 0) {
@@ -1177,6 +1177,23 @@ function extractNamespacesFromBody(body: string | undefined): Set<string> {
     // Ignore
   }
   return namespaces;
+}
+
+function additionalToolsFromResponsesInput(input: unknown): unknown[] {
+  if (!Array.isArray(input)) return [];
+  return input.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    if (record.type !== 'additional_tools') return [];
+    return Array.isArray(record.tools) ? record.tools : [];
+  });
+}
+
+function collectResponsesToolSpecs(parsed: Record<string, unknown>): unknown[] {
+  return [
+    ...(Array.isArray(parsed.tools) ? parsed.tools : []),
+    ...additionalToolsFromResponsesInput(parsed.input),
+  ];
 }
 
 export function buildMockSseBody(events: ResponsesEvent[], namespaces?: Set<string>): string {
@@ -1614,6 +1631,10 @@ async function shouldRetryUpstreamResponse(response: Response): Promise<boolean>
         lower.includes('unexpected character: line 1 column') ||
         lower.includes("expecting ',' delimiter") ||
         lower.includes('unsupported parameter(s): `client_metadata`') ||
+        lower.includes('"param":"tools"') ||
+        lower.includes('"param": "tools"') ||
+        lower.includes('invalid_responses_request') ||
+        lower.includes('invalid codex request') ||
         lower.includes('not the same number of function calls and responses')
       ) {
         return false;
@@ -2288,6 +2309,39 @@ function isFallbackEligibleStatus(status: number): boolean {
   return status >= 500 || status === 404 || status === 405 || status === 410 || status === 415;
 }
 
+async function isResponsesToolsParamError(response: Response): Promise<boolean> {
+  if (response.status !== 400) return false;
+  try {
+    const text = await response.clone().text();
+    const parsed = parseJsonBody(text);
+    const error = parsed && typeof parsed.error === 'object'
+      ? parsed.error as Record<string, unknown>
+      : null;
+    if (error?.param === 'tools') return true;
+    return text.toLowerCase().includes('param":"tools"');
+  } catch {
+    return false;
+  }
+}
+
+async function isResponsesCodexCompatibilityError(response: Response): Promise<boolean> {
+  if (response.status !== 400) return false;
+  try {
+    const text = await response.clone().text();
+    const lower = text.toLowerCase();
+    const parsed = parseJsonBody(text);
+    const error = parsed && typeof parsed.error === 'object'
+      ? parsed.error as Record<string, unknown>
+      : null;
+    return error?.code === 'invalid_responses_request' ||
+      (error?.type === 'new_api_error' && lower.includes('invalid codex request')) ||
+      lower.includes('invalid_responses_request') ||
+      lower.includes('invalid codex request');
+  } catch {
+    return false;
+  }
+}
+
 function isFallbackEligibleError(error: unknown): boolean {
   return error instanceof Error;
 }
@@ -2569,7 +2623,7 @@ function extractChatFallbackFromResponsesBody(
     for (const [key, value] of Object.entries(parsed)) {
       if (key === 'input' || key === 'instructions' || key === 'reasoning') continue;
       if (key === 'tools') {
-        const normalizedTools = normalizeChatToolsValue(value);
+        const normalizedTools = normalizeChatToolsValue(collectResponsesToolSpecs(parsed));
         if (normalizedTools.length > 0) request.tools = normalizedTools;
         continue;
       }
@@ -2596,6 +2650,10 @@ function extractChatFallbackFromResponsesBody(
         continue;
       }
       request[key] = value;
+    }
+    if (!('tools' in parsed)) {
+      const normalizedTools = normalizeChatToolsValue(collectResponsesToolSpecs(parsed));
+      if (normalizedTools.length > 0) request.tools = normalizedTools;
     }
     sanitizeResponsesFallbackRequest(request);
     request.model = model || String(request.model ?? '');
@@ -4161,6 +4219,24 @@ async function forwardWithFallback(
     responsesResponse && !responsesResponse.ok &&
     !isFallbackEligibleStatus(responsesResponse.status)
   ) {
+    if (await isResponsesToolsParamError(responsesResponse)) {
+      writeUpstreamLog({
+        path: 'internal/responses-tools-param-fallback',
+        requestPath: responsesPath,
+        status: responsesResponse.status,
+      });
+      const fallbackResponse = await sendChatFallback(config.chatBaseUrl, true);
+      if (fallbackResponse) return fallbackResponse;
+    }
+    if (await isResponsesCodexCompatibilityError(responsesResponse)) {
+      writeUpstreamLog({
+        path: 'internal/responses-codex-compat-fallback',
+        requestPath: responsesPath,
+        status: responsesResponse.status,
+      });
+      const fallbackResponse = await sendChatFallback(config.chatBaseUrl, true);
+      if (fallbackResponse) return fallbackResponse;
+    }
     if (await isResponsesToolHistoryError(responsesResponse)) {
       writeUpstreamLog({
         path: 'internal/responses-tool-history-fallback',
