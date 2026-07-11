@@ -1889,6 +1889,68 @@ Deno.test('proxyOpenAI falls back from invalid codex responses compatibility err
   }
 });
 
+Deno.test('proxyOpenAI maps Responses Lite custom exec tool to exec_command in chat fallback', async () => {
+  const seen: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    seen.push({ url, body: typeof init?.body === 'string' ? init.body : undefined });
+    if (url.includes('/responses')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'invalid codex request (request id: test)',
+            type: 'new_api_error',
+            param: '',
+            code: 'invalid_responses_request',
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-luna',
+          stream: false,
+          input: [
+            {
+              type: 'additional_tools',
+              role: 'developer',
+              tools: [{ type: 'custom', name: 'exec' }],
+            },
+            { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    assertEquals(resp.status, 200);
+    assertEquals(seen.length, 2);
+    const chatBody = JSON.parse(seen[1].body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const toolNames = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(toolNames.includes('exec_command'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI wraps chat tools with nested function schema', async () => {
   const seen: { body?: string } = {};
   const originalFetch = globalThis.fetch;

@@ -2038,6 +2038,11 @@ function sanitizeToolName(name: unknown): string {
   return name.trim();
 }
 
+function normalizeChatFallbackToolName(name: string): string {
+  if (name === 'exec') return 'exec_command';
+  return name;
+}
+
 function repairCollapsedNamespacedToolName(
   name: string,
   namespaces?: Set<string>,
@@ -2082,7 +2087,7 @@ function normalizedResponseToolName(
   record: Record<string, unknown>,
   options: ResponseInputNormalizeOptions,
 ): string {
-  const name = sanitizeToolName(record.name);
+  const name = normalizeChatFallbackToolName(sanitizeToolName(record.name));
   const namespace = typeof record.namespace === 'string' ? record.namespace : '';
   if (options.flattenNamespacesForChat && namespace && name) {
     return flattenNamespacedToolName(namespace, name);
@@ -2227,12 +2232,17 @@ function normalizeChatToolsValue(tools: unknown, wrap = true): unknown[] {
       });
     }
 
-    if (toolType && toolType !== 'function') return [];
+    if (toolType && toolType !== 'function') {
+      const customName = normalizeChatFallbackToolName(sanitizeToolName(record.name));
+      if (toolType !== 'custom' || customName !== 'exec_command') return [];
+    }
 
     const functionRecord = record.function && typeof record.function === 'object'
       ? { ...(record.function as Record<string, unknown>) }
       : {};
-    const name = sanitizeToolName(functionRecord.name ?? record.name);
+    const name = normalizeChatFallbackToolName(
+      sanitizeToolName(functionRecord.name ?? record.name),
+    );
     if (!name) return [];
     const description = typeof functionRecord.description === 'string'
       ? functionRecord.description
