@@ -1035,10 +1035,26 @@ async function appendMcpNamespaceToolsForResponses(
 ): Promise<void> {
   if (config.responsesBaseUrl === null) return;
   if (getEnvOrNull('HUBPROXY_MCP_AUTO_TOOLS') === '0') return;
+  const requestedNamespaces = new Set<string>();
+  for (const tool of collectResponsesToolSpecs(parsed)) {
+    if (!tool || typeof tool !== 'object') continue;
+    const record = tool as Record<string, unknown>;
+    if (record.type !== 'namespace' || typeof record.name !== 'string') continue;
+    const namespaceName = canonicalMcpNamespaceName(record.name);
+    if (namespaceName.startsWith('mcp__')) requestedNamespaces.add(namespaceName);
+  }
+  if (requestedNamespaces.size === 0) return;
   const mcpTools = await discoverMcpNamespaceTools();
   if (mcpTools.length === 0) return;
+  const selectedMcpTools = mcpTools.filter((tool) => {
+    if (!tool || typeof tool !== 'object') return false;
+    const record = tool as Record<string, unknown>;
+    return record.type === 'namespace' && typeof record.name === 'string' &&
+      namespaceSetHas(requestedNamespaces, record.name);
+  });
+  if (selectedMcpTools.length === 0) return;
   const existing = Array.isArray(parsed.tools) ? parsed.tools : [];
-  parsed.tools = mergeToolsByName(existing, mcpTools, false);
+  parsed.tools = mergeToolsByName(existing, selectedMcpTools, false);
 }
 
 function robustNormalizeServerName(name: string, namespaces?: Set<string>): string {
@@ -1534,8 +1550,9 @@ async function retryTrimmedOnOverflow(
 ): Promise<Response> {
   if (!config.nvidiaCompat || !state.enabled) return upstream;
   if (!path.includes('/responses') && !path.includes('/chat/completions')) return upstream;
-  const trimmed = trimBodyToWindowEdges(body);
-  if (!trimmed || trimmed === body) return upstream;
+  const trimSourceBody = rawBody ?? body;
+  const trimmed = trimBodyToWindowEdges(trimSourceBody);
+  if (!trimmed || trimmed === trimSourceBody) return upstream;
   // Guard: only retry when the trimmed body still fits under the configured window.
   const estimated = estimateRequestInputTokens(trimmed);
   if (estimated > state.maxTokens) return upstream;
@@ -1547,11 +1564,37 @@ async function retryTrimmedOnOverflow(
     upstreamStatus: upstream.status,
     upstreamBody: await clonedText(upstream),
   });
-  return await forwardWithFallback(
+  const edgeResponse = await forwardWithFallback(
     path,
     req,
     config,
     trimmed,
+    baseHeaders,
+    rawBody,
+    turnContext,
+  );
+  const edgeText = await clonedText(edgeResponse);
+  if (!isContextLengthOverflowResponse(edgeResponse, edgeText)) return edgeResponse;
+
+  const tighterTrimmed = trimBodyToWindowEdges(trimSourceBody, 1, 2);
+  if (!tighterTrimmed || tighterTrimmed === trimmed || tighterTrimmed === trimSourceBody) {
+    return edgeResponse;
+  }
+  const tighterEstimated = estimateRequestInputTokens(tighterTrimmed);
+  if (tighterEstimated > state.maxTokens) return edgeResponse;
+  writeUpstreamLog({
+    path: 'internal/context-overflow-tight-edge-trim-retry',
+    requestPath: path,
+    maxTokens: state.maxTokens,
+    estimatedInputTokens: tighterEstimated,
+    upstreamStatus: edgeResponse.status,
+    upstreamBody: edgeText,
+  });
+  return await forwardWithFallback(
+    path,
+    req,
+    config,
+    tighterTrimmed,
     baseHeaders,
     rawBody,
     turnContext,
@@ -1747,8 +1790,12 @@ async function maybeRewriteRequestBody(
       parsed.input = normalizeResponseInputItems(parsed.input);
     }
     if (isResponses) {
-      appendCollaborationNamespaceToolsForResponses(parsed);
-      await appendMcpNamespaceToolsForResponses(parsed, config);
+      const isResponsesLite = !Array.isArray(parsed.tools) &&
+        additionalToolsFromResponsesInput(parsed.input).length > 0;
+      if (!isResponsesLite) {
+        appendCollaborationNamespaceToolsForResponses(parsed);
+        await appendMcpNamespaceToolsForResponses(parsed, config);
+      }
     } else if (Array.isArray(parsed.tools)) {
       const normalizedTools = normalizeChatToolsValue(parsed.tools, !isResponses);
       if (normalizedTools.length > 0) {
@@ -1789,6 +1836,43 @@ function contextWindowUsageFromBody(body: string | undefined): {
   return { inputTokens, totalTokens };
 }
 
+function estimateTextTokens(text: string): number {
+  let tokens = 0;
+  let asciiRun = 0;
+  const flushAscii = () => {
+    if (asciiRun > 0) {
+      tokens += Math.ceil(asciiRun / 4);
+      asciiRun = 0;
+    }
+  };
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code <= 0x7f) {
+      asciiRun += 1;
+    } else {
+      flushAscii();
+      tokens += 1;
+    }
+  }
+  flushAscii();
+  return tokens;
+}
+
+function estimateJsonTextTokens(value: unknown): number {
+  if (typeof value === 'string') return estimateTextTokens(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return 1;
+  if (!value || typeof value !== 'object') return 0;
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + estimateJsonTextTokens(item), 0);
+  }
+  let total = 0;
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    total += estimateTextTokens(key);
+    total += estimateJsonTextTokens(item);
+  }
+  return total;
+}
+
 function estimateRequestInputTokens(body: string | undefined): number {
   if (!body) return 0;
   const parsed = parseJsonBody(body);
@@ -1796,32 +1880,9 @@ function estimateRequestInputTokens(body: string | undefined): number {
   const direct = contextWindowUsageFromBody(body);
   if (direct) return direct.inputTokens;
 
-  const texts: string[] = [];
-  const addText = (value: unknown) => {
-    if (typeof value === 'string' && value) texts.push(value);
-  };
-
-  addText(parsed.instructions);
-  addText(parsed.system);
-
-  const input = Array.isArray(parsed.input) ? parsed.input : [];
-  for (const item of input) {
-    if (!item || typeof item !== 'object') continue;
-    const record = item as Record<string, unknown>;
-    addText(record.text);
-    const content = Array.isArray(record.content) ? record.content : [];
-    for (const part of content) {
-      if (!part || typeof part !== 'object') continue;
-      addText((part as Record<string, unknown>).text);
-      addText((part as Record<string, unknown>).input_text);
-    }
-    if (typeof record.arguments === 'string') addText(record.arguments);
-    if (typeof record.output === 'string') addText(record.output);
-  }
-
-  const totalChars = texts.reduce((sum, text) => sum + text.length, 0);
-  if (totalChars <= 0) return 0;
-  return Math.max(1, Math.ceil(totalChars / 4));
+  const structuralEstimate = estimateJsonTextTokens(parsed);
+  const wireEstimate = estimateTextTokens(body);
+  return Math.max(0, structuralEstimate, wireEstimate);
 }
 
 function requestNeedsContextCompaction(
@@ -1835,7 +1896,10 @@ function requestNeedsContextCompaction(
   maxTokens: number;
 } {
   const state = contextWindowState(config);
-  if (!state.enabled || !path.includes('/responses') || path.includes('/responses/compact')) {
+  if (
+    !state.enabled || path.includes('/responses/compact') ||
+    (!path.includes('/responses') && !path.includes('/chat/completions'))
+  ) {
     return {
       shouldCompact: false,
       estimatedInputTokens: 0,
@@ -2282,18 +2346,20 @@ function normalizeChatToolsValue(tools: unknown, wrap = true): unknown[] {
   });
 }
 
-function extractAllowedChatToolNames(tools: unknown): Set<string> {
+function extractAllowedChatToolNames(body: unknown): Set<string> {
   const names = new Set<string>();
-  const toolList = typeof tools === 'string'
+  const toolList = typeof body === 'string'
     ? (() => {
       try {
-        const parsed = JSON.parse(tools) as Record<string, unknown>;
-        return parsed.tools;
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        return collectResponsesToolSpecs(parsed);
       } catch {
         return [];
       }
     })()
-    : tools;
+    : body && typeof body === 'object'
+    ? collectResponsesToolSpecs(body as Record<string, unknown>)
+    : body;
   for (const tool of normalizeChatToolsValue(toolList, true)) {
     if (!tool || typeof tool !== 'object') continue;
     const record = tool as Record<string, unknown>;
@@ -2505,6 +2571,7 @@ function extractChatFallbackFromResponsesBody(
   planModeLike = false,
   allowUnsafeGeminiToolHistory = false,
   nvidiaCompat = false,
+  disablePromptInjection = false,
 ): ChatFallbackRequest | null {
   if (!body) return null;
   try {
@@ -2519,7 +2586,7 @@ function extractChatFallbackFromResponsesBody(
     const systemTexts: string[] = [];
     const emittedToolCallIds = new Set<string>();
     const instructions = typeof parsed.instructions === 'string' ? parsed.instructions : '';
-    if (planModeLike) systemTexts.push(CHAT_FALLBACK_SYSTEM_NOTICE);
+    if (planModeLike && !disablePromptInjection) systemTexts.push(CHAT_FALLBACK_SYSTEM_NOTICE);
     if (instructions) systemTexts.push(instructions);
 
     for (let index = 0; index < input.length; index++) {
@@ -4168,6 +4235,7 @@ async function forwardWithFallback(
       planModeLike,
       allowUnsafeGeminiToolHistory,
       config.nvidiaCompat,
+      config.disablePromptInjection,
     );
     if (fallback === null) return null;
     const chatResponse = await send(target, chatPath, JSON.stringify(fallback.request));
@@ -4209,12 +4277,12 @@ async function forwardWithFallback(
     );
   };
 
-  if (config.forceChatCompletions) {
+  if (config.forceChatCompletions && !config.forceResponses) {
     return await sendChatFallback(config.chatBaseUrl, true) ??
       unconvertibleResponsesRequestResponse();
   }
 
-  if (!responsesTarget) {
+  if (!responsesTarget && !config.forceResponses) {
     const fallbackResponse = await sendChatFallback(firstTarget);
     if (fallbackResponse) return fallbackResponse;
   }
@@ -4229,6 +4297,7 @@ async function forwardWithFallback(
     responsesResponse && !responsesResponse.ok &&
     !isFallbackEligibleStatus(responsesResponse.status)
   ) {
+    if (config.forceResponses) return responsesResponse;
     if (await isResponsesToolsParamError(responsesResponse)) {
       writeUpstreamLog({
         path: 'internal/responses-tools-param-fallback',
@@ -4396,6 +4465,11 @@ async function forwardWithFallback(
     });
   }
 
+  if (config.forceResponses) {
+    if (responsesResponse) return responsesResponse;
+    throw new Error('responses upstream unavailable');
+  }
+
   const fallbackResponse = await sendChatFallback(config.chatBaseUrl);
   if (fallbackResponse === null) {
     if (responsesResponse) return responsesResponse;
@@ -4452,7 +4526,8 @@ export async function proxyOpenAI(
       if (compactResponse.ok) {
         const summaryText = extractCompactionSummaryText(await compactResponse.text());
         if (summaryText) {
-          body = appendCompactionSummaryInput(body, summaryText);
+          body = compressRequestsBodyForRetry(body, summaryText) ??
+            appendCompactionSummaryInput(body, summaryText);
         }
       }
     }

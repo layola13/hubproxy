@@ -29,6 +29,8 @@ console.log(JSON.stringify(
     responsesBaseUrl: config.responsesBaseUrl,
     chatBaseUrl: config.chatBaseUrl,
     forceChatCompletions: config.forceChatCompletions,
+    forceResponses: config.forceResponses,
+    disablePromptInjection: config.disablePromptInjection,
     nvidiaCompat: config.nvidiaCompat,
     isCloudflare: config.isCloudflare,
     requestIntervalMs: config.requestIntervalMs,

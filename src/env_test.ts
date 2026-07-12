@@ -2,6 +2,9 @@ import { assertEquals } from 'jsr:@std/assert@1';
 import { applyLogArgsToEnv, loadConfig, loadDotenvIntoEnv } from './env.ts';
 
 const FORCE_CHAT_COMPLETIONS = 'HUBPROXY_FORCE_CHAT_COMPLETIONS';
+const FORCE_RESPONSES = 'HUBPROXY_FORCE_RESPONSES';
+const FORCE_RESPONSES_LEGACY_TYPO = 'HUBPROXY_FORCE_RESPONESE';
+const DISABLE_PROMPT_INJECTION = 'HUBPROXY_DISABLE_PROMPT_INJECTION';
 const NVIDIA_COMPAT = 'HUBPROXY_NVIDIA_COMPAT';
 const REQUEST_INTERVAL_MS = 'HUBPROXY_REQUEST_INTERVAL_MS';
 const NEED_RETRY = 'NEED_RETRY';
@@ -22,6 +25,9 @@ function setRequiredConfigEnv(): void {
   Deno.env.set('DATA_DIR', '/tmp');
   Deno.env.set('PORT', '9999');
   Deno.env.delete(NEED_RETRY);
+  Deno.env.delete(FORCE_RESPONSES);
+  Deno.env.delete(FORCE_RESPONSES_LEGACY_TYPO);
+  Deno.env.delete(DISABLE_PROMPT_INJECTION);
   Deno.env.delete(NVIDIA_COMPAT);
   Deno.env.delete(IS_CF);
   Deno.env.delete(GLM_TRY_GET_KEY);
@@ -139,6 +145,7 @@ Deno.test('loadConfig requires real environment variables', () => {
     assertEquals(config.responsesBaseUrl, 'http://127.0.0.1:1/v1');
     assertEquals(config.chatBaseUrl, 'http://127.0.0.1:2/v1');
     assertEquals(config.forceChatCompletions, false);
+    assertEquals(config.forceResponses, false);
     assertEquals(config.nvidiaCompat, false);
     assertEquals(config.isCloudflare, false);
     assertEquals(config.requestIntervalMs, 0);
@@ -159,6 +166,30 @@ Deno.test('loadConfig requires real environment variables', () => {
       if (value === undefined) Deno.env.delete(key);
       else Deno.env.set(key, value);
     }
+  }
+});
+
+Deno.test('loadConfig accepts force Responses and prompt injection env flags', () => {
+  const originalCorrect = Deno.env.get(FORCE_RESPONSES);
+  const originalLegacy = Deno.env.get(FORCE_RESPONSES_LEGACY_TYPO);
+  const originalDisablePromptInjection = Deno.env.get(DISABLE_PROMPT_INJECTION);
+  try {
+    setRequiredConfigEnv();
+    Deno.env.set(FORCE_RESPONSES_LEGACY_TYPO, 'true');
+    assertEquals(loadConfig().forceResponses, true);
+
+    Deno.env.set(FORCE_RESPONSES, 'false');
+    assertEquals(loadConfig().forceResponses, false);
+
+    Deno.env.set(DISABLE_PROMPT_INJECTION, 'true');
+    assertEquals(loadConfig().disablePromptInjection, true);
+  } finally {
+    if (originalCorrect === undefined) Deno.env.delete(FORCE_RESPONSES);
+    else Deno.env.set(FORCE_RESPONSES, originalCorrect);
+    if (originalLegacy === undefined) Deno.env.delete(FORCE_RESPONSES_LEGACY_TYPO);
+    else Deno.env.set(FORCE_RESPONSES_LEGACY_TYPO, originalLegacy);
+    if (originalDisablePromptInjection === undefined) Deno.env.delete(DISABLE_PROMPT_INJECTION);
+    else Deno.env.set(DISABLE_PROMPT_INJECTION, originalDisablePromptInjection);
   }
 });
 

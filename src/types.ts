@@ -18,6 +18,8 @@ export type ProxyConfig = {
   responsesBaseUrl: string | null;
   chatBaseUrl: string;
   forceChatCompletions: boolean;
+  forceResponses?: boolean;
+  disablePromptInjection?: boolean;
   nvidiaCompat: boolean;
   isCloudflare: boolean;
   defaultModel: string;

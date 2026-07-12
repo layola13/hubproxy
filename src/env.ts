@@ -149,6 +149,8 @@ export function loadConfig(): ProxyConfig {
   const accountEmail = Deno.env.get('ACCOUNT_EMAIL') ?? null;
   const accountName = Deno.env.get('ACCOUNT_NAME') ?? null;
   const accountPlanType = Deno.env.get('ACCOUNT_PLAN_TYPE') ?? null;
+  const forceResponsesEnv = Deno.env.get('HUBPROXY_FORCE_RESPONSES') ??
+    Deno.env.get('HUBPROXY_FORCE_RESPONESE');
   if (!chatBaseUrl) throw new Error('CHAT_BASE_URL is required');
   if (!defaultModel) throw new Error('DEFAULT_MODEL is required');
   if (!dataDir) throw new Error('DATA_DIR is required');
@@ -164,6 +166,11 @@ export function loadConfig(): ProxyConfig {
     forceChatCompletions: parseBoolEnv(
       'HUBPROXY_FORCE_CHAT_COMPLETIONS',
       Deno.env.get('HUBPROXY_FORCE_CHAT_COMPLETIONS'),
+    ),
+    forceResponses: parseBoolEnv('HUBPROXY_FORCE_RESPONSES', forceResponsesEnv),
+    disablePromptInjection: parseBoolEnv(
+      'HUBPROXY_DISABLE_PROMPT_INJECTION',
+      Deno.env.get('HUBPROXY_DISABLE_PROMPT_INJECTION'),
     ),
     nvidiaCompat: parseBoolEnv('HUBPROXY_NVIDIA_COMPAT', Deno.env.get('HUBPROXY_NVIDIA_COMPAT')),
     isCloudflare: parseBoolEnv('IS_CF', Deno.env.get('IS_CF')),

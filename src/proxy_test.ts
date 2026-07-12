@@ -1837,6 +1837,174 @@ Deno.test('proxyOpenAI falls back from strict responses tools errors with additi
   }
 });
 
+Deno.test('proxyOpenAI force Responses keeps tools errors on the Responses endpoint', async () => {
+  const seen: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    seen.push(String(input));
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: 'bad response status code 400',
+          type: 'invalid_request_error',
+          param: 'tools',
+        },
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          input: 'hi',
+          tools: [{ type: 'function', name: 'lookup', parameters: {} }],
+        }),
+      }),
+      { ...config, forceResponses: true },
+    );
+
+    assertEquals(resp.status, 400);
+    assertEquals(seen, ['http://127.0.0.1:8788/v1/responses']);
+    assertEquals((await resp.json()).error.param, 'tools');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves Responses Lite additional_tools without top-level tools', async () => {
+  const seen: { body?: string; headers?: Headers } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    seen.headers = init?.headers as Headers;
+    return new Response(JSON.stringify({ id: 'resp_test', output: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-openai-internal-codex-responses-lite': 'true',
+        },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          input: [{
+            type: 'additional_tools',
+            role: 'developer',
+            tools: [{ type: 'function', name: 'lookup', parameters: {} }],
+          }, {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hi' }],
+          }],
+          tool_choice: 'auto',
+          parallel_tool_calls: false,
+          store: false,
+          stream: false,
+          include: [],
+        }),
+      }),
+      { ...config, forceResponses: true },
+    );
+
+    assertEquals(resp.status, 200);
+    const body = JSON.parse(seen.body ?? '{}') as Record<string, unknown>;
+    assertEquals('tools' in body, false);
+    assertEquals(
+      seen.headers?.get('x-openai-internal-codex-responses-lite'),
+      'true',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves additional_tools function calls from chat fallback', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/responses')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'bad response status code 400',
+            type: 'invalid_request_error',
+            param: 'tools',
+            code: null,
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: 'call_exec',
+              type: 'function',
+              function: { name: 'exec_command', arguments: '{"cmd":"pwd"}' },
+            }],
+          },
+        }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          stream: false,
+          input: [
+            {
+              type: 'additional_tools',
+              role: 'developer',
+              tools: [{
+                type: 'function',
+                name: 'exec_command',
+                parameters: { type: 'object', properties: { cmd: { type: 'string' } } },
+              }],
+            },
+            { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'pwd' }] },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const body = JSON.parse(await resp.text()) as {
+      output?: Array<{ type?: string; name?: string; arguments?: string }>;
+    };
+    const call = body.output?.find((item) => item.type === 'function_call');
+    assertEquals(call?.name, 'exec_command');
+    assertEquals(call?.arguments, '{"cmd":"pwd"}');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI falls back from invalid codex responses compatibility errors', async () => {
   const seen: Array<{ url: string; body?: string }> = [];
   const originalFetch = globalThis.fetch;
@@ -2063,7 +2231,64 @@ Deno.test('proxyOpenAI drops non-function tools for chat upstreams', async () =>
   }
 });
 
-Deno.test('proxyOpenAI injects discovered MCP namespace tools into responses chat fallback', async () => {
+Deno.test('proxyOpenAI does not inject unrequested MCP namespace tools into responses chat fallback', async () => {
+  setMcpToolDiscoveryForTests(async () => [{
+    type: 'namespace',
+    name: 'mcp__code_index__',
+    tools: [{
+      type: 'function',
+      name: 'describe_index',
+      description: 'Describe the generated code index',
+      parameters: { type: 'object', properties: {} },
+    }],
+  }]);
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          tools: [{
+            type: 'function',
+            name: 'exec_command',
+            parameters: { type: 'object', properties: {} },
+          }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const chatBody = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const chatToolNames = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(chatToolNames.includes('exec_command'), true);
+    assertEquals(chatToolNames.includes('mcp__code_index__describe_index'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('proxyOpenAI injects requested MCP namespace tools into responses chat fallback', async () => {
   setMcpToolDiscoveryForTests(async () => [{
     type: 'namespace',
     name: 'mcp__code_index__',
@@ -2107,6 +2332,7 @@ Deno.test('proxyOpenAI injects discovered MCP namespace tools into responses cha
         body: JSON.stringify({
           model: 'models/mimo-v2.5-pro',
           stream: false,
+          tools: [{ type: 'namespace', name: 'mcp__code_index__' }],
           input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
         }),
       }),
@@ -2788,6 +3014,142 @@ Deno.test('proxyOpenAI auto-compacts oversized custom-context responses requests
     const serialized = JSON.stringify(forwarded);
     assertEquals(serialized.includes('Compressed prior context summary'), true);
     assertEquals(serialized.includes('summary: keep only key state'), true);
+    assertEquals(serialized.includes(longText), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI auto-compaction replaces chat history instead of prepending summary', async () => {
+  const seen: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    seen.push({ url, body });
+    if (body?.includes('Produce a compact continuation summary')) {
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'summary: compacted state' } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const longHistory: Array<{ role: string; content: string }> = [];
+    for (let i = 0; i < 80; i++) {
+      longHistory.push({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `historical turn ${i} ${'上下文'.repeat(120)}`,
+      });
+    }
+    longHistory.push({ role: 'user', content: 'final actionable question' });
+    const originalBody = JSON.stringify({
+      model: 'z-ai/glm-5.2',
+      stream: false,
+      messages: longHistory,
+    });
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: originalBody,
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        forceChatCompletions: true,
+        nvidiaCompat: true,
+        customContextWindowTokens: 2048,
+        contextCompactThresholdPercent: 75,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const chatCalls = seen.filter((e) => e.url === 'http://127.0.0.1:8789/v1/chat/completions');
+    assertEquals(chatCalls.length, 2);
+    const forwarded = JSON.parse(chatCalls[1].body ?? '{}') as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    assertEquals(forwarded.messages.length, 2);
+    assertEquals(forwarded.messages[0].role, 'system');
+    assertEquals(forwarded.messages[0].content.includes('summary: compacted state'), true);
+    assertEquals(forwarded.messages[1].role, 'user');
+    assertEquals(forwarded.messages[1].content, 'final actionable question');
+    assert((chatCalls[1].body ?? '').length < originalBody.length);
+    assertEquals((chatCalls[1].body ?? '').includes('historical turn 20'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI counts reasoning fields toward context auto-compaction', async () => {
+  const seen: Array<{ url: string; body?: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    seen.push({ url, body });
+    if (body?.includes('Produce a compact continuation summary')) {
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'summary: reasoning compacted' } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const reasoningBlob = '内部推理'.repeat(800);
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'z-ai/glm-5.2',
+          stream: false,
+          messages: [
+            { role: 'user', content: 'small question' },
+            {
+              role: 'assistant',
+              content: 'short answer',
+              reasoning_content: reasoningBlob,
+            },
+            { role: 'user', content: 'final question' },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        forceChatCompletions: true,
+        nvidiaCompat: true,
+        customContextWindowTokens: 2048,
+        contextCompactThresholdPercent: 75,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const chatCalls = seen.filter((e) => e.url === 'http://127.0.0.1:8789/v1/chat/completions');
+    assertEquals(chatCalls.length, 2);
+    assertEquals(
+      (chatCalls[0].body ?? '').includes('Produce a compact continuation summary'),
+      true,
+    );
+    const forwarded = JSON.parse(chatCalls[1].body ?? '{}') as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    assertEquals(forwarded.messages.length, 2);
+    assertEquals(forwarded.messages[0].content.includes('summary: reasoning compacted'), true);
+    assertEquals(forwarded.messages[1].content, 'final question');
+    assertEquals((chatCalls[1].body ?? '').includes(reasoningBlob), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2962,7 +3324,7 @@ Deno.test('proxyOpenAI compacts overflow 400 on direct chat/completions path too
     globalThis.fetch = originalFetch;
   }
 });
-Deno.test('proxyOpenAI keeps first 3 and last 3 turns when nvidiaCompat summary retry still overflows', async () => {
+Deno.test('proxyOpenAI tightens edge trim when nvidiaCompat summary and edge retry still overflow', async () => {
   const seen: Array<{ url: string; body?: string; status?: number }> = [];
   const originalFetch = globalThis.fetch;
   const overflowMsg = JSON.stringify({
@@ -2987,14 +3349,14 @@ Deno.test('proxyOpenAI keeps first 3 and last 3 turns when nvidiaCompat summary 
     }
 
     mainCallCount += 1;
-    // First (original) and second (summary-compressed) main calls both overflow.
+    // Summary-compressed and first edge-trim main calls both overflow.
     if (mainCallCount <= 2) {
       return new Response(overflowMsg, {
         status: 400,
         headers: { 'content-type': 'application/json' },
       });
     }
-    // The third (edge-trim) main call succeeds.
+    // The tighter edge-trim main call succeeds.
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -3032,7 +3394,7 @@ Deno.test('proxyOpenAI keeps first 3 and last 3 turns when nvidiaCompat summary 
     const handshake = chatCalls.filter((e) =>
       (e.body ?? '').includes('Produce a compact continuation summary')
     );
-    assertEquals(handshake.length, 1);
+    assertEquals(handshake.length, 2);
     const mainCalls = chatCalls.filter((e) =>
       !(e.body ?? '').includes('Produce a compact continuation summary')
     );
@@ -3047,6 +3409,7 @@ Deno.test('proxyOpenAI keeps first 3 and last 3 turns when nvidiaCompat summary 
     assertEquals(serialized.includes('Middle turns of the prior conversation'), true);
     assert(mainCalls[2].body !== mainCalls[0].body);
     assert(edgeTrimmed.messages.length < longHistory.length);
+    assert(edgeTrimmed.messages.length < JSON.parse(mainCalls[1].body ?? '{}').messages.length);
     assert(edgeTrimmed.messages.length > 0);
   } finally {
     globalThis.fetch = originalFetch;
@@ -3475,6 +3838,53 @@ Deno.test('proxyOpenAI keeps the chat fallback notice in plan mode', async () =>
       ),
       true,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI can disable its chat fallback system notice', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          instructions: 'original client instructions',
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hello' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        disablePromptInjection: true,
+      },
+      { collaborationModeKind: 'plan' },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const systemText = body.messages?.filter((message) => message.role === 'system')
+      .map((message) => message.content ?? '').join('\n') ?? '';
+    assertEquals(systemText.includes('original client instructions'), true);
+    assertEquals(systemText.includes('Compatibility note:'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -5225,4 +5635,507 @@ Deno.test('normalizeResponsesEvent un-flattens namespaced tools and denormalizes
   const res5 = normalizeResponsesEvent(event5, new Set(['mcp__custom_tool__']));
   const args5 = JSON.parse((res5.item as Record<string, unknown>).arguments as string);
   assertEquals(args5.server, 'custom-tool');
+});
+
+// ---------------------------------------------------------------------------
+// Focused regression suite for the gpt-5.6 tool-call fix and MCP-vs-ordinary
+// tool separation.  These tests exercise the two changes that made 5.6 unable
+// to call ordinary function tools:
+//   1. extractAllowedChatToolNames now reads the full Responses body
+//      (tools + input[].additional_tools) so ordinary function_call outputs
+//      coming back from the chat fallback are not silently dropped.
+//   2. appendMcpNamespaceToolsForResponses only augments MCP namespaces that
+//      the client explicitly requested, so third-party MCP plugins no longer
+//      pollute the fallback tool list for models that only declared ordinary
+//      function tools.
+// The suite covers force-chat, responses-400 fallback, stream and non-stream,
+// mixed MCP + ordinary tools, and the pure normalizers.
+// ---------------------------------------------------------------------------
+
+Deno.test('proxyOpenAI preserves ordinary function tool call in force-chat mode without responses roundtrip', async () => {
+  const seen: { url?: string; body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.url = String(input);
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: 'call_force_exec',
+              type: 'function',
+              function: { name: 'exec_command', arguments: '{"cmd":"pwd"}' },
+            }],
+          },
+        }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          stream: false,
+          tools: [{
+            type: 'function',
+            name: 'exec_command',
+            description: 'Run a shell command.',
+            parameters: {
+              type: 'object',
+              properties: { cmd: { type: 'string' } },
+              required: ['cmd'],
+              additionalProperties: false,
+            },
+          }],
+          input: [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'call exec_command to run pwd' }],
+          }],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    // Must have gone straight to chat completions, no responses roundtrip.
+    assertEquals(seen.url?.includes('/chat/completions'), true);
+    const chatBody = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const names = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(names.includes('exec_command'), true);
+    assertEquals(names.some((name) => String(name).startsWith('mcp__')), false);
+
+    const body = JSON.parse(await resp.text()) as {
+      output?: Array<{ type?: string; name?: string; call_id?: string; arguments?: string }>;
+    };
+    const call = body.output?.find((item) => item.type === 'function_call');
+    assertEquals(call?.name, 'exec_command');
+    assertEquals(call?.call_id, 'call_force_exec');
+    assertEquals(call?.arguments, '{"cmd":"pwd"}');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI preserves ordinary function tool call from streaming chat fallback for gpt-5.6', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/responses')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'bad response status code 400',
+            type: 'invalid_request_error',
+            param: 'tools',
+            code: null,
+          },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      [
+        'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_stream_exec","type":"function","function":{"name":"exec_command","arguments":"{\\"cmd\\":\\"pwd\\"}"}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          stream: true,
+          input: [
+            {
+              type: 'additional_tools',
+              role: 'developer',
+              tools: [{
+                type: 'function',
+                name: 'exec_command',
+                parameters: { type: 'object', properties: { cmd: { type: 'string' } } },
+              }],
+            },
+            { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'pwd' }] },
+          ],
+        }),
+      }),
+      { ...config, responsesBaseUrl: 'http://127.0.0.1:8788/v1' },
+    );
+
+    const events = parseSseEvents(await resp.text());
+    const toolEvent = events.find((event) => event.event === 'response.output_item.done');
+    const item = toolEvent?.data.item as Record<string, unknown> | undefined;
+    assertEquals(item?.type, 'function_call');
+    assertEquals(item?.name, 'exec_command');
+    assertEquals(item?.call_id, 'call_stream_exec');
+    assertEquals(item?.arguments, '{"cmd":"pwd"}');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI keeps both ordinary function tools and MCP namespace tools when both are requested', async () => {
+  setMcpToolDiscoveryForTests(async () => [{
+    type: 'namespace',
+    name: 'mcp__code_index__',
+    tools: [{
+      type: 'function',
+      name: 'search',
+      description: 'Search raw source text.',
+      parameters: { type: 'object', properties: {} },
+    }],
+  }]);
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_exec',
+                type: 'function',
+                function: { name: 'exec_command', arguments: '{"cmd":"ls"}' },
+              },
+              {
+                id: 'call_mcp_search',
+                type: 'function',
+                function: { name: 'mcp__code_index__search', arguments: '{"query":"foo"}' },
+              },
+            ],
+          },
+        }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-luna',
+          stream: false,
+          tools: [
+            {
+              type: 'function',
+              name: 'exec_command',
+              parameters: { type: 'object', properties: {} },
+            },
+            { type: 'namespace', name: 'mcp__code_index__' },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const chatBody = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const names = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(names.includes('exec_command'), true);
+    assertEquals(names.includes('mcp__code_index__search'), true);
+
+    const body = JSON.parse(await resp.text()) as {
+      output?: Array<{ type?: string; name?: string; namespace?: string }>;
+    };
+    const outputs = body.output ?? [];
+    const execCall = outputs.find((item) => item.name === 'exec_command');
+    assertEquals(execCall?.type, 'function_call');
+    const mcpCall = outputs.find((item) => item.name === 'search');
+    assertEquals(mcpCall?.type, 'function_call');
+    assertEquals(mcpCall?.namespace, 'mcp__code_index');
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('proxyOpenAI does not let additional_tools MCP namespace pollute ordinary function tool fallback', async () => {
+  setMcpToolDiscoveryForTests(async () => [{
+    type: 'namespace',
+    name: 'mcp__mimir__',
+    tools: [{
+      type: 'function',
+      name: 'mimir_search',
+      parameters: { type: 'object', properties: {} },
+    }],
+  }]);
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: 'call_exec',
+              type: 'function',
+              function: { name: 'exec_command', arguments: '{"cmd":"pwd"}' },
+            }],
+          },
+        }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          stream: false,
+          tools: [{
+            type: 'function',
+            name: 'exec_command',
+            parameters: { type: 'object', properties: {} },
+          }],
+          // additional_tools only declares ordinary function tools; no MCP
+          // namespace is requested anywhere, so discovery results must not
+          // be injected into the fallback tool list.
+          input: [
+            {
+              type: 'additional_tools',
+              role: 'developer',
+              tools: [{
+                type: 'function',
+                name: 'apply_patch',
+                parameters: { type: 'object', properties: {} },
+              }],
+            },
+            { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'pwd' }] },
+          ],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const chatBody = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const names = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(names.includes('exec_command'), true);
+    assertEquals(names.includes('apply_patch'), true);
+    assertEquals(names.includes('mcp__mimir__mimir_search'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('proxyOpenAI drops MCP tool calls from upstream when namespace was not requested', async () => {
+  setMcpToolDiscoveryForTests(async () => [{
+    type: 'namespace',
+    name: 'mcp__code_index__',
+    tools: [{
+      type: 'function',
+      name: 'search',
+      parameters: { type: 'object', properties: {} },
+    }],
+  }]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/responses')) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'bad response status code 400',
+            type: 'invalid_request_error',
+            param: 'tools',
+          },
+        }),
+        { status: 400 },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: 'call_mcp_unrequested',
+              type: 'function',
+              function: { name: 'mcp__code_index__search', arguments: '{}' },
+            }],
+          },
+        }],
+      }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          stream: false,
+          tools: [{
+            type: 'function',
+            name: 'exec_command',
+            parameters: { type: 'object', properties: {} },
+          }],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      { ...config, responsesBaseUrl: 'http://127.0.0.1:8788/v1' },
+    );
+
+    const body = JSON.parse(await resp.text()) as {
+      output?: Array<{ type?: string; name?: string }>;
+    };
+    const mcpCall = body.output?.find((item) => item.name === 'search');
+    // The unrequested MCP tool call is not in the allowed set, so the proxy
+    // rewrites it into an exec_command notice rather than emitting it.
+    assertEquals(mcpCall, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
+});
+
+Deno.test('normalizeChatToolCall distinguishes ordinary tools from MCP namespace tools', () => {
+  const namespaces = new Set(['mcp__code_index__']);
+
+  // Ordinary exec_command is preserved unchanged (besides argument coercion).
+  const ordinary = normalizeChatToolCall(
+    { id: 'call_1', name: 'exec_command', arguments: '{"cmd":"pwd"}' },
+    namespaces,
+    new Set(['exec_command']),
+  );
+  assertEquals(ordinary?.name, 'exec_command');
+  assertEquals(ordinary?.arguments, '{"cmd":"pwd"}');
+
+  // A flattened MCP tool name is preserved because it belongs to a namespace.
+  const mcpTool = normalizeChatToolCall(
+    { id: 'call_2', name: 'mcp__code_index__search', arguments: '{}' },
+    namespaces,
+    new Set(['exec_command', 'mcp__code_index__search']),
+  );
+  assertEquals(mcpTool?.name, 'mcp__code_index__search');
+
+  // A non-allowed, non-namespaced tool is rewritten to an exec_command notice,
+  // proving ordinary tools and MCP tools follow different allowed-set rules.
+  const unknown = normalizeChatToolCall(
+    { id: 'call_3', name: 'some_random_tool', arguments: '{}' },
+    namespaces,
+    new Set(['exec_command']),
+  );
+  assertEquals(unknown?.name, 'exec_command');
+  assert(unknown?.arguments.includes('some_random_tool'));
+});
+
+Deno.test('proxyOpenAI preserves plan and exec tools alongside MCP namespace in the same fallback', async () => {
+  setMcpToolDiscoveryForTests(async () => [{
+    type: 'namespace',
+    name: 'mcp__code_index__',
+    tools: [{
+      type: 'function',
+      name: 'build_index',
+      parameters: { type: 'object', properties: {} },
+    }],
+  }]);
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-luna',
+          stream: false,
+          tools: [
+            {
+              type: 'function',
+              name: 'exec_command',
+              parameters: { type: 'object', properties: {} },
+            },
+            {
+              type: 'function',
+              name: 'update_plan',
+              parameters: { type: 'object', properties: {} },
+            },
+            { type: 'namespace', name: 'mcp__code_index__' },
+          ],
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+        }),
+      }),
+      {
+        ...config,
+        forceChatCompletions: true,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    const chatBody = JSON.parse(seen.body ?? '{}') as {
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+    const names = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
+    assertEquals(names.includes('exec_command'), true);
+    assertEquals(names.includes('update_plan'), true);
+    assertEquals(names.includes('mcp__code_index__build_index'), true);
+    assertEquals(names.includes('mcp__mimir__mimir_search'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setMcpToolDiscoveryForTests(async () => []);
+  }
 });
