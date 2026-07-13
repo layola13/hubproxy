@@ -1769,13 +1769,13 @@ Deno.test('proxyOpenAI de-normalizes server names and normalizes dot-notation to
   }
 });
 
-Deno.test('proxyOpenAI falls back from strict responses tools errors with additional_tools', async () => {
+Deno.test('proxyOpenAI retries strict responses tools errors and succeeds without downgrade', async () => {
   const seen: Array<{ url: string; body?: string }> = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     seen.push({ url, body: typeof init?.body === 'string' ? init.body : undefined });
-    if (url.includes('/responses')) {
+    if (url.includes('/responses') && seen.length === 1) {
       return new Response(
         JSON.stringify({
           error: {
@@ -1788,10 +1788,16 @@ Deno.test('proxyOpenAI falls back from strict responses tools errors with additi
         { status: 400, headers: { 'content-type': 'application/json' } },
       );
     }
-    return new Response(
-      JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
-      { status: 200, headers: { 'content-type': 'application/json' } },
-    );
+    if (url.includes('/responses')) {
+      return new Response(
+        JSON.stringify({ id: 'resp_retry_ok', output: [], output_text: '' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
   }) as typeof fetch;
 
   try {
@@ -1826,18 +1832,60 @@ Deno.test('proxyOpenAI falls back from strict responses tools errors with additi
     assertEquals(resp.status, 200);
     assertEquals(seen.length, 2);
     assertEquals(seen[0].url.includes('/responses'), true);
-    assertEquals(seen[1].url.includes('/chat/completions'), true);
-    const chatBody = JSON.parse(seen[1].body ?? '{}') as {
-      tools?: Array<{ function?: { name?: string } }>;
-    };
-    const toolNames = chatBody.tools?.map((tool) => tool.function?.name) ?? [];
-    assertEquals(toolNames.includes('mcp__example__lookup'), true);
+    assertEquals(seen[1].url.includes('/responses'), true);
+    assertEquals((await resp.json()).id, 'resp_retry_ok');
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-Deno.test('proxyOpenAI force Responses keeps tools errors on the Responses endpoint', async () => {
+Deno.test('proxyOpenAI retries strict responses tools errors once without downgrade', async () => {
+  const seen: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    seen.push(url);
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: 'bad response status code 400',
+          type: 'invalid_request_error',
+          param: 'tools',
+          code: null,
+        },
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          input: 'hi',
+          tools: [{ type: 'namespace', name: 'collaboration', tools: [] }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: 'http://127.0.0.1:8788/v1',
+      },
+    );
+
+    assertEquals(resp.status, 400);
+    assertEquals(seen.length, 2);
+    assertEquals(seen.every((url) => url.includes('/responses')), true);
+    assertEquals((await resp.json()).error.param, 'tools');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI force Responses retries tools errors on the Responses endpoint', async () => {
   const seen: string[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -1870,7 +1918,10 @@ Deno.test('proxyOpenAI force Responses keeps tools errors on the Responses endpo
     );
 
     assertEquals(resp.status, 400);
-    assertEquals(seen, ['http://127.0.0.1:8788/v1/responses']);
+    assertEquals(seen, [
+      'http://127.0.0.1:8788/v1/responses',
+      'http://127.0.0.1:8788/v1/responses',
+    ]);
     assertEquals((await resp.json()).error.param, 'tools');
   } finally {
     globalThis.fetch = originalFetch;
@@ -1931,10 +1982,58 @@ Deno.test('proxyOpenAI preserves Responses Lite additional_tools without top-lev
   }
 });
 
-Deno.test('proxyOpenAI preserves additional_tools function calls from chat fallback', async () => {
+Deno.test('proxyOpenAI preserves empty Responses Lite additional_tools without top-level tools', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ id: 'resp_test', output: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.6-sol',
+          input: [{
+            type: 'additional_tools',
+            role: 'developer',
+            tools: [],
+          }, {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'hi' }],
+          }],
+          stream: true,
+        }),
+      }),
+      { ...config, forceResponses: true },
+    );
+
+    assertEquals(resp.status, 200);
+    const body = JSON.parse(seen.body ?? '{}') as Record<string, unknown>;
+    assertEquals('tools' in body, false);
+    assertEquals(
+      Array.isArray((body.input as Array<Record<string, unknown>>)?.[0]?.tools),
+      true,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI keeps additional_tools function calls on Responses tools errors', async () => {
+  const seen: string[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
+    seen.push(url);
     if (url.includes('/responses')) {
       return new Response(
         JSON.stringify({
@@ -1948,21 +2047,7 @@ Deno.test('proxyOpenAI preserves additional_tools function calls from chat fallb
         { status: 400, headers: { 'content-type': 'application/json' } },
       );
     }
-    return new Response(
-      JSON.stringify({
-        choices: [{
-          message: {
-            content: null,
-            tool_calls: [{
-              id: 'call_exec',
-              type: 'function',
-              function: { name: 'exec_command', arguments: '{"cmd":"pwd"}' },
-            }],
-          },
-        }],
-      }),
-      { status: 200, headers: { 'content-type': 'application/json' } },
-    );
+    return new Response('unexpected chat fallback', { status: 500 });
   }) as typeof fetch;
 
   try {
@@ -1994,12 +2079,10 @@ Deno.test('proxyOpenAI preserves additional_tools function calls from chat fallb
       },
     );
 
-    const body = JSON.parse(await resp.text()) as {
-      output?: Array<{ type?: string; name?: string; arguments?: string }>;
-    };
-    const call = body.output?.find((item) => item.type === 'function_call');
-    assertEquals(call?.name, 'exec_command');
-    assertEquals(call?.arguments, '{"cmd":"pwd"}');
+    assertEquals(resp.status, 400);
+    assertEquals(seen.length, 2);
+    assertEquals(seen.every((url) => url.includes('/responses')), true);
+    assertEquals((await resp.json()).error.param, 'tools');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -5730,10 +5813,12 @@ Deno.test('proxyOpenAI preserves ordinary function tool call in force-chat mode 
   }
 });
 
-Deno.test('proxyOpenAI preserves ordinary function tool call from streaming chat fallback for gpt-5.6', async () => {
+Deno.test('proxyOpenAI keeps streaming ordinary function tools on Responses tools errors', async () => {
+  const seen: string[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
+    seen.push(url);
     if (url.includes('/responses')) {
       return new Response(
         JSON.stringify({
@@ -5747,17 +5832,7 @@ Deno.test('proxyOpenAI preserves ordinary function tool call from streaming chat
         { status: 400, headers: { 'content-type': 'application/json' } },
       );
     }
-    return new Response(
-      [
-        'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_stream_exec","type":"function","function":{"name":"exec_command","arguments":"{\\"cmd\\":\\"pwd\\"}"}}]},"finish_reason":null}]}',
-        '',
-        'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}',
-        '',
-        'data: [DONE]',
-        '',
-      ].join('\n'),
-      { status: 200, headers: { 'content-type': 'text/event-stream' } },
-    );
+    return new Response('unexpected chat fallback', { status: 500 });
   }) as typeof fetch;
 
   try {
@@ -5786,13 +5861,10 @@ Deno.test('proxyOpenAI preserves ordinary function tool call from streaming chat
       { ...config, responsesBaseUrl: 'http://127.0.0.1:8788/v1' },
     );
 
-    const events = parseSseEvents(await resp.text());
-    const toolEvent = events.find((event) => event.event === 'response.output_item.done');
-    const item = toolEvent?.data.item as Record<string, unknown> | undefined;
-    assertEquals(item?.type, 'function_call');
-    assertEquals(item?.name, 'exec_command');
-    assertEquals(item?.call_id, 'call_stream_exec');
-    assertEquals(item?.arguments, '{"cmd":"pwd"}');
+    assertEquals(resp.status, 400);
+    assertEquals(seen.length, 2);
+    assertEquals(seen.every((url) => url.includes('/responses')), true);
+    assertEquals((await resp.json()).error.param, 'tools');
   } finally {
     globalThis.fetch = originalFetch;
   }

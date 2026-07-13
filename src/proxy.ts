@@ -1205,6 +1205,14 @@ function additionalToolsFromResponsesInput(input: unknown): unknown[] {
   });
 }
 
+function hasAdditionalToolsInputItem(input: unknown): boolean {
+  if (!Array.isArray(input)) return false;
+  return input.some((item) =>
+    item && typeof item === 'object' &&
+    (item as Record<string, unknown>).type === 'additional_tools'
+  );
+}
+
 function collectResponsesToolSpecs(parsed: Record<string, unknown>): unknown[] {
   return [
     ...(Array.isArray(parsed.tools) ? parsed.tools : []),
@@ -1791,7 +1799,7 @@ async function maybeRewriteRequestBody(
     }
     if (isResponses) {
       const isResponsesLite = !Array.isArray(parsed.tools) &&
-        additionalToolsFromResponsesInput(parsed.input).length > 0;
+        hasAdditionalToolsInputItem(parsed.input);
       if (!isResponsesLite) {
         appendCollaborationNamespaceToolsForResponses(parsed);
         await appendMcpNamespaceToolsForResponses(parsed, config);
@@ -4287,7 +4295,7 @@ async function forwardWithFallback(
     if (fallbackResponse) return fallbackResponse;
   }
 
-  const responsesResponse = await send(firstTarget, responsesPath, responsesRequestBody).catch(
+  let responsesResponse = await send(firstTarget, responsesPath, responsesRequestBody).catch(
     (error) => {
       if (!isFallbackEligibleError(error)) throw error;
       return null;
@@ -4295,17 +4303,32 @@ async function forwardWithFallback(
   );
   if (
     responsesResponse && !responsesResponse.ok &&
+    await isResponsesToolsParamError(responsesResponse)
+  ) {
+    writeUpstreamLog({
+      path: 'internal/responses-tools-param-retry',
+      requestPath: responsesPath,
+      status: responsesResponse.status,
+    });
+    responsesResponse = await send(firstTarget, responsesPath, responsesRequestBody).catch(
+      (error) => {
+        if (!isFallbackEligibleError(error)) throw error;
+        return null;
+      },
+    );
+  }
+  if (
+    responsesResponse && !responsesResponse.ok &&
     !isFallbackEligibleStatus(responsesResponse.status)
   ) {
     if (config.forceResponses) return responsesResponse;
     if (await isResponsesToolsParamError(responsesResponse)) {
       writeUpstreamLog({
-        path: 'internal/responses-tools-param-fallback',
+        path: 'internal/responses-tools-param-return',
         requestPath: responsesPath,
         status: responsesResponse.status,
       });
-      const fallbackResponse = await sendChatFallback(config.chatBaseUrl, true);
-      if (fallbackResponse) return fallbackResponse;
+      return responsesResponse;
     }
     if (await isResponsesCodexCompatibilityError(responsesResponse)) {
       writeUpstreamLog({
