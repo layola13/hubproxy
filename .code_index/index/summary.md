@@ -2,25 +2,25 @@
 
 - root: /home/vscode/projects/hubproxy
 - output: /home/vscode/projects/hubproxy/.code_index
-- modules: 104
+- modules: 108
 - classes: 13
-- functions: 1243
+- functions: 1288
 - methods: 98
-- edges: 3724
-- file_limit: 20000
+- edges: 3938
+- file_limit: none
 - file_limit_reached: no
 - truncated_files: 0
 
 ## Languages
-- generic: 33
-- javascript: 2
+- generic: 36
+- javascript: 3
 - python: 3
 - saasm: 51
 - typescript: 15
 
 ## Parse Modes
-- ast-tree-sitter: 33
-- fallback-javascript: 2
+- ast-tree-sitter: 36
+- fallback-javascript: 3
 - fallback-python: 3
 - fallback-typescript: 15
 - saasm-line: 51
@@ -28,7 +28,7 @@
 ## Largest Modules
 | Module | Classes | Functions | Methods | Imports | Parse mode |
 | --- | ---: | ---: | ---: | ---: | --- |
-| src/proxy.ts | 0 | 147 | 0 | 2 | fallback-typescript |
+| src/proxy.ts | 0 | 170 | 0 | 2 | fallback-typescript |
 | sa/src/rpc_system.sa | 0 | 121 | 0 | 16 | saasm-line |
 | sa/src/rpc_system.sai | 0 | 116 | 0 | 0 | saasm-line |
 | src/state.ts | 1 | 18 | 91 | 1 | fallback-typescript |
@@ -38,7 +38,7 @@
 | sa/src/state.sai | 0 | 43 | 0 | 0 | saasm-line |
 | sa/src/rpc_emit.sa | 0 | 42 | 0 | 7 | saasm-line |
 | sa/src/rpc_emit.sai | 0 | 41 | 0 | 0 | saasm-line |
-| src/handlers.ts | 0 | 31 | 0 | 5 | fallback-typescript |
+| src/handlers.ts | 0 | 33 | 0 | 5 | fallback-typescript |
 | src/mcp.ts | 1 | 22 | 7 | 0 | fallback-typescript |
 | sa/src/http_dispatch.sa | 0 | 25 | 0 | 13 | saasm-line |
 | sa/src/proxy.sa | 0 | 24 | 0 | 8 | saasm-line |
@@ -46,8 +46,8 @@
 | sa/src/events.sa | 0 | 21 | 0 | 11 | saasm-line |
 | sa/src/request_context.sa | 0 | 21 | 0 | 11 | saasm-line |
 | sa/src/http_dispatch.sai | 0 | 20 | 0 | 0 | saasm-line |
+| scripts/import_grok_accounts_to_sub2api.js | 0 | 20 | 0 | 4 | fallback-javascript |
 | sa/src/events.sai | 0 | 19 | 0 | 0 | saasm-line |
-| scripts/session2sub2api.js | 0 | 19 | 0 | 1 | fallback-javascript |
 
 ## Parse Errors
 - sa/tests/config_contract_test.sa: unrecognized SA directive: @test "config parser keeps SA port and Deno PORT aliases with dotenv trimming"():; unrecognized SA directive: @test "config parser rejects invalid Deno port range instead of truncating"():; unrecognized SA directive: @test "config load accepts Deno PORT and missing responses base like Deno"():; unrecognized SA directive: @test "config load rejects invalid PORT files like Deno"():

@@ -1,4 +1,5 @@
 # code-index generated artifacts
+.code_index
 .claude/skills/code-index
 .codex/skills/code-index
 .opencode/skills/code-index
@@ -17,3 +18,4 @@ tokens/
 restart_*
 keys/
 tmp/
+.code_index/

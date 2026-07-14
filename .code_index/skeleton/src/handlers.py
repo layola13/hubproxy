@@ -66,6 +66,14 @@ def modeFromInstructionTexts(instructionTexts: list[str]) -> str | None:
     return text.matchAll(...)
 
 # @origin src/handlers.ts:163
+def normalizeMultiAgentMode(value: Any) -> Any:
+    ...
+
+# @origin src/handlers.ts:172
+def multiAgentModeParam(params: dict[str, Any]) -> Any:
+    return normalizeMultiAgentMode(...)
+
+# @origin src/handlers.ts:176
 def inferCollaborationModeKindFromBody(body: str | None) -> str | None:
     JSON.parse(...)
     modeFromExplicitFields(...)
@@ -74,21 +82,21 @@ def inferCollaborationModeKindFromBody(body: str | None) -> str | None:
     test(...)
     return modeFromInstructionTexts(...)
 
-# @origin src/handlers.ts:184
+# @origin src/handlers.ts:197
 def writeModeResolutionLog(entry: dict[str, Any]) -> None:
     writeRequestLog(...)
 
-# @origin src/handlers.ts:191
+# @origin src/handlers.ts:204
 def resolveTurnContext(state: HubState, threadId: str, turnId: str | None, requestBody: str | None) -> ProxyTurnContext | None:
     turnContextForThread(...)
     writeModeResolutionLog(...)
     return inferCollaborationModeKindFromBody(...)
 
-# @origin src/handlers.ts:234
+# @origin src/handlers.ts:247
 def hasValidAuth(req: Request, config: ProxyConfig) -> bool:
     return req.headers.get(...)
 
-# @origin src/handlers.ts:241
+# @origin src/handlers.ts:254
 def redactHeaders(headers: Headers) -> dict[str, str]:
     headers.entries(...)
     key.toLowerCase(...)
@@ -96,17 +104,17 @@ def redactHeaders(headers: Headers) -> dict[str, str]:
     value.slice(...)
     return token.slice(...)
 
-# @origin src/handlers.ts:257
+# @origin src/handlers.ts:270
 def logSummary(entry: dict[str, Any], file: str) -> dict[str, Any]:
     TextEncoder(...)
     return encode(...)
 
-# @origin src/handlers.ts:268
+# @origin src/handlers.ts:281
 def logDirFromEnv() -> str | None:
     Deno.env.get(...)
     return value.trim(...)
 
-# @origin src/handlers.ts:275
+# @origin src/handlers.ts:288
 def writeRequestLog(entry: dict[str, Any]) -> None:
     logDirFromEnv(...)
     JSON.stringify(...)
@@ -119,7 +127,7 @@ def writeRequestLog(entry: dict[str, Any]) -> None:
     crypto.randomUUID(...)
     Deno.writeTextFileSync(...)
 
-# @origin src/handlers.ts:290
+# @origin src/handlers.ts:303
 def writeAuthFailureLog(req: Request, config: ProxyConfig) -> None:
     req.headers.get(...)
     value.startsWith(...)
@@ -130,23 +138,23 @@ def writeAuthFailureLog(req: Request, config: ProxyConfig) -> None:
     preview(...)
     config.authToken.slice(...)
 
-# @origin src/handlers.ts:311
+# @origin src/handlers.ts:324
 def objectParam(value: Any) -> dict[str, Any]:
     return Array.isArray(...)
 
-# @origin src/handlers.ts:317
+# @origin src/handlers.ts:330
 def textParam(value: dict[str, Any], key: str) -> str | None:
     ...
 
-# @origin src/handlers.ts:322
+# @origin src/handlers.ts:335
 def extractAssistantText(value: Any) -> str:
     return Array.isArray(...)
 
-# @origin src/handlers.ts:338
+# @origin src/handlers.ts:351
 def spawnedAgentPath(thread: Any) -> str | None:
     ...
 
-# @origin src/handlers.ts:349
+# @origin src/handlers.ts:362
 def maybeStartBackgroundAgent(input: Any) -> None:
     await proxyOpenAI(...)
     await response.text(...)
@@ -170,7 +178,7 @@ def maybeStartBackgroundAgent(input: Any) -> None:
     extractAssistantText(...)
     String(...)
 
-# @origin src/handlers.ts:409
+# @origin src/handlers.ts:422
 async def handleRpc(req: Request, state: HubState, config: ProxyConfig) -> Response:
     await readJson(...)
     await proxyOpenAI(...)
@@ -184,6 +192,7 @@ async def handleRpc(req: Request, state: HubState, config: ProxyConfig) -> Respo
     toJson(...)
     Deno.cwd(...)
     state.startThread(...)
+    multiAgentModeParam(...)
     String(...)
     state.resumeThread(...)
     state.listThreads(...)
@@ -270,12 +279,12 @@ async def handleRpc(req: Request, state: HubState, config: ProxyConfig) -> Respo
     state.killProcess(...)
     return state.resizeProcess(...)
 
-# @origin src/handlers.ts:1624
+# @origin src/handlers.ts:1642
 async def handleHttp(req: Request, config: ProxyConfig) -> Response:
     handleHttpWithState(...)
     return HubState(...)
 
-# @origin src/handlers.ts:1628
+# @origin src/handlers.ts:1646
 async def handleHttpWithState(req: Request, config: ProxyConfig, state: HubState) -> Response:
     await req.clone(...)
     await proxyOpenAI(...)
@@ -304,12 +313,12 @@ async def handleHttpWithState(req: Request, config: ProxyConfig, state: HubState
     requestTurnId(...)
     return resolveTurnContext(...)
 
-# @origin src/handlers.ts:1697
+# @origin src/handlers.ts:1715
 def jsonResponse(payload: Any, status: Any) -> Response:
     Response(...)
     return JSON.stringify(...)
 
-# @origin src/handlers.ts:1704
+# @origin src/handlers.ts:1722
 def asProxyResult(resp: Response) -> ProxyResult:
     resp.text(...)
     then(...)
