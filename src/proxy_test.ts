@@ -1286,6 +1286,76 @@ Deno.test('proxyOpenAI preserves model name when forwarding request body', async
   }
 });
 
+Deno.test('proxyOpenAI maps configured model name before forwarding request body', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.5',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        modelMap: { 'gpt-5.5': 'grok-4.5', '*': 'fallback-model' },
+      },
+    );
+    const body = JSON.parse(seen.body ?? '{}') as { model?: string };
+    assertEquals(body.model, 'grok-4.5');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI uses wildcard model map when no exact model matches', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'some-other-model',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+        modelMap: { '*': 'grok-4.5' },
+      },
+    );
+    const body = JSON.parse(seen.body ?? '{}') as { model?: string };
+    assertEquals(body.model, 'grok-4.5');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI rejects empty responses request body locally', async () => {
   const originalFetch = globalThis.fetch;
   let called = false;

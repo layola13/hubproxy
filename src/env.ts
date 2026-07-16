@@ -62,6 +62,26 @@ function parseThresholdPercentEnv(name: string, raw: string | undefined): number
   return value;
 }
 
+function parseModelMapEnv(name: string, raw: string | undefined): Record<string, string> {
+  if (raw === undefined || !raw.trim()) return {};
+  const map: Record<string, string> = {};
+  for (const rawEntry of raw.split(',')) {
+    const entry = rawEntry.trim();
+    if (!entry) continue;
+    const separator = entry.indexOf(':');
+    if (separator <= 0 || separator === entry.length - 1) {
+      throw new Error(`${name} entries must use source:target format`);
+    }
+    const source = entry.slice(0, separator).trim();
+    const target = entry.slice(separator + 1).trim();
+    if (!source || !target) {
+      throw new Error(`${name} entries must use source:target format`);
+    }
+    map[source] = target;
+  }
+  return map;
+}
+
 function isTextFilePath(raw: string): boolean {
   return raw.trim().toLowerCase().endsWith('.txt');
 }
@@ -149,6 +169,7 @@ export function loadConfig(): ProxyConfig {
   const accountEmail = Deno.env.get('ACCOUNT_EMAIL') ?? null;
   const accountName = Deno.env.get('ACCOUNT_NAME') ?? null;
   const accountPlanType = Deno.env.get('ACCOUNT_PLAN_TYPE') ?? null;
+  const modelMapEnv = Deno.env.get('HUBPROXY_MODEL_MAP') ?? Deno.env.get('SOURCE_DIST');
   const forceResponsesEnv = Deno.env.get('HUBPROXY_FORCE_RESPONSES') ??
     Deno.env.get('HUBPROXY_FORCE_RESPONESE');
   if (!chatBaseUrl) throw new Error('CHAT_BASE_URL is required');
@@ -175,6 +196,7 @@ export function loadConfig(): ProxyConfig {
     nvidiaCompat: parseBoolEnv('HUBPROXY_NVIDIA_COMPAT', Deno.env.get('HUBPROXY_NVIDIA_COMPAT')),
     isCloudflare: parseBoolEnv('IS_CF', Deno.env.get('IS_CF')),
     defaultModel,
+    modelMap: parseModelMapEnv('HUBPROXY_MODEL_MAP', modelMapEnv),
     defaultApiKey: apiKeys[0],
     apiKeys,
     requestIntervalMs: parseNonNegativeIntegerEnv(

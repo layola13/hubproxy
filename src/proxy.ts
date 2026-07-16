@@ -1768,6 +1768,10 @@ function unconvertibleResponsesRequestResponse(): Response {
   );
 }
 
+function mappedModelName(model: string, config: ProxyConfig): string {
+  return config.modelMap?.[model] ?? config.modelMap?.['*'] ?? model;
+}
+
 async function maybeRewriteRequestBody(
   path: string,
   body: string | undefined,
@@ -1778,7 +1782,9 @@ async function maybeRewriteRequestBody(
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const isResponses = path.includes('/responses');
-    const model = typeof parsed.model === 'string' ? parsed.model : '';
+    const inputModel = typeof parsed.model === 'string' ? parsed.model : '';
+    const model = inputModel ? mappedModelName(inputModel, config) : '';
+    if (inputModel) parsed.model = model;
 
     // Only chat-completions fallback needs these fields stripped. When we are
     // sending a real Responses request upstream, preserve them so plan mode and

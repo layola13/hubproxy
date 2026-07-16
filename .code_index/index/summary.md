@@ -1,8 +1,8 @@
 # Code Index Summary
 
-- root: /home/vscode/projects/hubproxy
-- output: /home/vscode/projects/hubproxy/.code_index
-- modules: 108
+- root: /root/projects/hubproxy
+- output: /root/projects/hubproxy/.code_index
+- modules: 96
 - classes: 13
 - functions: 1288
 - methods: 98
@@ -12,14 +12,14 @@
 - truncated_files: 0
 
 ## Languages
-- generic: 36
+- generic: 24
 - javascript: 3
 - python: 3
 - saasm: 51
 - typescript: 15
 
 ## Parse Modes
-- ast-tree-sitter: 36
+- ast-tree-sitter: 24
 - fallback-javascript: 3
 - fallback-python: 3
 - fallback-typescript: 15

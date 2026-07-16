@@ -15,6 +15,8 @@ const GLM_KEY_FETCH_RETRY_COUNT = 'GLM_KEY_FETCH_RETRY_COUNT';
 const GLM_KEY_FETCH_RETRY_DELAY_MS = 'GLM_KEY_FETCH_RETRY_DELAY_MS';
 const CONTEXT_WINDOW_TOKENS = 'HUBPROXY_CONTEXT_WINDOW_TOKENS';
 const CONTEXT_COMPACT_THRESHOLD_PERCENT = 'HUBPROXY_CONTEXT_COMPACT_THRESHOLD_PERCENT';
+const MODEL_MAP = 'HUBPROXY_MODEL_MAP';
+const SOURCE_DIST = 'SOURCE_DIST';
 const LOG_DIR = 'HUBPROXY_LOG_DIR';
 
 function setRequiredConfigEnv(): void {
@@ -34,6 +36,8 @@ function setRequiredConfigEnv(): void {
   Deno.env.delete(GLM_KEY_REFRESH_INTERVAL_MS);
   Deno.env.delete(GLM_KEY_FETCH_RETRY_COUNT);
   Deno.env.delete(GLM_KEY_FETCH_RETRY_DELAY_MS);
+  Deno.env.delete(MODEL_MAP);
+  Deno.env.delete(SOURCE_DIST);
 }
 
 Deno.test('loadDotenvIntoEnv loads plain keys and skips CODEX_ keys', async () => {
@@ -100,6 +104,8 @@ Deno.test('loadConfig reads OPENAI_API_KEY from txt file and strips trailing com
     GLM_KEY_REFRESH_INTERVAL_MS: Deno.env.get(GLM_KEY_REFRESH_INTERVAL_MS),
     GLM_KEY_FETCH_RETRY_COUNT: Deno.env.get(GLM_KEY_FETCH_RETRY_COUNT),
     GLM_KEY_FETCH_RETRY_DELAY_MS: Deno.env.get(GLM_KEY_FETCH_RETRY_DELAY_MS),
+    HUBPROXY_MODEL_MAP: Deno.env.get(MODEL_MAP),
+    SOURCE_DIST: Deno.env.get(SOURCE_DIST),
     DEFAULT_MODEL: Deno.env.get('DEFAULT_MODEL'),
     OPENAI_API_KEY: Deno.env.get('OPENAI_API_KEY'),
     DATA_DIR: Deno.env.get('DATA_DIR'),
@@ -133,6 +139,8 @@ Deno.test('loadConfig requires real environment variables', () => {
     NEED_RETRY: Deno.env.get(NEED_RETRY),
     IS_CF: Deno.env.get(IS_CF),
     DEFAULT_MODEL: Deno.env.get('DEFAULT_MODEL'),
+    HUBPROXY_MODEL_MAP: Deno.env.get(MODEL_MAP),
+    SOURCE_DIST: Deno.env.get(SOURCE_DIST),
     OPENAI_API_KEY: Deno.env.get('OPENAI_API_KEY'),
     DATA_DIR: Deno.env.get('DATA_DIR'),
   };
@@ -157,6 +165,7 @@ Deno.test('loadConfig requires real environment variables', () => {
     assertEquals(config.customContextWindowTokens, null);
     assertEquals(config.contextCompactThresholdPercent, 90);
     assertEquals(config.defaultModel, 'models/gemma-4-31b-it');
+    assertEquals(config.modelMap, {});
     assertEquals(config.defaultApiKey, 'secret-token');
     assertEquals(config.apiKeys, ['secret-token']);
     assertEquals(config.port, 9999);
@@ -166,6 +175,29 @@ Deno.test('loadConfig requires real environment variables', () => {
       if (value === undefined) Deno.env.delete(key);
       else Deno.env.set(key, value);
     }
+  }
+});
+
+Deno.test('loadConfig reads model map from preferred env and SOURCE_DIST alias', () => {
+  const originalPreferred = Deno.env.get(MODEL_MAP);
+  const originalAlias = Deno.env.get(SOURCE_DIST);
+  try {
+    setRequiredConfigEnv();
+    Deno.env.set(MODEL_MAP, 'gpt-5.5:grok-4.5, gpt-5.6-sol:grok-4.5, *:grok-4.5');
+    assertEquals(loadConfig().modelMap, {
+      'gpt-5.5': 'grok-4.5',
+      'gpt-5.6-sol': 'grok-4.5',
+      '*': 'grok-4.5',
+    });
+
+    Deno.env.delete(MODEL_MAP);
+    Deno.env.set(SOURCE_DIST, 'old:new');
+    assertEquals(loadConfig().modelMap, { old: 'new' });
+  } finally {
+    if (originalPreferred === undefined) Deno.env.delete(MODEL_MAP);
+    else Deno.env.set(MODEL_MAP, originalPreferred);
+    if (originalAlias === undefined) Deno.env.delete(SOURCE_DIST);
+    else Deno.env.set(SOURCE_DIST, originalAlias);
   }
 });
 

@@ -23,8 +23,8 @@ ENTRY_POINTS: Dict[str, str] = {
 TOP_DIRECTORIES: Dict[str, int] = {
     'sa/tests': 32,
     'sa/src': 28,
-    '.': 23,
     'src': 15,
+    '.': 11,
     'sa': 4,
     '.claude/context': 3,
     'scripts': 3,

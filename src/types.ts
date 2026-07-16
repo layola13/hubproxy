@@ -23,6 +23,7 @@ export type ProxyConfig = {
   nvidiaCompat: boolean;
   isCloudflare: boolean;
   defaultModel: string;
+  modelMap?: Record<string, string>;
   defaultApiKey: string;
   apiKeys: string[];
   requestIntervalMs: number;
