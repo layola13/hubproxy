@@ -1353,6 +1353,27 @@ function hasGlmQuotaOrKeyErrorText(text: string): boolean {
     lower.includes('api key has been revoked');
 }
 
+function hasDeterministicUpstreamErrorText(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.includes('duplicate tool call_id') ||
+    lower.includes('duplicate tool call id') ||
+    lower.includes('not the same number of function calls and responses') ||
+    lower.includes('insufficient_balance') ||
+    lower.includes('insufficient account balance') ||
+    lower.includes('insufficient credit') ||
+    lower.includes('account balance') ||
+    lower.includes('billing') ||
+    lower.includes('payment required') ||
+    lower.includes('invalid api key') ||
+    lower.includes('api key is invalid') ||
+    lower.includes('invalid_api_key') ||
+    lower.includes('incorrect api key') ||
+    lower.includes('field messages is required') ||
+    lower.includes('messages is required') ||
+    lower.includes('unauthorized') ||
+    lower.includes('forbidden');
+}
+
 async function shouldTriggerImmediateGlmKeyRefresh(
   response: Response,
   config: ProxyConfig,
@@ -1668,15 +1689,19 @@ function trimBodyToWindowEdges(
 async function shouldRetryUpstreamResponse(response: Response): Promise<boolean> {
   if (!response.ok) {
     const contentType = response.headers.get('content-type') ?? '';
+    if (response.status === 401 || response.status === 402) return false;
     if (
       !contentType.includes('application/json') && !contentType.includes('text/plain') &&
       !contentType.includes('text/event-stream')
     ) {
-      return true;
+      return response.status !== 403;
     }
     try {
       const text = await response.clone().text();
       const lower = text.toLowerCase();
+      if (response.status === 401 || response.status === 402 || response.status === 403) {
+        return !hasDeterministicUpstreamErrorText(text) && response.status !== 403;
+      }
       if (
         lower.includes('prefill failed') ||
         lower.includes('unexpected character: line 1 column') ||
@@ -1686,9 +1711,7 @@ async function shouldRetryUpstreamResponse(response: Response): Promise<boolean>
         lower.includes('"param": "tools"') ||
         lower.includes('invalid_responses_request') ||
         lower.includes('invalid codex request') ||
-        lower.includes('duplicate tool call_id') ||
-        lower.includes('duplicate tool call id') ||
-        lower.includes('not the same number of function calls and responses')
+        hasDeterministicUpstreamErrorText(text)
       ) {
         return false;
       }
@@ -2608,6 +2631,8 @@ function extractChatFallbackFromResponsesBody(
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const input = Array.isArray(parsed.input)
       ? normalizeResponseInputItems(parsed.input, { flattenNamespacesForChat: true })
+      : typeof parsed.input === 'string'
+      ? [{ type: 'message', role: 'user', content: parsed.input }]
       : [];
     const model = typeof parsed.model === 'string' ? parsed.model : '';
     if (!allowUnsafeGeminiToolHistory && isUnsafeGeminiChatFallback(model, input)) return null;

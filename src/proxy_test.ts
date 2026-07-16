@@ -316,6 +316,40 @@ Deno.test('proxyOpenAI does not retry duplicate tool call id errors', async () =
   }
 });
 
+Deno.test('proxyOpenAI does not retry upstream insufficient balance errors', async () => {
+  let calls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(
+      JSON.stringify({
+        code: 'INSUFFICIENT_BALANCE',
+        message: 'Insufficient account balance',
+      }),
+      {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/models',
+      new Request('http://localhost/v1/models'),
+      { ...config, requestIntervalMs: 1, needRetry: true },
+    );
+    assertEquals(resp.status, 403);
+    assertEquals(calls, 1);
+    assertEquals(await resp.json(), {
+      code: 'INSUFFICIENT_BALANCE',
+      message: 'Insufficient account balance',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI retries GLM quota errors when GLM_TRY_GET_KEY is enabled', async () => {
   let calls = 0;
   const originalTrigger = Deno.env.get('GLM_TRIGGER_KEY_REFRESH');
@@ -3025,6 +3059,53 @@ Deno.test('proxyOpenAI falls back to chat when responses base url is missing in 
     );
     const userMessage = body.messages?.find((message) => message.role === 'user');
     assertEquals(userMessage?.content, 'hello');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI maps top-level string responses input to chat fallback messages', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: 'Say ok only.',
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+    assertEquals(resp.status, 200);
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    assertEquals(body.messages?.some((message) => message.role === 'user'), true);
+    assertEquals(
+      body.messages?.find((message) => message.role === 'user')?.content,
+      'Say ok only.',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

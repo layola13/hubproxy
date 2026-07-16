@@ -321,6 +321,39 @@ function writeAuthFailureLog(req: Request, config: ProxyConfig): void {
   });
 }
 
+function errorDetails(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      errorName: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack?.split('\n').slice(0, 8).join('\n') ?? null,
+    };
+  }
+  return {
+    errorName: typeof error,
+    errorMessage: String(error),
+    errorStack: null,
+  };
+}
+
+function upstreamErrorResponse(path: string, error: unknown): Response {
+  const details = errorDetails(error);
+  writeRequestLog({
+    path,
+    kind: 'upstream_exception',
+    ...details,
+  });
+  return jsonResponse({
+    error: {
+      message: 'Upstream request failed',
+      type: 'upstream_error',
+      param: '',
+      code: null,
+      upstream_message: details.errorMessage,
+    },
+  }, 502);
+}
+
 function objectParam(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -1664,7 +1697,12 @@ export async function handleHttpWithState(
   if (req.method === 'GET' && url.pathname === '/healthz') return new Response('ok');
   if (req.method === 'GET' && url.pathname === '/readyz') return new Response('ok');
   if (req.method === 'GET' && url.pathname === '/v1/models') {
-    return await proxyOpenAI(url.pathname + url.search, req, config);
+    const path = url.pathname + url.search;
+    try {
+      return await proxyOpenAI(path, req, config);
+    } catch (error) {
+      return upstreamErrorResponse(path, error);
+    }
   }
   if (!hasValidAuth(req, config)) {
     writeAuthFailureLog(req, config);
@@ -1698,6 +1736,7 @@ export async function handleHttpWithState(
   }
   if (url.pathname === '/rpc' && req.method === 'POST') return await handleRpc(req, state, config);
   if (url.pathname.startsWith('/v1/responses') || url.pathname.startsWith('/v1/chat/completions')) {
+    const path = url.pathname + url.search;
     const scenario = (globalThis as { HUBPROXY_SCENARIO?: ResponsesScenario }).HUBPROXY_SCENARIO;
     const threadId = requestThreadId(req);
     const turnId = requestTurnId(req);
@@ -1705,9 +1744,13 @@ export async function handleHttpWithState(
       ? undefined
       : await req.clone().text();
     const turnContext = resolveTurnContext(state, threadId, turnId || undefined, requestBody);
-    return scenario
-      ? await mockResponsesOpenAI(url.pathname + url.search, req, config, scenario, turnContext)
-      : await proxyOpenAI(url.pathname + url.search, req, config, turnContext);
+    try {
+      return scenario
+        ? await mockResponsesOpenAI(path, req, config, scenario, turnContext)
+        : await proxyOpenAI(path, req, config, turnContext);
+    } catch (error) {
+      return upstreamErrorResponse(path, error);
+    }
   }
   return new Response('not found', { status: 404 });
 }

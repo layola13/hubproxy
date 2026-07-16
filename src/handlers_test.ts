@@ -30,6 +30,51 @@ const config: ProxyConfig = {
 
 setMcpToolDiscoveryForTests(async () => []);
 
+Deno.test('handleHttpWithState reports upstream fetch exceptions with details', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLogDir = Deno.env.get('HUBPROXY_LOG_DIR');
+  const logDir = await Deno.makeTempDir();
+  globalThis.fetch = (() => {
+    throw new TypeError('network down');
+  }) as typeof fetch;
+
+  try {
+    Deno.env.set('HUBPROXY_LOG_DIR', logDir);
+    const resp = await handleHttpWithState(
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      config,
+      new HubState(),
+    );
+    assertEquals(resp.status, 502);
+    const body = await resp.json() as {
+      error?: { message?: string; type?: string; upstream_message?: string };
+    };
+    assertEquals(body.error?.message, 'Upstream request failed');
+    assertEquals(body.error?.type, 'upstream_error');
+    assertEquals(body.error?.upstream_message, 'network down');
+
+    const logEntries = Array.from(Deno.readDirSync(logDir))
+      .map((entry) => JSON.parse(Deno.readTextFileSync(`${logDir}/${entry.name}`)));
+    assert(
+      logEntries.some((entry) =>
+        entry.kind === 'upstream_exception' && entry.errorMessage === 'network down'
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalLogDir === undefined) Deno.env.delete('HUBPROXY_LOG_DIR');
+    else Deno.env.set('HUBPROXY_LOG_DIR', originalLogDir);
+    await Deno.remove(logDir, { recursive: true });
+  }
+});
+
 Deno.test('handleHttpWithState serves models and rpc thread methods', async () => {
   const state = new HubState();
 
