@@ -43,18 +43,28 @@ def parseThresholdPercentEnv(name: str, raw: str | None) -> float:
     raise Error(...)
 
 # @origin src/env.ts:65
+def parseModelMapEnv(name: str, raw: str | None) -> dict[str, str]:
+    raw.trim(...)
+    raw.split(...)
+    rawEntry.trim(...)
+    entry.indexOf(...)
+    entry.slice(...)
+    return trim(...)
+    raise Error(...)
+
+# @origin src/env.ts:85
 def isTextFilePath(raw: str) -> bool:
     raw.trim(...)
     toLowerCase(...)
     return endsWith(...)
 
-# @origin src/env.ts:69
+# @origin src/env.ts:89
 def normalizeApiKeyEntry(raw: str) -> str:
     raw.trim(...)
     replace(...)
     return trim(...)
 
-# @origin src/env.ts:73
+# @origin src/env.ts:93
 def parseApiKeys(raw: str | None) -> list[str]:
     trim(...)
     isTextFilePath(...)
@@ -65,7 +75,7 @@ def parseApiKeys(raw: str | None) -> list[str]:
     return source.split(...)
     raise Error(...)
 
-# @origin src/env.ts:85
+# @origin src/env.ts:105
 def loadDotenvIntoEnv(path: str) -> None:
     Deno.readTextFileSync(...)
     text.split(...)
@@ -81,7 +91,7 @@ def loadDotenvIntoEnv(path: str) -> None:
     value.slice(...)
     Deno.env.set(...)
 
-# @origin src/env.ts:105
+# @origin src/env.ts:125
 def applyLogArgsToEnv(args: list[str]) -> None:
     next.startsWith(...)
     Deno.env.delete(...)
@@ -89,12 +99,13 @@ def applyLogArgsToEnv(args: list[str]) -> None:
     Deno.env.set(...)
     raise Error(...)
 
-# @origin src/env.ts:142
+# @origin src/env.ts:162
 def loadConfig() -> ProxyConfig:
     Deno.env.get(...)
     parseApiKeys(...)
     parsePort(...)
     parseBoolEnv(...)
+    parseModelMapEnv(...)
     parseNonNegativeIntegerEnv(...)
     parseIntervalMsEnv(...)
     parseOptionalPositiveIntegerEnv(...)

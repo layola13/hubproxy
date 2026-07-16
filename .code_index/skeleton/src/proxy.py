@@ -634,25 +634,30 @@ async def shouldRetryUpstreamResponse(response: Response) -> bool:
     message.toLowerCase(...)
     return lowerMsg.includes(...)
 
-# @origin src/proxy.ts:1735
+# @origin src/proxy.ts:1737
 def isJsonWriteMethod(method: str) -> bool:
     ...
 
-# @origin src/proxy.ts:1739
+# @origin src/proxy.ts:1741
 def emptyJsonBodyResponse() -> Response:
     Response(...)
     return JSON.stringify(...)
 
-# @origin src/proxy.ts:1755
+# @origin src/proxy.ts:1757
 def unconvertibleResponsesRequestResponse() -> Response:
     Response(...)
     return JSON.stringify(...)
 
-# @origin src/proxy.ts:1771
+# @origin src/proxy.ts:1773
+def mappedModelName(model: str, config: ProxyConfig) -> str:
+    ...
+
+# @origin src/proxy.ts:1777
 async def maybeRewriteRequestBody(path: str, body: str | None, config: ProxyConfig) -> str | None:
     await appendMcpNamespaceToolsForResponses(...)
     path.includes(...)
     JSON.parse(...)
+    mappedModelName(...)
     isGeminiModel(...)
     Array.isArray(...)
     normalizeResponseInputItems(...)
@@ -661,17 +666,17 @@ async def maybeRewriteRequestBody(path: str, body: str | None, config: ProxyConf
     normalizeChatToolsValue(...)
     return JSON.stringify(...)
 
-# @origin src/proxy.ts:1821
+# @origin src/proxy.ts:1829
 def contextWindowUsageFromBody(body: str | None) -> Any:
     ...
 
-# @origin src/proxy.ts:1847
+# @origin src/proxy.ts:1855
 def estimateTextTokens(text: str) -> float:
     Math.ceil(...)
     char.codePointAt(...)
     return flushAscii(...)
 
-# @origin src/proxy.ts:1869
+# @origin src/proxy.ts:1877
 def estimateJsonTextTokens(value: Any) -> float:
     estimateTextTokens(...)
     Array.isArray(...)
@@ -679,7 +684,7 @@ def estimateJsonTextTokens(value: Any) -> float:
     estimateJsonTextTokens(...)
     return Object.entries(...)
 
-# @origin src/proxy.ts:1884
+# @origin src/proxy.ts:1892
 def estimateRequestInputTokens(body: str | None) -> float:
     parseJsonBody(...)
     contextWindowUsageFromBody(...)
@@ -687,11 +692,11 @@ def estimateRequestInputTokens(body: str | None) -> float:
     estimateTextTokens(...)
     return Math.max(...)
 
-# @origin src/proxy.ts:1896
+# @origin src/proxy.ts:1904
 def requestNeedsContextCompaction(path: str, body: str | None, config: ProxyConfig) -> Any:
     ...
 
-# @origin src/proxy.ts:1932
+# @origin src/proxy.ts:1940
 def lastUserTurnText(body: str | None) -> str | None:
     parseJsonBody(...)
     Array.isArray(...)
@@ -700,7 +705,7 @@ def lastUserTurnText(body: str | None) -> str | None:
     text.trim(...)
     return pickFromMessages(...)
 
-# @origin src/proxy.ts:1989
+# @origin src/proxy.ts:1997
 def compressRequestsBodyForRetry(requestBody: str | None, summaryText: str) -> str | None:
     parseJsonBody(...)
     lastUserTurnText(...)
@@ -709,19 +714,19 @@ def compressRequestsBodyForRetry(requestBody: str | None, summaryText: str) -> s
     JSON.stringify(...)
     return input.push(...)
 
-# @origin src/proxy.ts:2030
+# @origin src/proxy.ts:2038
 def appendCompactionSummaryInput(requestBody: str | None, summaryText: str) -> str | None:
     parseJsonBody(...)
     Array.isArray(...)
     return JSON.stringify(...)
 
-# @origin src/proxy.ts:2053
+# @origin src/proxy.ts:2061
 def buildContextCompactionRequestBody(originalBody: str | None, maxTokens: float, thresholdPercent: float) -> str | None:
     parseJsonBody(...)
     Array.isArray(...)
     return JSON.stringify(...)
 
-# @origin src/proxy.ts:2080
+# @origin src/proxy.ts:2088
 def extractCompactionSummaryText(responseText: str) -> str:
     parseJsonBody(...)
     responseText.trim(...)
@@ -731,19 +736,19 @@ def extractCompactionSummaryText(responseText: str) -> str:
     value.trim(...)
     return join(...)
 
-# @origin src/proxy.ts:2104
+# @origin src/proxy.ts:2112
 def isGeminiModel(model: str) -> bool:
     return model.startsWith(...)
 
-# @origin src/proxy.ts:2108
+# @origin src/proxy.ts:2116
 def sanitizeToolName(name: Any) -> str:
     return name.trim(...)
 
-# @origin src/proxy.ts:2113
+# @origin src/proxy.ts:2121
 def normalizeChatFallbackToolName(name: str) -> str:
     ...
 
-# @origin src/proxy.ts:2118
+# @origin src/proxy.ts:2126
 def repairCollapsedNamespacedToolName(name: str, namespaces: set[str]) -> str:
     namespaceNameVariants(...)
     some(...)
@@ -753,20 +758,20 @@ def repairCollapsedNamespacedToolName(name: str, namespaces: set[str]) -> str:
     flattenNamespacedToolName(...)
     return name.slice(...)
 
-# @origin src/proxy.ts:2135
+# @origin src/proxy.ts:2143
 def normalizeFunctionCallArguments(argumentsText: str) -> str:
     JSON.parse(...)
     robustNormalizeServerName(...)
     JSON.stringify(...)
     return unsupportedToolNoticeCommand(...)
 
-# @origin src/proxy.ts:2158
+# @origin src/proxy.ts:2166
 def normalizedResponseToolName(record: dict[str, Any], options: ResponseInputNormalizeOptions) -> str:
     normalizeChatFallbackToolName(...)
     sanitizeToolName(...)
     return flattenNamespacedToolName(...)
 
-# @origin src/proxy.ts:2170
+# @origin src/proxy.ts:2178
 def normalizeResponseInputItems(input: Any, options: ResponseInputNormalizeOptions) -> list[Any]:
     Array.isArray(...)
     isToolCallType(...)
@@ -780,11 +785,15 @@ def normalizeResponseInputItems(input: Any, options: ResponseInputNormalizeOptio
     JSON.parse(...)
     robustNormalizeServerName(...)
     String(...)
+    seenToolCalls.has(...)
+    seenToolCalls.add(...)
+    seenToolOutputs.has(...)
+    seenToolOutputs.add(...)
     sanitizeToolName(...)
     callNames.get(...)
     return seenToolReferences.has(...)
 
-# @origin src/proxy.ts:2287
+# @origin src/proxy.ts:2309
 def normalizeChatToolsValue(tools: Any, wrap: Any) -> list[Any]:
     Array.isArray(...)
     tools.flatMap(...)
@@ -794,22 +803,22 @@ def normalizeChatToolsValue(tools: Any, wrap: Any) -> list[Any]:
     normalizeChatFallbackToolName(...)
     return sanitizeToolName(...)
 
-# @origin src/proxy.ts:2357
+# @origin src/proxy.ts:2379
 def extractAllowedChatToolNames(body: Any) -> set[str]:
     JSON.parse(...)
     collectResponsesToolSpecs(...)
     normalizeChatToolsValue(...)
     return names.add(...)
 
-# @origin src/proxy.ts:2382
+# @origin src/proxy.ts:2404
 def sanitizeResponsesFallbackRequest(request: dict[str, Any]) -> None:
     ...
 
-# @origin src/proxy.ts:2392
+# @origin src/proxy.ts:2414
 def isFallbackEligibleStatus(status: float) -> bool:
     ...
 
-# @origin src/proxy.ts:2396
+# @origin src/proxy.ts:2418
 async def isResponsesToolsParamError(response: Response) -> bool:
     await response.clone(...)
     text(...)
@@ -817,7 +826,7 @@ async def isResponsesToolsParamError(response: Response) -> bool:
     text.toLowerCase(...)
     return includes(...)
 
-# @origin src/proxy.ts:2411
+# @origin src/proxy.ts:2433
 async def isResponsesCodexCompatibilityError(response: Response) -> bool:
     await response.clone(...)
     text(...)
@@ -825,15 +834,15 @@ async def isResponsesCodexCompatibilityError(response: Response) -> bool:
     parseJsonBody(...)
     return lower.includes(...)
 
-# @origin src/proxy.ts:2429
+# @origin src/proxy.ts:2451
 def isFallbackEligibleError(error: Any) -> bool:
     ...
 
-# @origin src/proxy.ts:2446
+# @origin src/proxy.ts:2468
 def mapContentPartForChat(part: dict[str, Any]) -> dict[str, Any]:
     ...
 
-# @origin src/proxy.ts:2470
+# @origin src/proxy.ts:2492
 def contentToChatContent(content: Any) -> Any:
     Array.isArray(...)
     content.flatMap(...)
@@ -842,13 +851,13 @@ def contentToChatContent(content: Any) -> Any:
     join(...)
     return parts.map(...)
 
-# @origin src/proxy.ts:2488
+# @origin src/proxy.ts:2510
 def mergeChatContents(current: Any, next: Any) -> Any:
     Array.isArray(...)
     value.flatMap(...)
     return toParts(...)
 
-# @origin src/proxy.ts:2512
+# @origin src/proxy.ts:2534
 def pushSystemMessage(messages: list[dict[str, Any]], systemTexts list[str]) -> None:
     systemTexts.map(...)
     text.trim(...)
@@ -856,18 +865,18 @@ def pushSystemMessage(messages: list[dict[str, Any]], systemTexts list[str]) -> 
     join(...)
     messages.unshift(...)
 
-# @origin src/proxy.ts:2520
+# @origin src/proxy.ts:2542
 def structuredContentItemText(part: Any) -> str:
     ...
 
-# @origin src/proxy.ts:2541
+# @origin src/proxy.ts:2563
 def structuredContentText(value: Any) -> str:
     Array.isArray(...)
     value.map(...)
     filter(...)
     return join(...)
 
-# @origin src/proxy.ts:2546
+# @origin src/proxy.ts:2568
 def mcpContentText(value: Any) -> str:
     Array.isArray(...)
     record.content.map(...)
@@ -876,13 +885,13 @@ def mcpContentText(value: Any) -> str:
     join(...)
     return JSON.stringify(...)
 
-# @origin src/proxy.ts:2564
+# @origin src/proxy.ts:2586
 def toolOutputText(record: dict[str, Any]) -> str:
     structuredContentText(...)
     mcpContentText(...)
     return JSON.stringify(...)
 
-# @origin src/proxy.ts:2577
+# @origin src/proxy.ts:2599
 def extractChatFallbackFromResponsesBody(body: str | None, planModeLike: Any, allowUnsafeGeminiToolHistory: Any, nvidiaCompat: Any, disablePromptInjection: Any) -> ChatFallbackRequest | None:
     JSON.parse(...)
     Array.isArray(...)
@@ -909,74 +918,74 @@ def extractChatFallbackFromResponsesBody(body: str | None, planModeLike: Any, al
     sanitizeResponsesFallbackRequest(...)
     return String(...)
 
-# @origin src/proxy.ts:2763
+# @origin src/proxy.ts:2785
 def isUnsafeGeminiChatFallback(model: str, input: list[Any]) -> bool:
     isGeminiModel(...)
     input.some(...)
     isToolCallType(...)
     return isToolOutputKind(...)
 
-# @origin src/proxy.ts:2774
+# @origin src/proxy.ts:2796
 def responseTextFromChatBody(body: str) -> str:
     JSON.parse(...)
     return firstChatMessage(...)
 
-# @origin src/proxy.ts:2785
+# @origin src/proxy.ts:2807
 def firstChatMessage(parsed: dict[str, Any] | None) -> dict[str, Any] | None:
     return Array.isArray(...)
 
-# @origin src/proxy.ts:2796
+# @origin src/proxy.ts:2818
 def parseJsonBody(body: str) -> dict[str, Any] | None:
     return JSON.parse(...)
 
-# @origin src/proxy.ts:2804
+# @origin src/proxy.ts:2826
 def sseFieldValue(line: str, prefixLength: float) -> str:
     line.slice(...)
     raw.startsWith(...)
     return raw.slice(...)
 
-# @origin src/proxy.ts:2809
+# @origin src/proxy.ts:2831
 def parseSseBlock(block: str) -> Any:
     ...
 
-# @origin src/proxy.ts:2823
+# @origin src/proxy.ts:2845
 def isTerminalResponsesSseEvent(type: str) -> bool:
     ...
 
-# @origin src/proxy.ts:2831
+# @origin src/proxy.ts:2853
 def rewriteResponseMessageItem(item: dict[str, Any], visibleText: str) -> dict[str, Any]:
     Array.isArray(...)
     return content.flatMap(...)
 
-# @origin src/proxy.ts:2859
+# @origin src/proxy.ts:2881
 def createReasoningStreamState() -> ReasoningStreamState:
     return reasoningItemId(...)
 
-# @origin src/proxy.ts:2868
+# @origin src/proxy.ts:2890
 def restartReasoningStreamState(state: ReasoningStreamState) -> None:
     reasoningItemId(...)
 
-# @origin src/proxy.ts:2875
+# @origin src/proxy.ts:2897
 def ensureReasoningStreamStarted(events: list[ResponsesEvent], state: ReasoningStreamState) -> None:
     events.push(...)
 
-# @origin src/proxy.ts:2892
+# @origin src/proxy.ts:2914
 def appendReasoningTextDelta(events: list[ResponsesEvent], state: ReasoningStreamState, text: str, separator: Any) -> None:
     restartReasoningStreamState(...)
     ensureReasoningStreamStarted(...)
     events.push(...)
 
-# @origin src/proxy.ts:2911
+# @origin src/proxy.ts:2933
 def reasoningOutputItem(id: str, text: str) -> dict[str, Any]:
     ...
 
-# @origin src/proxy.ts:2920
+# @origin src/proxy.ts:2942
 def finalizeReasoningStreamItem(events: list[ResponsesEvent], state: ReasoningStreamState, namespaces: set[str]) -> None:
     events.push(...)
     normalizeResponsesEvent(...)
     reasoningOutputItem(...)
 
-# @origin src/proxy.ts:2933
+# @origin src/proxy.ts:2955
 def pushReasoningDoneItem(events: list[ResponsesEvent], text: str, namespaces: set[str]) -> None:
     text.trim(...)
     events.push(...)
@@ -984,37 +993,37 @@ def pushReasoningDoneItem(events: list[ResponsesEvent], text: str, namespaces: s
     reasoningOutputItem(...)
     reasoningItemId(...)
 
-# @origin src/proxy.ts:2946
+# @origin src/proxy.ts:2968
 def mergeReasoningTextFromMessageItem(item: dict[str, Any], extractedText: str) -> str:
     mergeReasoningTexts(...)
     return extractReasoningTextFromRecord(...)
 
-# @origin src/proxy.ts:2956
+# @origin src/proxy.ts:2978
 def normalizeResponsesSseBody(body: str, namespaces: set[str], planModeLike: Any, allowedTools: set[str], collaborationModeKind: str | None) -> Any:
     ...
 
-# @origin src/proxy.ts:3323
+# @origin src/proxy.ts:3341
 def extractThoughtSegments(text: str) -> Any:
     ...
 
-# @origin src/proxy.ts:3372
+# @origin src/proxy.ts:3390
 def joinVisibleThoughtParts(parts: list[str]) -> str:
     test(...)
     current.replace(...)
     return part.replace(...)
 
-# @origin src/proxy.ts:3389
+# @origin src/proxy.ts:3407
 def stripResidualThoughtTags(text: str) -> str:
     current.split(...)
     return join(...)
 
-# @origin src/proxy.ts:3397
+# @origin src/proxy.ts:3415
 def longestSuffixPrefix(text: str, token: str) -> float:
     Math.min(...)
     text.slice(...)
     return token.slice(...)
 
-# @origin src/proxy.ts:3407
+# @origin src/proxy.ts:3425
 def createThoughtStreamSplitter() -> Any:
     Math.max(...)
     longestSuffixPrefix(...)
@@ -1034,7 +1043,7 @@ def createThoughtStreamSplitter() -> Any:
     flush(...)
     return trimTrailingPartialThoughtTag(...)
 
-# @origin src/proxy.ts:3518
+# @origin src/proxy.ts:3536
 def responsesFallbackEventsFromChat(chatBody: str, planModeLike: Any) -> list[ResponsesEvent]:
     responseTextFromChatBody(...)
     extractThoughtSegments(...)
@@ -1045,33 +1054,33 @@ def responsesFallbackEventsFromChat(chatBody: str, planModeLike: Any) -> list[Re
     finalizeReasoningStreamItem(...)
     return events.push(...)
 
-# @origin src/proxy.ts:3564
+# @origin src/proxy.ts:3582
 def shellQuote(value: str) -> str:
     return value.replace(...)
 
-# @origin src/proxy.ts:3568
+# @origin src/proxy.ts:3586
 def redactSensitiveFileCommand(path: str) -> str:
     shellQuote(...)
     return test(...)
 
-# @origin src/proxy.ts:3576
+# @origin src/proxy.ts:3594
 def unsupportedToolNoticeCommand(name: str) -> str:
     return shellQuote(...)
 
-# @origin src/proxy.ts:3582
+# @origin src/proxy.ts:3600
 def isProgressOnlyMessage(text: str) -> bool:
     text.trim(...)
     return test(...)
 
-# @origin src/proxy.ts:3598
+# @origin src/proxy.ts:3616
 def continueAfterProgressCommand() -> str:
     return shellQuote(...)
 
-# @origin src/proxy.ts:3606
+# @origin src/proxy.ts:3624
 def hasFinalAnswerMarkers(text: str) -> bool:
     return test(...)
 
-# @origin src/proxy.ts:3613
+# @origin src/proxy.ts:3631
 def normalizeChatToolCall(call: ChatToolCall, namespaces: set[str], allowedTools: set[str]) -> ChatToolCall | None:
     repairCollapsedNamespacedToolName(...)
     name.includes(...)
@@ -1094,7 +1103,7 @@ def normalizeChatToolCall(call: ChatToolCall, namespaces: set[str], allowedTools
     splitFlattenedNamespacedToolName(...)
     return unsupportedToolNoticeCommand(...)
 
-# @origin src/proxy.ts:3719
+# @origin src/proxy.ts:3737
 def shouldInjectContinuationTool(text: str, planModeLike: bool, allowedTools: set[str], collaborationModeKind: str | None) -> bool:
     allowedTools.has(...)
     text.trim(...)
@@ -1102,21 +1111,36 @@ def shouldInjectContinuationTool(text: str, planModeLike: bool, allowedTools: se
     test(...)
     return isProgressOnlyMessage(...)
 
-# @origin src/proxy.ts:3735
+# @origin src/proxy.ts:3753
 def parseChatToolCallDelta(delta: dict[str, Any]) -> list[ChatToolCallChunk]:
     Array.isArray(...)
     rawToolCalls.flatMap(...)
     return String(...)
 
-# @origin src/proxy.ts:3759
+# @origin src/proxy.ts:3777
+def mergeChatToolCallArguments(existing: str, incoming: str) -> str:
+    existing.startsWith(...)
+    return incoming.startsWith(...)
+
+# @origin src/proxy.ts:3785
+def accumulateChatToolCallChunk(toolCalls: Any) -> None:
+    slotsByCallId.get(...)
+    slotsByCallId.set(...)
+    toolCalls.get(...)
+    mergeChatToolCallArguments(...)
+    toolCalls.set(...)
+    crypto.randomUUID(...)
+    replace(...)
+
+# @origin src/proxy.ts:3816
 def collectResponsesEventsFromChatChunkText(chatText: str, namespaces: set[str], planModeLike: Any, allowedTools: set[str], collaborationModeKind: str | None) -> Any:
     ...
 
-# @origin src/proxy.ts:3972
+# @origin src/proxy.ts:4025
 def normalizeChatUsage(usage: dict[str, Any] | None) -> dict[str, Any]:
     ...
 
-# @origin src/proxy.ts:4008
+# @origin src/proxy.ts:4061
 def responsesFallbackResponseFromChat(chatResponseBody: str, stream: bool, namespaces: set[str], planModeLike: Any, allowedTools: set[str], collaborationModeKind: str | None) -> Response:
     collectResponsesEventsFromChatChunkText(...)
     events.push(...)
@@ -1139,18 +1163,18 @@ def responsesFallbackResponseFromChat(chatResponseBody: str, stream: bool, names
     continueAfterProgressCommand(...)
     return normalizeChatUsage(...)
 
-# @origin src/proxy.ts:4128
+# @origin src/proxy.ts:4181
 def responsesFallbackStreamFromChat(chatBody: str) -> Response:
     Response(...)
     buildMockSseBody(...)
     return responsesFallbackEventsFromChat(...)
 
-# @origin src/proxy.ts:4135
+# @origin src/proxy.ts:4188
 def chatPathFromResponsesPath(path: str) -> str:
     path.indexOf(...)
     return path.slice(...)
 
-# @origin src/proxy.ts:4141
+# @origin src/proxy.ts:4194
 def buildUpstreamUrl(target: str, requestPath: str, preserveBasePath: bool) -> str:
     URL(...)
     toString(...)
@@ -1161,7 +1185,7 @@ def buildUpstreamUrl(target: str, requestPath: str, preserveBasePath: bool) -> s
     relativePath.startsWith(...)
     return relativePath.slice(...)
 
-# @origin src/proxy.ts:4152
+# @origin src/proxy.ts:4205
 async def forwardWithFallback(path: str, req: Request, config: ProxyConfig, body: str | None, baseHeaders: Headers, rawBody: str, turnContext: ProxyTurnContext) -> Response:
     await waitForRequestInterval(...)
     await forwardJson(...)
@@ -1228,7 +1252,7 @@ async def forwardWithFallback(path: str, req: Request, config: ProxyConfig, body
     return normalizedOutput.unshift(...)
     raise Error(...)
 
-# @origin src/proxy.ts:4504
+# @origin src/proxy.ts:4557
 async def proxyOpenAI(path: str, req: Request, config: ProxyConfig, turnContext: ProxyTurnContext) -> Response:
     await req.clone(...)
     await maybeRewriteRequestBody(...)
@@ -1255,7 +1279,7 @@ async def proxyOpenAI(path: str, req: Request, config: ProxyConfig, turnContext:
     req.headers.entries(...)
     return upstream.headers.entries(...)
 
-# @origin src/proxy.ts:4633
+# @origin src/proxy.ts:4686
 async def mockResponsesOpenAI(path: str, req: Request, config: ProxyConfig, scenario: ResponsesScenario, turnContext: ProxyTurnContext) -> Response:
     await readJson(...)
     await proxyOpenAI(...)
@@ -1265,7 +1289,7 @@ async def mockResponsesOpenAI(path: str, req: Request, config: ProxyConfig, scen
     buildMockSseBody(...)
     return Response(...)
 
-# @origin src/proxy.ts:4666
+# @origin src/proxy.ts:4719
 async def readJson(req: Request) -> JsonObject:
     await req.text(...)
     text.trim(...)

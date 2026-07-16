@@ -2,24 +2,24 @@
 
 - root: /root/projects/hubproxy
 - output: /root/projects/hubproxy/.code_index
-- modules: 96
+- modules: 97
 - classes: 13
-- functions: 1288
+- functions: 1292
 - methods: 98
-- edges: 3938
+- edges: 3960
 - file_limit: none
 - file_limit_reached: no
 - truncated_files: 0
 
 ## Languages
-- generic: 24
+- generic: 25
 - javascript: 3
 - python: 3
 - saasm: 51
 - typescript: 15
 
 ## Parse Modes
-- ast-tree-sitter: 24
+- ast-tree-sitter: 25
 - fallback-javascript: 3
 - fallback-python: 3
 - fallback-typescript: 15
@@ -28,7 +28,7 @@
 ## Largest Modules
 | Module | Classes | Functions | Methods | Imports | Parse mode |
 | --- | ---: | ---: | ---: | ---: | --- |
-| src/proxy.ts | 0 | 170 | 0 | 2 | fallback-typescript |
+| src/proxy.ts | 0 | 173 | 0 | 2 | fallback-typescript |
 | sa/src/rpc_system.sa | 0 | 121 | 0 | 16 | saasm-line |
 | sa/src/rpc_system.sai | 0 | 116 | 0 | 0 | saasm-line |
 | src/state.ts | 1 | 18 | 91 | 1 | fallback-typescript |

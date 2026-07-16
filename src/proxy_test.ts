@@ -277,6 +277,45 @@ Deno.test('proxyOpenAI retries non-ok upstream responses when NEED_RETRY is enab
   }
 });
 
+Deno.test('proxyOpenAI does not retry duplicate tool call id errors', async () => {
+  let calls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: 'duplicate tool call_id: call-duplicate',
+          type: 'invalid_request_error',
+        },
+      }),
+      {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/chat/completions',
+      new Request('http://localhost/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/gemma-4-31b-it',
+          messages: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      { ...config, requestIntervalMs: 1, needRetry: true },
+    );
+    assertEquals(resp.status, 400);
+    assertEquals(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test('proxyOpenAI retries GLM quota errors when GLM_TRY_GET_KEY is enabled', async () => {
   let calls = 0;
   const originalTrigger = Deno.env.get('GLM_TRIGGER_KEY_REFRESH');
@@ -1443,6 +1482,84 @@ Deno.test('proxyOpenAI fills missing function output names from prior calls', as
     assertEquals(body.messages?.[1]?.role, 'tool');
     const toolNames = body.tools?.map((tool) => tool.function?.name) ?? [];
     assertEquals(toolNames.includes('exec_command'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI deduplicates repeated response tool history in chat fallback', async () => {
+  const seen: { body?: string } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const calls = [
+    {
+      type: 'function_call',
+      call_id: 'call-plan',
+      name: 'update_plan',
+      arguments: '{"plan":[]}',
+    },
+    {
+      type: 'function_call',
+      call_id: 'call-exec',
+      name: 'exec_command',
+      arguments: '{"cmd":"pwd"}',
+    },
+  ];
+  const outputs = [
+    {
+      type: 'function_call_output',
+      call_id: 'call-plan',
+      output: 'Plan updated',
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'call-exec',
+      output: '/root/projects',
+    },
+  ];
+
+  try {
+    await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'models/mimo-v2.5-pro',
+          stream: false,
+          input: [
+            ...calls,
+            ...calls,
+            { type: 'message', role: 'assistant', content: 'working' },
+            ...outputs,
+            ...outputs,
+          ],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+    );
+
+    const body = JSON.parse(seen.body ?? '{}') as {
+      messages?: Array<{
+        role?: string;
+        tool_calls?: Array<{ id?: string }>;
+        tool_call_id?: string;
+      }>;
+    };
+    const assistant = body.messages?.find((message) => Array.isArray(message.tool_calls));
+    const toolOutputs = body.messages?.filter((message) => message.role === 'tool') ?? [];
+    assertEquals(assistant?.tool_calls?.map((call) => call.id), ['call-plan', 'call-exec']);
+    assertEquals(toolOutputs.map((message) => message.tool_call_id), ['call-plan', 'call-exec']);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -4245,6 +4362,68 @@ Deno.test('proxyOpenAI merges split chat tool-call chunks before normalizing', a
     assertEquals(item?.name, 'exec_command');
     assertEquals(item?.arguments, '{"cmd":"pwd"}');
     assertEquals(text.includes('Tool unknown is unavailable'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('proxyOpenAI deduplicates repeated Grok tool-call snapshots by call id', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    new Response(
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_plan","type":"function","function":{"name":"update_plan","arguments":""}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_plan","type":"function","function":{"arguments":"{\\"plan\\":[]}"}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_exec","type":"function","function":{"name":"exec_command","arguments":""}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_exec","type":"function","function":{"arguments":"{\\"cmd\\":\\"pwd\\"}"}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":2,"id":"call_plan","type":"function","function":{"name":"update_plan","arguments":"{\\"plan\\":[]}"}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":3,"id":"call_exec","type":"function","function":{"name":"exec_command","arguments":"{\\"cmd\\":\\"pwd\\"}"}}]},"finish_reason":null}]}',
+        '',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      },
+    )) as typeof fetch;
+
+  try {
+    const resp = await proxyOpenAI(
+      '/v1/responses',
+      new Request('http://localhost/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-5.5',
+          stream: true,
+          tools: [
+            { type: 'function', name: 'update_plan', parameters: {} },
+            { type: 'function', name: 'exec_command', parameters: {} },
+          ],
+          input: [{ type: 'message', role: 'user', content: 'start' }],
+        }),
+      }),
+      {
+        ...config,
+        responsesBaseUrl: null,
+      },
+      { collaborationModeKind: 'goal' },
+    );
+    const events = parseSseEvents(await resp.text());
+    const calls = events.flatMap((event) => {
+      const item = event.data.item as Record<string, unknown> | undefined;
+      return item?.type === 'function_call' ? [item] : [];
+    });
+    assertEquals(calls.map((call) => call.call_id), ['call_plan', 'call_exec']);
+    assertEquals(calls.map((call) => call.arguments), ['{"plan":[]}', '{"cmd":"pwd"}']);
   } finally {
     globalThis.fetch = originalFetch;
   }

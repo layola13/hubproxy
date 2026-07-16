@@ -19,3 +19,4 @@ restart_*
 keys/
 tmp/
 .code_index/
+.code_index

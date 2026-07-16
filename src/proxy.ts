@@ -1686,6 +1686,8 @@ async function shouldRetryUpstreamResponse(response: Response): Promise<boolean>
         lower.includes('"param": "tools"') ||
         lower.includes('invalid_responses_request') ||
         lower.includes('invalid codex request') ||
+        lower.includes('duplicate tool call_id') ||
+        lower.includes('duplicate tool call id') ||
         lower.includes('not the same number of function calls and responses')
       ) {
         return false;
@@ -2198,6 +2200,8 @@ function normalizeResponseInputItems(
   }
 
   const seenToolReferences = new Set<string>();
+  const seenToolCalls = new Set<string>();
+  const seenToolOutputs = new Set<string>();
   const normalized: unknown[] = [];
   for (const item of input) {
     if (!item || typeof item !== 'object') {
@@ -2264,6 +2268,16 @@ function normalizeResponseInputItems(
     if (isToolCallType(type) || isToolCallType(String(outRecord.type ?? ''))) {
       const callId = typeof outRecord.call_id === 'string' ? outRecord.call_id : '';
       const itemId = typeof outRecord.id === 'string' ? outRecord.id : '';
+      const callKey = callId ? `call:${callId}` : '';
+      const itemKey = itemId ? `item:${itemId}` : '';
+      if (
+        (callKey && seenToolCalls.has(callKey)) ||
+        (itemKey && seenToolCalls.has(itemKey))
+      ) {
+        continue;
+      }
+      if (callKey) seenToolCalls.add(callKey);
+      if (itemKey) seenToolCalls.add(itemKey);
       if (callId) seenToolReferences.add(callId);
       if (itemId) seenToolReferences.add(itemId);
       normalized.push(outRecord);
@@ -2277,6 +2291,8 @@ function normalizeResponseInputItems(
       type === 'mcp_tool_call_output'
     ) {
       const callId = typeof record.call_id === 'string' ? record.call_id : '';
+      if (callId && seenToolOutputs.has(callId)) continue;
+      if (callId) seenToolOutputs.add(callId);
       const name = sanitizeToolName(record.name) || (callId ? callNames.get(callId) ?? '' : '');
       if (callId && !seenToolReferences.has(callId)) {
         normalized.push({ type: 'item_reference', id: callId });
@@ -2980,6 +2996,8 @@ function normalizeResponsesSseBody(
   const events: ResponsesEvent[] = [];
   const completionEvents: ResponsesEvent[] = [];
   const toolCalls = new Map<string, ChatToolCallChunk & { itemId: string }>();
+  const toolCallSlotsById = new Map<string, string>();
+  const emittedToolCallIds = new Set<string>();
   let sawTerminalFrame = false;
   let sawSuccessfulTerminalFrame = false;
   let trailingDataBytes = 0;
@@ -3140,17 +3158,7 @@ function normalizeResponsesSseBody(
         }
       }
       for (const toolCall of parseChatToolCallDelta(delta)) {
-        const existing = toolCalls.get(toolCall.slotKey);
-        if (existing) {
-          existing.arguments += toolCall.arguments;
-          if (toolCall.callId) existing.callId = toolCall.callId;
-          if (toolCall.name) existing.name = toolCall.name;
-        } else {
-          toolCalls.set(toolCall.slotKey, {
-            ...toolCall,
-            itemId: `tc_${crypto.randomUUID().replace(/-/g, '')}`,
-          });
-        }
+        accumulateChatToolCallChunk(toolCalls, toolCallSlotsById, toolCall);
       }
     }
     const finishReason = choice && typeof choice.finish_reason === 'string'
@@ -3171,18 +3179,22 @@ function normalizeResponsesSseBody(
           allowedTools,
         );
         if (!normalizedCall || !normalizedCall.name) continue;
+        const callId = call.callId || normalizedCall.id;
+        if (emittedToolCallIds.has(callId)) continue;
+        emittedToolCallIds.add(callId);
         events.push(normalizeResponsesEvent({
           type: 'response.output_item.done',
           item: {
             id: call.itemId,
             type: 'function_call',
-            call_id: call.callId || normalizedCall.id,
+            call_id: callId,
             name: normalizedCall.name,
             arguments: normalizedCall.arguments,
           },
         }, namespaces));
       }
       toolCalls.clear();
+      toolCallSlotsById.clear();
     }
   };
 
@@ -3762,6 +3774,45 @@ function parseChatToolCallDelta(
   });
 }
 
+function mergeChatToolCallArguments(existing: string, incoming: string): string {
+  if (!incoming) return existing;
+  if (!existing) return incoming;
+  if (incoming === existing || existing.startsWith(incoming)) return existing;
+  if (incoming.startsWith(existing)) return incoming;
+  return existing + incoming;
+}
+
+function accumulateChatToolCallChunk(
+  toolCalls: Map<string, ChatToolCallChunk & { itemId: string }>,
+  slotsByCallId: Map<string, string>,
+  chunk: ChatToolCallChunk,
+): void {
+  let slotKey = chunk.slotKey;
+  if (chunk.callId) {
+    const knownSlot = slotsByCallId.get(chunk.callId);
+    if (knownSlot !== undefined) {
+      slotKey = knownSlot;
+    } else {
+      slotsByCallId.set(chunk.callId, slotKey);
+    }
+  }
+  const existing = toolCalls.get(slotKey);
+  if (existing) {
+    existing.arguments = mergeChatToolCallArguments(existing.arguments, chunk.arguments);
+    if (chunk.callId) {
+      existing.callId = chunk.callId;
+      slotsByCallId.set(chunk.callId, slotKey);
+    }
+    if (chunk.name) existing.name = chunk.name;
+    return;
+  }
+  toolCalls.set(slotKey, {
+    ...chunk,
+    slotKey,
+    itemId: `tc_${crypto.randomUUID().replace(/-/g, '')}`,
+  });
+}
+
 function collectResponsesEventsFromChatChunkText(
   chatText: string,
   namespaces?: Set<string>,
@@ -3784,6 +3835,8 @@ function collectResponsesEventsFromChatChunkText(
   const reasoningState = createReasoningStreamState();
   const thoughtSplitter = createThoughtStreamSplitter();
   const toolCalls = new Map<string, ChatToolCallChunk & { itemId: string }>();
+  const toolCallSlotsById = new Map<string, string>();
+  const emittedToolCallIds = new Set<string>();
   let usage: Record<string, unknown> | null = null;
   let sawStopWithoutToolCall = false;
   let sawTerminalFrame = false;
@@ -3849,17 +3902,7 @@ function collectResponsesEventsFromChatChunkText(
         }
       }
       for (const toolCall of parseChatToolCallDelta(delta)) {
-        const existing = toolCalls.get(toolCall.slotKey);
-        if (existing) {
-          existing.arguments += toolCall.arguments;
-          if (toolCall.callId) existing.callId = toolCall.callId;
-          if (toolCall.name) existing.name = toolCall.name;
-        } else {
-          toolCalls.set(toolCall.slotKey, {
-            ...toolCall,
-            itemId: `tc_${crypto.randomUUID().replace(/-/g, '')}`,
-          });
-        }
+        accumulateChatToolCallChunk(toolCalls, toolCallSlotsById, toolCall);
       }
     }
     const finishReason = choice && typeof choice.finish_reason === 'string'
@@ -3882,18 +3925,22 @@ function collectResponsesEventsFromChatChunkText(
           allowedTools,
         );
         if (!normalizedCall || !normalizedCall.name) continue;
+        const callId = call.callId || normalizedCall.id;
+        if (emittedToolCallIds.has(callId)) continue;
+        emittedToolCallIds.add(callId);
         events.push(normalizeResponsesEvent({
           type: 'response.output_item.done',
           item: {
             id: call.itemId,
             type: 'function_call',
-            call_id: call.callId || normalizedCall.id,
+            call_id: callId,
             name: normalizedCall.name,
             arguments: normalizedCall.arguments,
           },
         }, namespaces));
       }
       toolCalls.clear();
+      toolCallSlotsById.clear();
     }
   }
   const tail = thoughtSplitter.flush();
